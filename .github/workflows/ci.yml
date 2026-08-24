@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm pack --dry-run -w @abyss/ui
+
+  container:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t abyss-dashboard:test .
+      - name: Reject missing credentials
+        run: |
+          if docker run --rm abyss-dashboard:test; then
+            echo "container started without required credentials" >&2
+            exit 1
+          fi
+      - name: Verify runtime proxy
+        run: |
+          docker network create abyss-dashboard-test
+          docker run --detach --name abyss-dashboard-backend \
+            --network abyss-dashboard-test \
+            node:22-alpine \
+            node -e 'require("http").createServer((request, response) => { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ headers: request.headers, url: request.url })); }).listen(8080)'
+          docker run --detach --name abyss-dashboard-test \
+            --network abyss-dashboard-test \
+            -e ABYSS_DASHBOARD_API_TOKEN=test-token \
+            -e ABYSS_DASHBOARD_BACKEND_UPSTREAM=abyss-dashboard-backend:8080 \
+            abyss-dashboard:test
+          trap 'docker rm --force abyss-dashboard-test abyss-dashboard-backend; docker network rm abyss-dashboard-test' EXIT
+          for attempt in 1 2 3 4 5; do
+            if docker exec abyss-dashboard-test wget -qO- http://127.0.0.1:8080/healthz; then
+              break
+            fi
+            sleep 1
+          done
+          response=$(docker exec abyss-dashboard-test wget -qO- http://127.0.0.1:8080/api/headers)
+          case "$response" in
+            *'"authorization":"Bearer test-token"'*'"url":"/headers"'*) ;;
+            *)
+              echo "dashboard proxy did not inject credentials or strip /api: $response" >&2
+              exit 1
+              ;;
+          esac
