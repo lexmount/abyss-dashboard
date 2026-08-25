@@ -1,0 +1,4 @@
+interface:
+  display_name: "Publish Abyss UI"
+  short_description: "Release Abyss UI to GitHub Packages"
+  default_prompt: "Use $publish-ui-package to publish the next @lexmount/abyss-ui release."

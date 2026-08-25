@@ -5,9 +5,15 @@ import type {
   SessionSearchResponse,
   SessionSearchResult,
 } from "@/api/usage";
-import { Badge } from "@abyss/ui";
-import { Button } from "@abyss/ui";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@abyss/ui";
+import { Badge } from "@lexmount/abyss-ui";
+import { Button } from "@lexmount/abyss-ui";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@lexmount/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 

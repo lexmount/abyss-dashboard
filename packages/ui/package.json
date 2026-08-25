@@ -1,5 +1,5 @@
 {
-  "name": "@abyss/ui",
+  "name": "@lexmount/abyss-ui",
   "version": "0.1.0",
   "description": "Shared design tokens and presentation-only React components for Abyss web applications",
   "license": "MIT",
@@ -13,11 +13,11 @@
     "src/theme.css"
   ],
   "publishConfig": {
-    "access": "public"
+    "registry": "https://npm.pkg.github.com"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lexmount/abyss-dashboard.git",
+    "url": "https://github.com/lexmount/abyss-dashboard.git",
     "directory": "packages/ui"
   },
   "exports": {

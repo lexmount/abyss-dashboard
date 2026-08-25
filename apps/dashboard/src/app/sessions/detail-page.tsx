@@ -1,11 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-import { SessionTimeline, type SessionTimelineLabels } from "@abyss/ui";
+import { SessionTimeline, type SessionTimelineLabels } from "@lexmount/abyss-ui";
 import { ArrowLeft } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { fetchSessionTimeline, usageAttachmentUrl } from "@/api/usage";
 import { BaseLayout } from "@/components/layouts/base-layout";
-import { Button } from "@abyss/ui";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@abyss/ui";
+import { Button } from "@lexmount/abyss-ui";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@lexmount/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 

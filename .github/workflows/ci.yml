@@ -23,7 +23,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - run: npm pack --dry-run -w @abyss/ui
+      - run: npm run check:ui-release
+      - run: npm pack --dry-run -w @lexmount/abyss-ui
 
   container:
     needs: verify

@@ -1,7 +1,7 @@
 "use client";
 
 import { Languages } from "lucide-react";
-import { Button } from "@abyss/ui";
+import { Button } from "@lexmount/abyss-ui";
 import {
   DropdownMenu,
   DropdownMenuContent,
