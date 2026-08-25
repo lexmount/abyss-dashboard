@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  id-token: write
 
 concurrency:
   group: publish-ui-${{ github.event.release.tag_name }}
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
@@ -29,12 +29,11 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 22
-          registry-url: https://npm.pkg.github.com
-          scope: "@lexmount"
-          cache: npm
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
 
       - run: npm ci
       - run: npm run format:check
@@ -47,6 +46,4 @@ jobs:
         run: npm run check:ui-release -- "${{ github.event.release.tag_name }}"
 
       - name: Publish package
-        run: npm publish -w @lexmount/abyss-ui
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish -w @lexmount.com/abyss-ui --access public

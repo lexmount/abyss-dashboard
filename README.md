@@ -12,10 +12,10 @@ Agent handoff features.
 
 ```text
 apps/dashboard/  Vite/React dashboard and Nginx runtime configuration
-packages/ui/     publishable @lexmount/abyss-ui design tokens and presentation components
+packages/ui/     publishable @lexmount.com/abyss-ui design tokens and presentation components
 ```
 
-`@lexmount/abyss-ui` is the cross-repository style boundary. It contains visual
+`@lexmount.com/abyss-ui` is the cross-repository style boundary. It contains visual
 primitives and presentation-only domain components; API clients, routing,
 authentication, query state, and product policy remain in each consuming app.
 
@@ -82,36 +82,32 @@ npm run build
 
 ## Shared UI package
 
-Consumers install a released `@lexmount/abyss-ui` version from GitHub Packages,
-import its compiled component styles once, and import the shared theme in their
-Tailwind entry point:
+Consumers install a released `@lexmount.com/abyss-ui` version from the public
+npm registry, import its compiled component styles once, and import the shared
+theme in their Tailwind entry point:
 
 ```ts
-import "@lexmount/abyss-ui/styles.css";
-import { Button, SessionTimeline } from "@lexmount/abyss-ui";
+import "@lexmount.com/abyss-ui/styles.css";
+import { Button, SessionTimeline } from "@lexmount.com/abyss-ui";
 ```
 
 ```css
 @import "tailwindcss";
-@import "@lexmount/abyss-ui/theme.css";
-```
-
-Map the Lexmount scope to GitHub Packages in the consuming repository:
-
-```ini
-@lexmount:registry=https://npm.pkg.github.com
+@import "@lexmount.com/abyss-ui/theme.css";
 ```
 
 The package is published by `.github/workflows/publish-ui.yml` when a GitHub
 Release is published with a tag such as `ui-v0.1.0`. The tag must match the
-version in `packages/ui/package.json`; published versions are immutable.
+version in `packages/ui/package.json`; published versions are immutable. The
+workflow authenticates to npmjs with OIDC Trusted Publishing, so the repository
+does not store a long-lived npm publish token.
 
 Before creating a release, run:
 
 ```bash
 npm run check:ui-release -- ui-v0.1.0
-npm pack --dry-run -w @lexmount/abyss-ui
+npm pack --dry-run -w @lexmount.com/abyss-ui
 ```
 
 See [`packages/ui/README.md`](packages/ui/README.md) for the component boundary,
-developer authentication, and consumer CI configuration.
+release authentication, and consumer CI configuration.

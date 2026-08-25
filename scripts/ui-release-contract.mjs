@@ -1,9 +1,9 @@
-const EXPECTED_PACKAGE_NAME = "@lexmount/abyss-ui";
-const EXPECTED_REGISTRY = "https://npm.pkg.github.com";
+const EXPECTED_PACKAGE_NAME = "@lexmount.com/abyss-ui";
+const EXPECTED_REGISTRY = "https://registry.npmjs.org";
 const EXPECTED_REPOSITORY_URL =
-  "https://github.com/lexmount/abyss-dashboard.git";
+  "git+https://github.com/lexmount/abyss-dashboard.git";
 const EXPECTED_REPOSITORY_DIRECTORY = "packages/ui";
-const EXPECTED_SCOPE_MAPPING = "@lexmount:registry=https://npm.pkg.github.com";
+const EXPECTED_REGISTRY_SETTING = "registry=https://registry.npmjs.org/";
 
 function hasNpmrcEntry(npmrc, expectedEntry) {
   return npmrc
@@ -27,6 +27,10 @@ export function validateUiReleaseContract({ manifest, npmrc, releaseTag }) {
     errors.push(`publish registry must be ${EXPECTED_REGISTRY}`);
   }
 
+  if (manifest.publishConfig?.access !== "public") {
+    errors.push("publish access must be public");
+  }
+
   if (manifest.repository?.url !== EXPECTED_REPOSITORY_URL) {
     errors.push(`repository URL must be ${EXPECTED_REPOSITORY_URL}`);
   }
@@ -37,8 +41,13 @@ export function validateUiReleaseContract({ manifest, npmrc, releaseTag }) {
     );
   }
 
-  if (!hasNpmrcEntry(npmrc, EXPECTED_SCOPE_MAPPING)) {
-    errors.push(`.npmrc must contain ${EXPECTED_SCOPE_MAPPING}`);
+  if (
+    !hasNpmrcEntry(npmrc, EXPECTED_REGISTRY_SETTING) ||
+    npmrc.includes("npm.pkg.github.com")
+  ) {
+    errors.push(
+      `.npmrc must use ${EXPECTED_REGISTRY_SETTING} without GitHub Packages mappings`,
+    );
   }
 
   if (releaseTag !== undefined) {

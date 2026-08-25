@@ -12,10 +12,10 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run format:check
@@ -24,13 +24,13 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run check:ui-release
-      - run: npm pack --dry-run -w @lexmount/abyss-ui
+      - run: npm pack --dry-run -w @lexmount.com/abyss-ui
 
   container:
     needs: verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build image
         run: docker build -t abyss-dashboard:test .
       - name: Reject missing credentials
