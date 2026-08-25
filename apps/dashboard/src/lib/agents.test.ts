@@ -6,9 +6,6 @@ describe("agent display helpers", () => {
     expect(agentFilterOptions).toEqual([
       { value: "claude-code", label: "Claude Code" },
       { value: "codex", label: "Codex" },
-      { value: "cursor", label: "Cursor" },
-      { value: "chatgpt", label: "ChatGPT" },
-      { value: "openclaw", label: "OpenClaw" },
     ]);
   });
 

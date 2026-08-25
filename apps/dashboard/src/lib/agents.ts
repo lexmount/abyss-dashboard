@@ -19,9 +19,6 @@ const agentProductAliases: Record<string, keyof typeof agentProductLabels> = {
 export const agentFilterOptions = [
   { value: "claude-code", label: agentProductLabels["claude-code"] },
   { value: "codex", label: agentProductLabels.codex },
-  { value: "cursor", label: agentProductLabels.cursor },
-  { value: "chatgpt", label: agentProductLabels.chatgpt },
-  { value: "openclaw", label: agentProductLabels.openclaw },
 ] as const;
 
 export function agentProductKey(agentName: string | null | undefined): string {
