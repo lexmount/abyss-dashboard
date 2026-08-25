@@ -1,6 +1,12 @@
 import { Link } from "react-router-dom";
-import { Button } from "@abyss/ui";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@abyss/ui";
+import { Button } from "@lexmount/abyss-ui";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@lexmount/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 
 export default function NotFoundPage() {

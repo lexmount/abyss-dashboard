@@ -29,8 +29,8 @@ import {
   type UsageQuery,
 } from "@/api/usage";
 import { BaseLayout } from "@/components/layouts/base-layout";
-import { Badge } from "@abyss/ui";
-import { Button } from "@abyss/ui";
+import { Badge } from "@lexmount/abyss-ui";
+import { Button } from "@lexmount/abyss-ui";
 import {
   Card,
   CardAction,
@@ -39,23 +39,23 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@abyss/ui";
+} from "@lexmount/abyss-ui";
 import {
   type ChartConfig,
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-} from "@abyss/ui";
-import { Input } from "@abyss/ui";
-import { Label } from "@abyss/ui";
-import { Popover, PopoverContent, PopoverTrigger } from "@abyss/ui";
+} from "@lexmount/abyss-ui";
+import { Input } from "@lexmount/abyss-ui";
+import { Label } from "@lexmount/abyss-ui";
+import { Popover, PopoverContent, PopoverTrigger } from "@lexmount/abyss-ui";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@abyss/ui";
+} from "@lexmount/abyss-ui";
 import {
   Table,
   TableBody,
@@ -63,8 +63,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@abyss/ui";
-import { ToggleGroup, ToggleGroupItem } from "@abyss/ui";
+} from "@lexmount/abyss-ui";
+import { ToggleGroup, ToggleGroupItem } from "@lexmount/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName, agentFilterOptions, agentProductKey } from "@/lib/agents";
 

@@ -9,7 +9,7 @@ import {
 } from "@/app/sessions/session-search-form";
 import { SessionSearchResults } from "@/app/sessions/session-search-results";
 import { BaseLayout } from "@/components/layouts/base-layout";
-import { Card, CardContent, CardHeader, CardTitle } from "@abyss/ui";
+import { Card, CardContent, CardHeader, CardTitle } from "@lexmount/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 
 const defaultFilters: SessionSearchFilters = {

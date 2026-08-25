@@ -8,13 +8,15 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @abyss/ui && npm run build -w abyss-dashboard",
-    "dev": "npm run build -w @abyss/ui && npm run dev -w abyss-dashboard",
+    "build": "npm run build -w @lexmount/abyss-ui && npm run build -w abyss-dashboard",
+    "check:ui-release": "node scripts/check-ui-release.mjs",
+    "dev": "npm run build -w @lexmount/abyss-ui && npm run dev -w abyss-dashboard",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "npm run lint --workspaces --if-present",
-    "test": "npm run build -w @abyss/ui && npm run test --workspaces --if-present",
-    "typecheck": "npm run build -w @abyss/ui && npm run typecheck --workspaces --if-present"
+    "test": "npm run build -w @lexmount/abyss-ui && npm run test:release && npm run test --workspaces --if-present",
+    "test:release": "node --test scripts/ui-release-contract.test.mjs",
+    "typecheck": "npm run build -w @lexmount/abyss-ui && npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

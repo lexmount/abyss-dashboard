@@ -7,13 +7,13 @@ describe("dashboard style entry", () => {
     const mainSource = readFileSync(resolve("src/main.tsx"), "utf8");
     const styleSource = readFileSync(resolve("src/index.css"), "utf8");
 
-    expect(mainSource).not.toContain("@abyss/ui/styles.css");
+    expect(mainSource).not.toContain("@lexmount/abyss-ui/styles.css");
     expect(
-      styleSource.indexOf('@import "@abyss/ui/styles.css";'),
+      styleSource.indexOf('@import "@lexmount/abyss-ui/styles.css";'),
     ).toBeGreaterThanOrEqual(0);
-    expect(styleSource.indexOf('@import "@abyss/ui/styles.css";')).toBeLessThan(
-      styleSource.indexOf('@import "tailwindcss";'),
-    );
+    expect(
+      styleSource.indexOf('@import "@lexmount/abyss-ui/styles.css";'),
+    ).toBeLessThan(styleSource.indexOf('@import "tailwindcss";'));
     expect(styleSource).toContain(".dashboard-sidebar-desktop");
     expect(styleSource).toContain(".dashboard-sidebar-container");
     expect(styleSource).toContain(".dashboard-filter-grid");

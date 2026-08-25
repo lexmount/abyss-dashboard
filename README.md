@@ -12,10 +12,10 @@ Agent handoff features.
 
 ```text
 apps/dashboard/  Vite/React dashboard and Nginx runtime configuration
-packages/ui/     publishable @abyss/ui design tokens and presentation components
+packages/ui/     publishable @lexmount/abyss-ui design tokens and presentation components
 ```
 
-`@abyss/ui` is the cross-repository style boundary. It contains visual
+`@lexmount/abyss-ui` is the cross-repository style boundary. It contains visual
 primitives and presentation-only domain components; API clients, routing,
 authentication, query state, and product policy remain in each consuming app.
 
@@ -82,19 +82,36 @@ npm run build
 
 ## Shared UI package
 
-Consumers install a released `@abyss/ui` version, import its compiled component
-styles once, and import the shared theme in their Tailwind entry point:
+Consumers install a released `@lexmount/abyss-ui` version from GitHub Packages,
+import its compiled component styles once, and import the shared theme in their
+Tailwind entry point:
 
 ```ts
-import "@abyss/ui/styles.css";
-import { Button, SessionTimeline } from "@abyss/ui";
+import "@lexmount/abyss-ui/styles.css";
+import { Button, SessionTimeline } from "@lexmount/abyss-ui";
 ```
 
 ```css
 @import "tailwindcss";
-@import "@abyss/ui/theme.css";
+@import "@lexmount/abyss-ui/theme.css";
 ```
 
-Before publishing, run `npm run build -w @abyss/ui` and
-`npm pack --dry-run -w @abyss/ui`. See
-[`packages/ui/README.md`](packages/ui/README.md) for the package boundary.
+Map the Lexmount scope to GitHub Packages in the consuming repository:
+
+```ini
+@lexmount:registry=https://npm.pkg.github.com
+```
+
+The package is published by `.github/workflows/publish-ui.yml` when a GitHub
+Release is published with a tag such as `ui-v0.1.0`. The tag must match the
+version in `packages/ui/package.json`; published versions are immutable.
+
+Before creating a release, run:
+
+```bash
+npm run check:ui-release -- ui-v0.1.0
+npm pack --dry-run -w @lexmount/abyss-ui
+```
+
+See [`packages/ui/README.md`](packages/ui/README.md) for the component boundary,
+developer authentication, and consumer CI configuration.
