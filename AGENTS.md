@@ -1,7 +1,7 @@
 # Repository guidance
 
 This repository contains the standalone Abyss dashboard and the shared
-`@lexmount/abyss-ui` package.
+`@lexmount.com/abyss-ui` package.
 
 ## Ownership
 
@@ -12,7 +12,7 @@ This repository contains the standalone Abyss dashboard and the shared
 - Do not add SSO, organization administration, SaaS sharing, release
   management, or Agent handoff behavior to the standalone dashboard.
 - Do not add API, authentication, routing, TanStack Query, or deployment
-  dependencies to `@lexmount/abyss-ui`. Inject labels, formatters, URLs, and
+  dependencies to `@lexmount.com/abyss-ui`. Inject labels, formatters, URLs, and
   callbacks.
 
 ## Verification

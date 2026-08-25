@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Moon, Sun } from "lucide-react";
 
-import { Button } from "@lexmount/abyss-ui";
+import { Button } from "@lexmount.com/abyss-ui";
 import { useTheme } from "@/hooks/use-theme";
 import { useCircularTransition } from "@/hooks/use-circular-transition";
 import "./mode-toggle.css";

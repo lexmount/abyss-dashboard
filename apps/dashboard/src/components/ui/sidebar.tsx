@@ -5,9 +5,9 @@ import { PanelLeftIcon } from "lucide-react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-import { Button } from "@lexmount/abyss-ui";
-import { Input } from "@lexmount/abyss-ui";
-import { Separator } from "@lexmount/abyss-ui";
+import { Button } from "@lexmount.com/abyss-ui";
+import { Input } from "@lexmount.com/abyss-ui";
+import { Separator } from "@lexmount.com/abyss-ui";
 import {
   Sheet,
   SheetContent,

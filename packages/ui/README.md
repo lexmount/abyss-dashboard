@@ -1,4 +1,4 @@
-# @lexmount/abyss-ui
+# @lexmount.com/abyss-ui
 
 Shared design tokens and presentation-only React components for Abyss web
 applications.
@@ -19,8 +19,8 @@ formatters, translated labels, URLs, and callbacks from their host application.
 ## Use
 
 ```ts
-import "@lexmount/abyss-ui/styles.css";
-import { Button } from "@lexmount/abyss-ui";
+import "@lexmount.com/abyss-ui/styles.css";
+import { Button } from "@lexmount.com/abyss-ui";
 ```
 
 Tailwind-based consumers should also import the shared theme before declaring
@@ -28,7 +28,7 @@ application-specific styles:
 
 ```css
 @import "tailwindcss";
-@import "@lexmount/abyss-ui/theme.css";
+@import "@lexmount.com/abyss-ui/theme.css";
 ```
 
 The component stylesheet is precompiled, so consuming applications do not need
@@ -36,66 +36,44 @@ to scan this package's source files for Tailwind class names.
 
 ## Release
 
-The package is hosted by the Lexmount organization at
-`https://npm.pkg.github.com`. Repository `.npmrc` maps only the `@lexmount`
-scope, so public dependencies continue to resolve from npmjs.org.
+The package is published publicly under the `lexmount.com` npm organization at
+<https://www.npmjs.com/package/@lexmount.com/abyss-ui>. Consumers do not need
+registry credentials.
 
 Update this package's semantic version, then verify the release locally:
 
 ```bash
-npm run build -w @lexmount/abyss-ui
-npm test -w @lexmount/abyss-ui
-npm pack --dry-run -w @lexmount/abyss-ui
+npm run build -w @lexmount.com/abyss-ui
+npm test -w @lexmount.com/abyss-ui
+npm pack --dry-run -w @lexmount.com/abyss-ui
 npm run check:ui-release -- ui-v0.1.0
 ```
 
 Publish a GitHub Release whose tag is `ui-v<version>`. The
 `publish-ui.yml` workflow validates the repository, runs all quality checks, and
-publishes with its short-lived `GITHUB_TOKEN`. Do not add a package token to the
-repository. GitHub Package versions are immutable, so increment the version for
-every release.
+publishes through npm Trusted Publishing with a short-lived GitHub Actions OIDC
+credential. Do not add an npm publish token to the repository. npm package
+versions are immutable, so increment the version for every release.
 
 `abyss-dashboard` consumes the workspace version during development;
 `abyss-frontend` should pin an explicitly released version so the repositories
 can deploy independently.
 
-## Consumer authentication
+## Consumer CI
 
-Consumers commit this registry mapping without credentials:
-
-```ini
-@lexmount:registry=https://npm.pkg.github.com
-```
-
-For local development, create a classic GitHub personal access token with
-`read:packages`, authorize it for organization SSO when required, and sign in:
-
-```bash
-npm login \
-  --scope=@lexmount \
-  --auth-type=legacy \
-  --registry=https://npm.pkg.github.com
-```
-
-Each consuming GitHub Actions workflow uses its repository `GITHUB_TOKEN`:
+Because the package is public on npmjs, consuming GitHub Actions workflows need
+no npm credentials:
 
 ```yaml
 permissions:
   contents: read
-  packages: read
 
 steps:
-  - uses: actions/checkout@v4
-  - uses: actions/setup-node@v4
+  - uses: actions/checkout@v6
+  - uses: actions/setup-node@v6
     with:
-      node-version: 22
-      registry-url: https://npm.pkg.github.com
-      scope: "@lexmount"
+      node-version: 24
+      registry-url: https://registry.npmjs.org
       cache: npm
   - run: npm ci
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
-
-After the first publish, a package administrator must grant each consuming
-repository read access under the package's **Manage Actions access** settings.

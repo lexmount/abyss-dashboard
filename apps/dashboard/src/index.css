@@ -1,7 +1,7 @@
-@import "@lexmount/abyss-ui/styles.css";
+@import "@lexmount.com/abyss-ui/styles.css";
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "@lexmount/abyss-ui/theme.css";
+@import "@lexmount.com/abyss-ui/theme.css";
 
 .dashboard-sidebar-desktop,
 .dashboard-sidebar-container {
