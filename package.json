@@ -1,0 +1,32 @@
+{
+  "name": "abyss-dashboard-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @abyss/ui && npm run build -w abyss-dashboard",
+    "dev": "npm run build -w @abyss/ui && npm run dev -w abyss-dashboard",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run build -w @abyss/ui && npm run test --workspaces --if-present",
+    "typecheck": "npm run build -w @abyss/ui && npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "eslint": "^9.39.2",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "globals": "^16.5.0",
+    "prettier": "^3.4.2",
+    "typescript-eslint": "^8.51.0"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  }
+}
