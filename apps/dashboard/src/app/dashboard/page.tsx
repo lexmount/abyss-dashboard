@@ -18,16 +18,7 @@ import {
   Search,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Cell,
-  Pie as RechartsPie,
-  PieChart as RechartsPieChart,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import {
   fetchDailyTokenUsage,
   fetchRawEvents,
@@ -103,14 +94,6 @@ const tokenChartRangeOptions = [
   { value: "30d", days: 30, labelKey: "dashboard.tokenChart.range30Days" },
   { value: "90d", days: 90, labelKey: "dashboard.tokenChart.range90Days" },
 ] as const;
-const usageChartColors = [
-  "oklch(0.74 0.18 156)",
-  "oklch(0.69 0.14 188)",
-  "oklch(0.82 0.16 112)",
-  "oklch(0.68 0.16 218)",
-  "oklch(0.78 0.14 75)",
-] as const;
-
 export type TokenChartRange = (typeof tokenChartRangeOptions)[number]["value"];
 
 export default function DashboardPage() {
@@ -153,10 +136,6 @@ export function UsageDashboard() {
     queryKey: ["usage-summary", "table", query],
     queryFn: () => fetchUsageSummary(query),
   });
-  const agentDistributionSummaryQuery = useQuery({
-    queryKey: ["usage-summary", "agent-distribution", query],
-    queryFn: () => fetchUsageSummary(query, { groupBy: ["agent"] }),
-  });
   const chartSummaryQuery = useQuery({
     queryKey: ["usage-summary", "token-chart", chartQuery],
     queryFn: () => fetchDailyTokenUsage(chartQuery),
@@ -173,10 +152,6 @@ export function UsageDashboard() {
   const chartSummaryRows = React.useMemo(
     () => chartSummaryQuery.data?.rows ?? [],
     [chartSummaryQuery.data?.rows],
-  );
-  const agentDistributionRows = React.useMemo(
-    () => agentDistributionSummaryQuery.data?.rows ?? [],
-    [agentDistributionSummaryQuery.data?.rows],
   );
   const events = React.useMemo(
     () => eventsQuery.data?.events ?? [],
@@ -215,22 +190,10 @@ export function UsageDashboard() {
             detail={chartSummaryQuery.error.message}
           />
         ) : null}
-        {agentDistributionSummaryQuery.isError ? (
-          <StatusCard
-            title={t("dashboard.summaryError")}
-            detail={agentDistributionSummaryQuery.error.message}
-          />
-        ) : null}
-
         <MetricCards
           totals={totals}
           agentCount={agentCount}
           loading={summaryQuery.isLoading}
-        />
-
-        <AgentDistributionChart
-          rows={agentDistributionRows}
-          loading={agentDistributionSummaryQuery.isLoading}
         />
 
         <TokenChart
@@ -239,8 +202,6 @@ export function UsageDashboard() {
           range={tokenChartRange}
           onRangeChange={setTokenChartRange}
         />
-
-        <SummaryTable rows={rows} loading={summaryQuery.isLoading} />
 
         <RawEventsTable
           events={events}
@@ -280,7 +241,10 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-7">
+      <CardContent
+        className="dashboard-filter-grid grid gap-4"
+        data-testid="usage-filters-grid"
+      >
         <Field label={t("common.from")}>
           <Input
             type="datetime-local"
@@ -566,171 +530,6 @@ function TokenChart({
           </ChartContainer>
         )}
       </CardContent>
-    </Card>
-  );
-}
-
-function AgentDistributionChart({
-  rows,
-  loading,
-}: {
-  rows: SummaryRow[];
-  loading: boolean;
-}) {
-  const { t, formatNumber } = useI18n();
-  const agentDistributionChartConfig = React.useMemo(
-    () =>
-      ({
-        total_tokens: {
-          label: t("dashboard.metric.totalTokens"),
-        },
-      }) satisfies ChartConfig,
-    [t],
-  );
-  const distributedAgentRows = React.useMemo(() => agentDistributionRows(rows), [rows]);
-
-  return (
-    <Card className="gap-4 py-5">
-      <CardHeader className="px-5">
-        <CardTitle>{t("dashboard.agentDistribution.title")}</CardTitle>
-        <CardDescription>
-          {t("dashboard.agentDistribution.description")}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="px-5">
-        {loading ? (
-          <div className="text-muted-foreground flex h-[220px] items-center justify-center text-sm">
-            {t("dashboard.agentDistribution.loading")}
-          </div>
-        ) : distributedAgentRows.length === 0 ? (
-          <div className="text-muted-foreground flex h-[220px] items-center justify-center text-sm">
-            {t("dashboard.agentDistribution.empty")}
-          </div>
-        ) : (
-          <div className="mx-auto grid max-w-[620px] items-center gap-3 md:grid-cols-[260px_220px]">
-            <ChartContainer
-              config={agentDistributionChartConfig}
-              className="recharts-no-focus aspect-auto h-[220px] w-full"
-            >
-              <RechartsPieChart accessibilityLayer={false}>
-                <ChartTooltip
-                  cursor={false}
-                  content={<ChartTooltipContent nameKey="agent" />}
-                />
-                <RechartsPie
-                  data={distributedAgentRows}
-                  dataKey="total_tokens"
-                  nameKey="agent"
-                  innerRadius={44}
-                  outerRadius={72}
-                  paddingAngle={2}
-                >
-                  {distributedAgentRows.map((row) => (
-                    <Cell key={row.agent} fill={row.fill} />
-                  ))}
-                </RechartsPie>
-              </RechartsPieChart>
-            </ChartContainer>
-            <div className="flex flex-col justify-center gap-2.5">
-              {distributedAgentRows.map((row) => (
-                <div key={row.agent} className="grid gap-1">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span
-                        className="size-2.5 rounded-sm"
-                        style={{ backgroundColor: row.fill }}
-                      />
-                      <span className="truncate text-sm font-medium">{row.agent}</span>
-                    </div>
-                    <span className="text-muted-foreground text-xs tabular-nums">
-                      {row.share}%
-                    </span>
-                  </div>
-                  <div className="text-muted-foreground text-xs tabular-nums">
-                    {formatNumber(row.total_tokens)} {t("common.tokens")}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function SummaryTable({ rows, loading }: { rows: SummaryRow[]; loading: boolean }) {
-  const { t, formatNumber } = useI18n();
-  const pagination = useTablePagination(rows);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("dashboard.summary.title")}</CardTitle>
-        <CardDescription>{t("dashboard.summary.description")}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="text-muted-foreground py-10 text-center text-sm">
-            {t("dashboard.summary.loading")}
-          </div>
-        ) : (
-          <Table className="w-[min(1200px,100%)] min-w-[820px] table-fixed">
-            <colgroup>
-              <col className="w-[16%]" />
-              <col className="w-[18%]" />
-              <col className="w-[36%]" />
-              <col className="w-[10%]" />
-              <col className="w-[10%]" />
-              <col className="w-[10%]" />
-            </colgroup>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("common.agent")}</TableHead>
-                <TableHead>{t("common.provider")}</TableHead>
-                <TableHead>{t("common.model")}</TableHead>
-                <TableHead>{t("common.session")}</TableHead>
-                <TableHead>{t("common.turns")}</TableHead>
-                <TableHead>{t("common.tokens")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={6}
-                    className="text-muted-foreground h-24 text-center"
-                  >
-                    {t("dashboard.summary.empty")}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                pagination.pageRows.map((row) => (
-                  <TableRow key={summaryKey(row)}>
-                    <TableCell className="truncate">
-                      {row.agent_name ? agentDisplayName(row.agent_name) : "-"}
-                    </TableCell>
-                    <TableCell className="truncate">
-                      {row.llm_provider ?? "-"}
-                    </TableCell>
-                    <TableCell className="truncate">{row.llm_model ?? "-"}</TableCell>
-                    <TableCell className="tabular-nums">
-                      {formatNumber(row.sessions)}
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      {formatNumber(row.turns)}
-                    </TableCell>
-                    <TableCell className="font-medium tabular-nums">
-                      {formatNumber(row.total_tokens)}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-      {!loading ? <TablePagination pagination={pagination} /> : null}
     </Card>
   );
 }
@@ -1089,14 +888,6 @@ interface TokenChartWindow {
   days: number;
 }
 
-interface AgentDistributionRow {
-  [key: string]: string | number;
-  agent: string;
-  total_tokens: number;
-  share: number;
-  fill: string;
-}
-
 function summarizeRows(rows: SummaryRow[]): UsageTotals {
   return rows.reduce<UsageTotals>(
     (totals, row) => ({
@@ -1203,37 +994,6 @@ function formatUtcDay(date: Date): string {
     pad2(date.getUTCMonth() + 1),
     pad2(date.getUTCDate()),
   ].join("-");
-}
-
-function agentDistributionRows(rows: SummaryRow[]): AgentDistributionRow[] {
-  const grouped = new Map<string, { agent: string; total_tokens: number }>();
-  for (const row of rows) {
-    const agentKey = agentProductKey(row.agent_name);
-    const current = grouped.get(agentKey) ?? {
-      agent: agentDisplayName(row.agent_name),
-      total_tokens: 0,
-    };
-    current.total_tokens += row.total_tokens;
-    grouped.set(agentKey, current);
-  }
-
-  const totalTokens = [...grouped.values()].reduce(
-    (total, value) => total + value.total_tokens,
-    0,
-  );
-  return [...grouped.values()]
-    .filter(({ total_tokens }) => total_tokens > 0)
-    .sort((left, right) => right.total_tokens - left.total_tokens)
-    .map(({ agent, total_tokens }, index) => ({
-      agent,
-      total_tokens,
-      share: totalTokens > 0 ? Math.round((total_tokens / totalTokens) * 100) : 0,
-      fill: usageChartColor(index),
-    }));
-}
-
-function usageChartColor(index: number): string {
-  return usageChartColors[index % usageChartColors.length];
 }
 
 function countAgentProducts(rows: SummaryRow[]): number {
@@ -1360,10 +1120,4 @@ function toUtcIso(value: string): string | undefined {
     return undefined;
   }
   return date.toISOString();
-}
-
-function summaryKey(row: SummaryRow): string {
-  return [row.day, row.agent_name, row.llm_provider, row.llm_model, row.event_type]
-    .filter((value): value is string => value !== undefined)
-    .join(":");
 }

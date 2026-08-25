@@ -39,6 +39,12 @@ describe("SessionsPage", () => {
     ).toBeInTheDocument();
     expect(searchSessionsMock).not.toHaveBeenCalled();
     expect(screen.getByText("Search session context")).toBeInTheDocument();
+    expect(screen.getByTestId("session-search-filter-grid")).toHaveClass(
+      "session-search-filter-grid",
+    );
+    expect(screen.getByTestId("session-search-query-input")).toHaveClass(
+      "session-search-query-input",
+    );
     expect(
       screen.queryByText(
         "Search captured conversation text, tool calls, commands, and file paths.",

@@ -1,10 +1,38 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/contexts/i18n-context";
 import { type DailyTokenUsageRow, type UsageEvent } from "@/api/usage";
-import { chartRowsByDay, RawEventsTable, tokenChartDateWindow } from "./page";
+import {
+  chartRowsByDay,
+  RawEventsTable,
+  tokenChartDateWindow,
+  UsageDashboard,
+} from "./page";
+
+const { fetchDailyTokenUsageMock, fetchRawEventsMock, fetchUsageSummaryMock } =
+  vi.hoisted(() => ({
+    fetchDailyTokenUsageMock: vi.fn(),
+    fetchRawEventsMock: vi.fn(),
+    fetchUsageSummaryMock: vi.fn(),
+  }));
+
+vi.mock("@/api/usage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/usage")>();
+  return {
+    ...actual,
+    fetchDailyTokenUsage: fetchDailyTokenUsageMock,
+    fetchRawEvents: fetchRawEventsMock,
+    fetchUsageSummary: fetchUsageSummaryMock,
+  };
+});
+
+vi.mock("@/components/layouts/base-layout", () => ({
+  BaseLayout: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
 
 describe("RawEventsTable", () => {
   beforeEach(() => {
@@ -138,6 +166,59 @@ describe("token chart rows", () => {
       input_tokens: 192_687,
       total_tokens: 192_857,
     });
+  });
+});
+
+describe("UsageDashboard", () => {
+  beforeEach(() => {
+    window.localStorage.setItem("abyss-ui-language", "en");
+    fetchUsageSummaryMock.mockResolvedValue({
+      from: null,
+      to: null,
+      group_by: [],
+      rows: [],
+      next_page_token: null,
+    });
+    fetchDailyTokenUsageMock.mockResolvedValue({
+      from: null,
+      to: null,
+      group_by: ["day"],
+      rows: [],
+      next_page_token: null,
+    });
+    fetchRawEventsMock.mockResolvedValue({ events: [], next_page_token: null });
+  });
+
+  afterEach(() => {
+    cleanup();
+    fetchUsageSummaryMock.mockReset();
+    fetchDailyTokenUsageMock.mockReset();
+    fetchRawEventsMock.mockReset();
+  });
+
+  it("uses the compact filter grid without distribution or summary sections", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <I18nProvider>
+            <UsageDashboard />
+          </I18nProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("usage-filters-grid")).toHaveClass(
+      "dashboard-filter-grid",
+    );
+    expect(await screen.findByText("Token Usage")).toBeInTheDocument();
+    expect(screen.queryByText("Agent Distribution")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Summary" })).not.toBeInTheDocument();
+    await waitFor(() => expect(fetchUsageSummaryMock).toHaveBeenCalledTimes(1));
+    expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object));
   });
 });
 

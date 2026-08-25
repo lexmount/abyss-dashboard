@@ -76,7 +76,8 @@ export function SessionSearchForm({
             <div className="relative">
               <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
               <Input
-                className="pl-9"
+                className="session-search-query-input"
+                data-testid="session-search-query-input"
                 value={draft.q}
                 maxLength={256}
                 autoComplete="off"
@@ -87,7 +88,10 @@ export function SessionSearchForm({
             </div>
           </Field>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <div
+            className="session-search-filter-grid grid gap-4"
+            data-testid="session-search-filter-grid"
+          >
             <Field label={t("common.from")}>
               <Input
                 type="datetime-local"

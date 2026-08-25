@@ -1,6 +1,52 @@
+@import "@abyss/ui/styles.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@abyss/ui/theme.css";
+
+.dashboard-sidebar-desktop,
+.dashboard-sidebar-container {
+  display: none;
+}
+
+.dashboard-filter-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.session-search-filter-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.session-search-query-input {
+  padding-left: 2.25rem !important;
+}
+
+@media (min-width: 768px) {
+  .dashboard-sidebar-desktop {
+    display: block;
+  }
+
+  .dashboard-sidebar-container {
+    display: flex;
+  }
+
+  .dashboard-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .session-search-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .dashboard-filter-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .session-search-filter-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
 
 /* Fix for sidebar "none" mode height issue */
 .sidebar-none-mode [data-slot="sidebar"] {
