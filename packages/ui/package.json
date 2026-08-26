@@ -1,6 +1,6 @@
 {
   "name": "@lexmount.com/abyss-ui",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Shared design tokens and presentation-only React components for Abyss web applications",
   "license": "MIT",
   "type": "module",
