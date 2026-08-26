@@ -21,6 +21,20 @@
   padding-left: 2.25rem !important;
 }
 
+/* Chromium does not consistently keep an input's inline padding between the
+   native date picker indicator and the border. Reserve that space on the
+   indicator itself so compact dashboard columns cannot clip the icon. */
+[data-slot="input"]:is(
+    [type="date"],
+    [type="datetime-local"],
+    [type="month"],
+    [type="time"]
+  )::-webkit-calendar-picker-indicator {
+  flex: 0 0 auto;
+  position: relative;
+  inset-inline-end: 1.25rem;
+}
+
 .sidebar-none-mode [data-slot="sidebar"] {
   height: 100vh !important;
   min-height: 100vh !important;
@@ -91,7 +105,9 @@ html {
   }
 }
 
-@media (min-width: 1024px) {
+/* Match Tailwind's xl breakpoint used before the repository split. Switching
+   earlier crowds native date inputs and makes the filter card overflow. */
+@media (min-width: 80rem) {
   .dashboard-filter-grid {
     grid-template-columns: repeat(7, minmax(0, 1fr));
   }
