@@ -15,7 +15,7 @@
     "format:check": "prettier --check .",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run build -w @lexmount.com/abyss-ui && npm run test:release && npm run test --workspaces --if-present",
-    "test:release": "node --test scripts/ui-release-contract.test.mjs",
+    "test:release": "node --test scripts/ui-release-contract.test.mjs scripts/ui-style-contract.test.mjs",
     "typecheck": "npm run build -w @lexmount.com/abyss-ui && npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
