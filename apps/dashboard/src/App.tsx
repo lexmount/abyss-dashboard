@@ -3,7 +3,7 @@ import { BrowserRouter as Router } from "react-router-dom";
 import { AppRouter } from "@/components/router/app-router";
 import { ThemeProvider } from "@/components/theme-provider";
 import { I18nProvider } from "@/contexts/i18n-context";
-import { SidebarConfigProvider } from "@/contexts/sidebar-context";
+import { SidebarConfigProvider } from "@lexmount.com/abyss-ui";
 
 const basename = import.meta.env.VITE_BASENAME || "";
 const queryClient = new QueryClient({

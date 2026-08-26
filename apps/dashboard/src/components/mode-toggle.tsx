@@ -1,12 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Moon, Sun } from "lucide-react";
-
-import { Button } from "@lexmount.com/abyss-ui";
+import { ModeToggleButton } from "@lexmount.com/abyss-ui";
 import { useTheme } from "@/hooks/use-theme";
 import { useCircularTransition } from "@/hooks/use-circular-transition";
-import "./mode-toggle.css";
 
 interface ModeToggleProps {
   variant?: "outline" | "ghost" | "default";
@@ -44,19 +41,10 @@ export function ModeToggle({ variant = "outline" }: ModeToggleProps) {
   };
 
   return (
-    <Button
+    <ModeToggleButton
       variant={variant}
-      size="icon"
+      isDarkMode={isDarkMode}
       onClick={handleToggle}
-      className="cursor-pointer mode-toggle-button relative overflow-hidden"
-    >
-      {/* Show the icon for the mode you can switch TO */}
-      {isDarkMode ? (
-        <Sun className="h-[1.2rem] w-[1.2rem] transition-transform duration-300 rotate-0 scale-100" />
-      ) : (
-        <Moon className="h-[1.2rem] w-[1.2rem] transition-transform duration-300 rotate-0 scale-100" />
-      )}
-      <span className="sr-only">Switch to {isDarkMode ? "light" : "dark"} mode</span>
-    </Button>
+    />
   );
 }
