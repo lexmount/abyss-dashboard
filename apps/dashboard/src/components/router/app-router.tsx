@@ -3,7 +3,7 @@
 import { Suspense } from "react";
 import { Routes, Route } from "react-router-dom";
 import { routes, type RouteConfig } from "@/config/routes";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { LoadingSpinner } from "@lexmount.com/abyss-ui";
 
 function renderRoutes(routeConfigs: RouteConfig[]) {
   return routeConfigs.map((route, index) => (

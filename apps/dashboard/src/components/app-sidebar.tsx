@@ -3,7 +3,6 @@
 import * as React from "react";
 import { LayoutDashboard, TerminalSquare } from "lucide-react";
 import { Link } from "react-router-dom";
-import { NavMain } from "@/components/nav-main";
 import {
   Sidebar,
   SidebarContent,
@@ -11,7 +10,8 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@/components/ui/sidebar";
+} from "@lexmount.com/abyss-ui";
+import { NavMain } from "@/components/nav-main";
 import { useI18n } from "@/hooks/use-i18n";
 import { assetUrl } from "@/lib/utils";
 

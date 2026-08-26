@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BaseLayout } from "@/components/layouts/base-layout";
 import { I18nProvider } from "@/contexts/i18n-context";
-import { SidebarConfigProvider } from "@/contexts/sidebar-context";
+import { SidebarConfigProvider } from "@lexmount.com/abyss-ui";
 
 describe("BaseLayout", () => {
   beforeEach(() => {
