@@ -20,8 +20,8 @@ publishes `@lexmount.com/abyss-ui` with npm Trusted Publishing (OIDC).
 - Never create, request, print, or store a long-lived npm publish token. The
   workflow authenticates with OIDC and must retain `id-token: write`.
 - Stop on a dirty worktree, divergent `main`, failed required check, missing
-  repository/package permission, or ambiguous package metadata. Do not stash or
-  discard user changes.
+  repository permission, or ambiguous package metadata. Do not stash or discard
+  user changes.
 - Obtain confirmation immediately before an external publish, tag push, or
   GitHub Release creation unless the user already explicitly authorized that
   exact release and target.
@@ -55,43 +55,50 @@ gh repo view lexmount/abyss-dashboard \
   --json nameWithOwner,viewerPermission,defaultBranchRef,url
 ```
 
-## Verify npm identity and package state
+## Verify an established package and OIDC publishing
 
-Use npmjs explicitly so a user-level registry override cannot redirect checks:
+Established package releases do not require a locally authenticated npm
+session. Do not run `npm whoami`, `npm team`, or `npm profile` as a release
+precondition, and never request a local npm token for CI publishing.
+
+Query the public npm metadata explicitly so a user-level registry override
+cannot redirect the check:
 
 ```bash
-npm whoami --registry=https://registry.npmjs.org/
-npm team ls 'lexmount.com:developers' --registry=https://registry.npmjs.org/
-npm profile get --json --registry=https://registry.npmjs.org/
 npm view '@lexmount.com/abyss-ui' versions repository --json \
   --registry=https://registry.npmjs.org/
 ```
 
-The active npm user must belong to `@lexmount.com:developers`. Interactive
-publishing and Trusted Publisher configuration require account-level 2FA. An
-explicit `E404` means the package does not yet exist only after authentication
-and organization membership have been proven.
+Verify `.github/workflows/publish-ui.yml` still uses a GitHub-hosted runner,
+Node 22.14 or newer, npm 11.5.1 or newer, and `permissions.id-token: write`.
+It must publish with `npm publish -w @lexmount.com/abyss-ui --access public`
+and must not read a long-lived npm token.
 
-When the package exists, verify its Trusted Publisher in npm package settings or
-with `npm trust list @lexmount.com/abyss-ui`. It must authorize:
+For an existing package, use the latest successful release-triggered
+`publish-ui.yml` run as evidence that npm Trusted Publishing authorizes the
+repository and workflow:
 
-- provider: GitHub Actions;
-- GitHub organization: `lexmount`;
-- repository: `abyss-dashboard`;
-- workflow filename: `publish-ui.yml`;
-- action: `npm publish`.
+```bash
+gh run list \
+  --repo lexmount/abyss-dashboard \
+  --workflow publish-ui.yml \
+  --event release \
+  --status success \
+  --limit 1 \
+  --json databaseId,headBranch,headSha,status,conclusion,url
+```
 
-The workflow filename is case-sensitive and includes the extension. The
-workflow must use a GitHub-hosted runner, Node 22.14 or newer, npm 11.5.1 or
-newer, and `permissions.id-token: write`. Do not publish a release through CI
-until this trust relationship is present.
+Require a successful run for a published `ui-v*` tag. If no such run exists,
+treat the package as an initial or unproven setup and use the bootstrap flow
+below. A later OIDC configuration regression is surfaced by the release job;
+diagnose that job rather than falling back to a local token publish.
 
 ## Bootstrap a new npm package
 
 Trusted Publishing can be configured only after the package exists. For the
-first npmjs version, run the complete release gate, inspect the tarball, show the
-user the package name and version, and publish locally from the authenticated
-maintainer account:
+first npmjs version, authenticate a maintainer locally, run the complete release
+gate, inspect the tarball, show the user the package name and version, and
+publish locally:
 
 ```bash
 npm publish -w @lexmount.com/abyss-ui \
@@ -153,10 +160,11 @@ npm view '@lexmount.com/abyss-ui@0.2.0' version \
   --registry=https://registry.npmjs.org/
 ```
 
-Only explicit not-found results count as absence after access has been proven.
-Show the normalized tag, version, and exact `origin/main` commit. After the
-required confirmation, create an annotated tag at that commit, push it without
-force, verify the peeled remote SHA, and create the release:
+Only explicit not-found results count as absence after the public package
+metadata query succeeds. Show the normalized tag, version, and exact
+`origin/main` commit. After the required confirmation, create an annotated tag
+at that commit, push it without force, verify the peeled remote SHA, and create
+the release:
 
 ```bash
 git tag -a ui-v0.2.0 <release-commit> \
