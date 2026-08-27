@@ -24,7 +24,9 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run check:ui-release
+      - run: npm run check:dashboard-release
       - run: npm pack --dry-run -w @lexmount.com/abyss-ui
+      - run: npm pack --dry-run -w @lexmount.com/abyss-dashboard
 
   container:
     needs: verify

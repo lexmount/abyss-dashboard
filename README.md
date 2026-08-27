@@ -70,6 +70,26 @@ the API token in a `VITE_*` variable: Vite exposes those values to browser
 JavaScript. Container tokens must use the standard RFC 6750 bearer-token
 character set because Nginx injects the value into its generated configuration.
 
+## Native npm package
+
+The dashboard is also published as a native Node.js executable for local
+deployments that do not use Docker. The package includes the production browser
+assets and a zero-dependency HTTP server that securely proxies `/api` requests
+to `abyss-backend`:
+
+```bash
+install -m 0600 /dev/null "$HOME/.abyss/backend.token"
+printf '%s\n' "$ABYSS_API_TOKEN" > "$HOME/.abyss/backend.token"
+
+npx --yes @lexmount.com/abyss-dashboard@0.1.0 \
+  --backend http://127.0.0.1:8080 \
+  --token-file "$HOME/.abyss/backend.token"
+```
+
+Open <http://127.0.0.1:5173>. The server binds only to IPv4 loopback by
+default. Run the package with `--help` to see the supported flags and
+environment variables.
+
 ## Quality checks
 
 ```bash
@@ -111,3 +131,18 @@ npm pack --dry-run -w @lexmount.com/abyss-ui
 
 See [`packages/ui/README.md`](packages/ui/README.md) for the component boundary,
 release authentication, and consumer CI configuration.
+
+## Dashboard package releases
+
+The executable dashboard package is released independently from the shared UI
+package. Publish a GitHub Release with a `dashboard-v0.1.0`-style tag matching
+the version in `apps/dashboard/package.json`. The
+`.github/workflows/publish-dashboard.yml` workflow verifies the complete packed
+artifact and publishes it to npmjs with OIDC Trusted Publishing and provenance.
+
+Before creating a dashboard release, run:
+
+```bash
+npm run check:dashboard-release -- dashboard-v0.1.0
+npm pack --dry-run -w @lexmount.com/abyss-dashboard
+```
