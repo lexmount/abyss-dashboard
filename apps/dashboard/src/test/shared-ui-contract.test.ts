@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const applicationManifest = JSON.parse(readFileSync("package.json", "utf8")) as {
-  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
 };
 const sharedManifest = JSON.parse(
   readFileSync(resolve("../../packages/ui/package.json"), "utf8"),
@@ -20,7 +20,7 @@ const sharedPrimitiveFiles = [
 
 describe("shared UI workspace boundary", () => {
   it("keeps the dashboard application on the workspace package version", () => {
-    expect(applicationManifest.dependencies?.["@lexmount.com/abyss-ui"]).toBe(
+    expect(applicationManifest.devDependencies?.["@lexmount.com/abyss-ui"]).toBe(
       sharedManifest.version,
     );
   });

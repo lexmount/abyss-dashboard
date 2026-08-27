@@ -8,14 +8,15 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @lexmount.com/abyss-ui && npm run build -w abyss-dashboard",
+    "build": "npm run build -w @lexmount.com/abyss-ui && npm run build -w @lexmount.com/abyss-dashboard",
+    "check:dashboard-release": "node scripts/check-dashboard-release.mjs",
     "check:ui-release": "node scripts/check-ui-release.mjs",
-    "dev": "npm run build -w @lexmount.com/abyss-ui && npm run dev -w abyss-dashboard",
+    "dev": "npm run build -w @lexmount.com/abyss-ui && npm run dev -w @lexmount.com/abyss-dashboard",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "npm run lint --workspaces --if-present",
+    "lint": "eslint scripts --max-warnings=0 && npm run lint --workspaces --if-present",
     "test": "npm run build -w @lexmount.com/abyss-ui && npm run test:release && npm run test --workspaces --if-present",
-    "test:release": "node --test scripts/ui-release-contract.test.mjs scripts/ui-style-contract.test.mjs",
+    "test:release": "node --test --test-concurrency=1 scripts/dashboard-package-blackbox.test.mjs scripts/dashboard-release-contract.test.mjs scripts/ui-release-contract.test.mjs scripts/ui-style-contract.test.mjs",
     "typecheck": "npm run build -w @lexmount.com/abyss-ui && npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {

@@ -62,7 +62,7 @@ test("publishes Tailwind utilities inside the standard utilities layer", async (
   );
   assert.match(
     utilities,
-    /\.sm\\\:max-w-lg/,
+    /\.sm\\:max-w-lg/,
     "responsive max-width utilities must share the same cascade layer",
   );
 });
