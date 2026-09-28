@@ -1,3 +1,4 @@
+import type { SessionTrajectoryItem } from "@lexmount.com/abyss-ui";
 import { fetchJson } from "@/api/http";
 
 export interface SummaryResponse {
@@ -112,6 +113,40 @@ export interface TurnTimeline {
   started_at: string;
   ended_at: string | null;
   events: UsageEvent[];
+}
+
+export interface SessionOutlineResponse {
+  session: SessionInfo;
+  turns: OutlineTurn[];
+}
+
+export interface OutlineTurn {
+  turn_pk: string;
+  turn_index: number;
+  started_at: string;
+  ended_at: string | null;
+  events: OutlineEvent[];
+}
+
+/** Content-free event summary; full content comes from `fetchUsageEvent`. */
+export interface OutlineEvent {
+  id: string;
+  event_id: string;
+  turn_index: number;
+  llm_provider: string;
+  llm_model: string;
+  event_type: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+  token_usage_estimated: boolean;
+  observed_at: string;
+  text_chars: number;
+  preview: string | null;
+  attachment_count: number;
 }
 
 export interface SessionSearchQuery {
@@ -254,6 +289,33 @@ export function fetchSessionTimeline(
 ): Promise<SessionTimelineResponse> {
   return fetchJson<SessionTimelineResponse>(
     `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}`,
+  );
+}
+
+export function fetchSessionOutline(
+  sessionPk: string,
+): Promise<SessionOutlineResponse> {
+  return fetchJson<SessionOutlineResponse>(
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/outline`,
+  );
+}
+
+export interface SessionTrajectoryResponse {
+  session: SessionInfo;
+  items: SessionTrajectoryItem[];
+}
+
+export function fetchSessionTrajectory(
+  sessionPk: string,
+): Promise<SessionTrajectoryResponse> {
+  return fetchJson<SessionTrajectoryResponse>(
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/trajectory`,
+  );
+}
+
+export function fetchUsageEvent(eventPk: string): Promise<UsageEvent> {
+  return fetchJson<UsageEvent>(
+    `/api/v1/agent-usage/events/${encodeURIComponent(eventPk)}`,
   );
 }
 

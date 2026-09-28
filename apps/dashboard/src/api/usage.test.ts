@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchDailyTokenUsage,
   fetchRawEvents,
+  fetchSessionOutline,
   fetchSessionTimeline,
+  fetchUsageEvent,
   fetchUsageSummary,
   searchSessions,
 } from "@/api/usage";
@@ -119,6 +121,24 @@ describe("usage API", () => {
 
     const url = requestUrl(fetchMock.mock.calls[0]?.[0]);
     expect(url.pathname).toBe("/api/v1/agent-usage/sessions/session%20pk");
+  });
+
+  it("requests a session outline and one event by primary key", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      void input;
+      return Promise.resolve(jsonResponse({}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchSessionOutline("session pk");
+    await fetchUsageEvent("event pk");
+
+    expect(requestUrl(fetchMock.mock.calls[0]?.[0]).pathname).toBe(
+      "/api/v1/agent-usage/sessions/session%20pk/outline",
+    );
+    expect(requestUrl(fetchMock.mock.calls[1]?.[0]).pathname).toBe(
+      "/api/v1/agent-usage/events/event%20pk",
+    );
   });
 
   it("builds the session search request from traditional search filters", async () => {

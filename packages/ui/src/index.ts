@@ -23,6 +23,8 @@ export * from "./components/table";
 export * from "./components/toggle";
 export * from "./components/toggle-group";
 export * from "./components/tooltip";
+export * from "./event/session-ledger";
 export * from "./event/session-timeline";
+export * from "./event/session-trajectory";
 export * from "./layout/dashboard-shell";
 export * from "./layout/sidebar-config";

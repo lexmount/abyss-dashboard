@@ -9,6 +9,11 @@ import {
 } from "../components/card";
 import { ScrollArea } from "../components/scroll-area";
 import { Separator } from "../components/separator";
+import {
+  isEstimatedTokenUsage,
+  toolContentSegments,
+  type ToolContentSegment,
+} from "./event-content";
 
 const scrollableContentMaxCharacters = 1_200;
 const scrollableContentMaxLines = 12;
@@ -92,14 +97,6 @@ export interface SessionTimelineProps {
   labels: SessionTimelineLabels;
   timeline: SessionTimelineViewModel;
   showInternalIdentifiers?: boolean;
-}
-
-interface ToolContentSegment {
-  type: "tool_call" | "tool_result";
-  itemId: string | null;
-  callId: string | null;
-  name: string | null;
-  content: string | null;
 }
 
 export function SessionTimeline({
@@ -454,46 +451,9 @@ function eventTextOrPlaceholder(
   return text?.trim() ? text : placeholder;
 }
 
-function isEstimatedTokenUsage(metadata: unknown): boolean {
-  return isRecord(metadata) && metadata.token_usage_estimated === true;
-}
-
 function shouldScrollContent(text: string): boolean {
   return (
     text.length > scrollableContentMaxCharacters ||
     text.split(/\r\n|\r|\n/).length > scrollableContentMaxLines
   );
-}
-
-function toolContentSegments(metadata: unknown): ToolContentSegment[] {
-  if (!isRecord(metadata) || !Array.isArray(metadata.content_segments)) {
-    return [];
-  }
-
-  return metadata.content_segments.flatMap((value): ToolContentSegment[] => {
-    if (
-      !isRecord(value) ||
-      (value.type !== "tool_call" && value.type !== "tool_result")
-    ) {
-      return [];
-    }
-    const isToolCall = value.type === "tool_call";
-    return [
-      {
-        type: value.type,
-        itemId: stringValue(value.item_id),
-        callId: stringValue(value.call_id),
-        name: isToolCall ? stringValue(value.name) : null,
-        content: stringValue(isToolCall ? value.input : value.output),
-      },
-    ];
-  });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value : null;
 }
