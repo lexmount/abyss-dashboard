@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -44,54 +43,20 @@ describe("RawEventsTable", () => {
     vi.restoreAllMocks();
   });
 
-  it("links response text previews to the full session detail when the popover content overflows", async () => {
-    mockPreviewOverflow(true);
-
+  it("links each event to its turn in the session's merged view", () => {
     renderRawEventsTable([
       {
         ...baseUsageEvent,
-        id: "event-response",
-        event_id: "event-response",
-        event_type: "response",
         session_pk: "session-response-pk",
-        text: JSON.stringify({
-          risk_level: "low",
-          user_authorization: "high",
-          outcome: "allow",
-          rationale:
-            "The response is long enough to need inspection but shorter than the hard preview limit.",
-        }),
+        turn_index: 7,
       },
     ]);
 
-    await userEvent.click(screen.getByRole("button", { name: "Show event text" }));
-
-    const sessionDetailLink = await screen.findByRole("link", {
-      name: /View full text in Session Detail/i,
-    });
-    expect(sessionDetailLink).toHaveAttribute("href", "/sessions/session-response-pk");
-    expect(
-      screen.getByText("Preview truncated. Open Session Detail to view the full text."),
-    ).toBeInTheDocument();
-  });
-
-  it("does not show a session detail link when the popover content fits", async () => {
-    mockPreviewOverflow(false);
-
-    renderRawEventsTable([
-      {
-        ...baseUsageEvent,
-        text: "short text",
-      },
-    ]);
-
-    await userEvent.click(screen.getByRole("button", { name: "Show event text" }));
-
-    expect(
-      screen.queryByRole("link", {
-        name: /View full text in Session Detail/i,
-      }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Turn" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Turn 7/ })).toHaveAttribute(
+      "href",
+      "/sessions/session-response-pk?turn=7",
+    );
   });
 
   it("renders agent and device context columns without crowding the session cell", () => {
@@ -230,15 +195,6 @@ function renderRawEventsTable(events: UsageEvent[]) {
       </I18nProvider>
     </MemoryRouter>,
   );
-}
-
-function mockPreviewOverflow(overflows: boolean) {
-  vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(
-    overflows ? 640 : 320,
-  );
-  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(560);
-  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(20);
-  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(20);
 }
 
 const baseUsageEvent: UsageEvent = {

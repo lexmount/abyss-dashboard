@@ -33,6 +33,7 @@ import { agentDisplayName } from "@/lib/agents";
 
 const eventSearchParam = "event";
 const viewSearchParam = "view";
+const turnSearchParam = "turn";
 const eventsView = "events";
 
 function usageEventQuery(eventPk: string) {
@@ -50,6 +51,8 @@ export default function SessionDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedEventId = searchParams.get(eventSearchParam);
   const showEvents = searchParams.get(viewSearchParam) === eventsView;
+  const turnParam = Number.parseInt(searchParams.get(turnSearchParam) ?? "", 10);
+  const focusedTurn = Number.isNaN(turnParam) ? null : turnParam;
   const queryClient = useQueryClient();
 
   const trajectoryQuery = useQuery({
@@ -110,6 +113,21 @@ export default function SessionDetailPage() {
         }
         if (eventPk !== undefined) {
           next.set(eventSearchParam, eventPk);
+        }
+        return next;
+      });
+    },
+    [setSearchParams],
+  );
+
+  const focusTurn = React.useCallback(
+    (turnIndex: number | null) => {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        if (turnIndex === null) {
+          next.delete(turnSearchParam);
+        } else {
+          next.set(turnSearchParam, turnIndex.toString());
         }
         return next;
       });
@@ -193,6 +211,8 @@ export default function SessionDetailPage() {
             className="h-[calc(100svh-14rem)] min-h-[28rem]"
             items={trajectory.items}
             onOpenEvent={(eventPk) => showView(true, eventPk)}
+            focusedTurn={focusedTurn}
+            onFocusTurn={focusTurn}
             formatTime={formatTime}
             formatNumber={formatNumber}
             labels={trajectoryLabels(t)}
@@ -233,12 +253,13 @@ function trajectoryLabels(t: ReturnType<typeof useI18n>["t"]): SessionTrajectory
     openEvent: t("sessions.trajectory.openEvent"),
     turn: (index) => t("sessions.detail.turn", { index }),
     characters: (count) => t("sessions.ledger.characters", { count }),
-    mainStream: t("sessions.trajectory.mainStream"),
-    allStreams: t("sessions.trajectory.allStreams"),
-    streamLabel: (stream) => t("sessions.trajectory.stream", { stream }),
     summary: (items, toolCalls) =>
       t("sessions.trajectory.summary", { items, toolCalls }),
     empty: t("sessions.trajectory.empty"),
+    allTurns: t("sessions.trajectory.allTurns"),
+    turnList: t("sessions.trajectory.turnList"),
+    toolCount: (count) => t("sessions.trajectory.toolCount", { count }),
+    toolsOnly: (names) => t("sessions.trajectory.toolsOnly", { names }),
   };
 }
 

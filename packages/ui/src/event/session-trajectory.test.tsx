@@ -1,9 +1,15 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  mainTrajectoryStream,
   SessionTrajectory,
   trajectoryRows,
+  trajectoryTurnSummaries,
   type SessionTrajectoryItem,
   type SessionTrajectoryLabels,
 } from "./session-trajectory";
@@ -24,13 +30,38 @@ const items: SessionTrajectoryItem[] = [
 ];
 
 describe("session trajectory model", () => {
-  it("picks the stream with the most items as the main flow", () => {
-    expect(mainTrajectoryStream(items)).toBe(0);
-    expect(mainTrajectoryStream([])).toBeNull();
+  it("summarizes each turn by its first input, reply, or tools", () => {
+    const summaries = trajectoryTurnSummaries([
+      ...items,
+      item({ kind: "tool_call", stream: 0, turn_index: 3, name: "Read" }),
+    ]);
+
+    expect(
+      summaries.map(({ turnIndex, summary, toolNames, toolCalls }) => ({
+        turnIndex,
+        summary,
+        toolNames,
+        toolCalls,
+      })),
+    ).toEqual([
+      {
+        turnIndex: 1,
+        summary: "list files",
+        toolNames: ["Bash"],
+        toolCalls: 1,
+      },
+      { turnIndex: 2, summary: "Found README", toolNames: [], toolCalls: 0 },
+      { turnIndex: 3, summary: null, toolNames: ["Read"], toolCalls: 1 },
+    ]);
+    expect(
+      trajectoryRows(items, 2).map((row) =>
+        row.kind === "turn" ? `turn-${row.turnIndex}` : row.item.kind,
+      ),
+    ).toEqual(["turn-2", "assistant"]);
   });
 
-  it("filters to one stream and inserts turn headers", () => {
-    const rows = trajectoryRows(items, 0);
+  it("keeps side requests inline and inserts turn headers", () => {
+    const rows = trajectoryRows(items);
 
     expect(
       rows.map((row) =>
@@ -41,6 +72,7 @@ describe("session trajectory model", () => {
       "context",
       "user",
       "tool_call",
+      "user",
       "turn-2",
       "assistant",
     ]);
@@ -54,26 +86,65 @@ describe("SessionTrajectory", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows the main flow, expands tool results, and opens raw events", () => {
+  it("threads every turn on a timeline and selects one", () => {
+    const onFocusTurn = vi.fn();
+    renderTrajectory(vi.fn(), null, onFocusTurn);
+
+    const nodes = within(
+      screen.getByRole("listbox", { name: "Turns" }),
+    ).getAllByRole("option");
+    expect(nodes.map((node) => node.textContent)).toEqual([
+      "All turns",
+      expect.stringContaining("list files"),
+      expect.stringContaining("Found README"),
+    ]);
+    expect(nodes[1]).toHaveTextContent("1 tools");
+
+    fireEvent.click(nodes[2]!);
+    expect(onFocusTurn).toHaveBeenLastCalledWith(2);
+    cleanup();
+
+    renderTrajectory(vi.fn(), 1, onFocusTurn);
+    expect(content().getByText("list files")).toBeInTheDocument();
+    expect(content().queryByText("Found README")).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("listbox", { name: "Turns" }), {
+      key: "ArrowDown",
+    });
+    expect(onFocusTurn).toHaveBeenLastCalledWith(2);
+  });
+
+  it("shows side requests inline, expands tool results, and opens raw events", () => {
     const onOpenEvent = vi.fn();
     renderTrajectory(onOpenEvent);
 
-    expect(screen.getByText("list files")).toBeInTheDocument();
-    expect(screen.queryByText("classifier input")).not.toBeInTheDocument();
-    expect(screen.queryByText("README.md")).not.toBeInTheDocument();
+    expect(content().getByText("list files")).toBeInTheDocument();
+    expect(content().getByText("classifier input")).toBeInTheDocument();
+    expect(content().queryByText("README.md")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Show more" })[1]!);
-    expect(screen.getByText("README.md")).toBeInTheDocument();
+    expect(content().getByText("README.md")).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Open event" })[1]!);
     expect(onOpenEvent).toHaveBeenCalledWith("event-user-list files");
-
-    fireEvent.click(screen.getByRole("button", { name: "All streams" }));
-    expect(screen.getByText("classifier input")).toBeInTheDocument();
   });
 });
 
-function renderTrajectory(onOpenEvent: (eventPk: string) => void) {
+/** Queries scoped to the selected turn's content, excluding the timeline. */
+function content() {
+  const region = document.querySelector<HTMLElement>(
+    "[data-trajectory-content]",
+  );
+  if (region === null) {
+    throw new Error("trajectory content is not rendered");
+  }
+  return within(region);
+}
+
+function renderTrajectory(
+  onOpenEvent: (eventPk: string) => void,
+  focusedTurn: number | null = null,
+  onFocusTurn: (turnIndex: number | null) => void = vi.fn(),
+) {
   // jsdom has no layout, so give the virtualized list a measurable viewport.
   vi.stubGlobal(
     "ResizeObserver",
@@ -100,6 +171,8 @@ function renderTrajectory(onOpenEvent: (eventPk: string) => void) {
     <SessionTrajectory
       items={items}
       onOpenEvent={onOpenEvent}
+      focusedTurn={focusedTurn}
+      onFocusTurn={onFocusTurn}
       formatTime={(value) => value}
       formatNumber={(value) => value.toString()}
       labels={labels}
@@ -133,9 +206,10 @@ const labels: SessionTrajectoryLabels = {
   openEvent: "Open event",
   turn: (index) => `Turn ${index}`,
   characters: (count) => `${count} chars`,
-  mainStream: "Main stream",
-  allStreams: "All streams",
-  streamLabel: (stream) => `Side ${stream}`,
   summary: (count, toolCalls) => `${count} items ${toolCalls} tools`,
   empty: "Empty",
+  allTurns: "All turns",
+  turnList: "Turns",
+  toolCount: (count) => `${count} tools`,
+  toolsOnly: (names) => `Tools: ${names}`,
 };

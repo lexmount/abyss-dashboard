@@ -2,7 +2,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import * as React from "react";
 import { Badge } from "../components/badge";
-import { Button } from "../components/button";
 import { cn } from "../utils";
 
 const ESTIMATED_ITEM_HEIGHT_PX = 72;
@@ -44,16 +43,20 @@ export interface SessionTrajectoryLabels {
   openEvent: string;
   turn: (index: number) => string;
   characters: (count: string) => string;
-  mainStream: string;
-  allStreams: string;
-  streamLabel: (stream: number) => string;
   summary: (items: string, toolCalls: string) => string;
   empty: string;
+  allTurns: string;
+  turnList: string;
+  toolCount: (count: string) => string;
+  toolsOnly: (names: string) => string;
 }
 
 export interface SessionTrajectoryProps {
   items: SessionTrajectoryItem[];
   onOpenEvent: (eventPk: string) => void;
+  /** Turn shown on its own, or null for the whole session. */
+  focusedTurn: number | null;
+  onFocusTurn: (turnIndex: number | null) => void;
   formatTime: (value: string) => string;
   formatNumber: (value: number) => string;
   labels: SessionTrajectoryLabels;
@@ -64,32 +67,63 @@ type TrajectoryRow =
   | { kind: "turn"; turnIndex: number; startedAt: string }
   | { kind: "item"; item: SessionTrajectoryItem; index: number };
 
-/** Stream with the most items; side requests usually contribute far fewer. */
-export function mainTrajectoryStream(
+/** One node of the turn timeline. */
+export interface TrajectoryTurnSummary {
+  turnIndex: number;
+  startedAt: string;
+  /** First user input of the turn, else its first assistant reply. */
+  summary: string | null;
+  /** Distinct tool names, used when the turn has no text. */
+  toolNames: string[];
+  toolCalls: number;
+}
+
+/** Summarizes each turn in session order. */
+export function trajectoryTurnSummaries(
   items: readonly SessionTrajectoryItem[],
-): number | null {
-  const counts = new Map<number, number>();
+): TrajectoryTurnSummary[] {
+  const turns: TrajectoryTurnSummary[] = [];
+  const replies = new Map<number, string>();
   for (const item of items) {
-    counts.set(item.stream, (counts.get(item.stream) ?? 0) + 1);
-  }
-  let main: number | null = null;
-  for (const [stream, count] of counts) {
-    if (main === null || count > (counts.get(main) ?? 0)) {
-      main = stream;
+    let turn = turns.at(-1);
+    if (turn?.turnIndex !== item.turn_index) {
+      turn = {
+        turnIndex: item.turn_index,
+        startedAt: item.observed_at,
+        summary: null,
+        toolNames: [],
+        toolCalls: 0,
+      };
+      turns.push(turn);
+    }
+    if (item.kind === "user" && turn.summary === null && item.text?.trim()) {
+      turn.summary = oneLine(item.text);
+    } else if (item.kind === "assistant" && item.text?.trim()) {
+      if (!replies.has(turn.turnIndex)) {
+        replies.set(turn.turnIndex, oneLine(item.text));
+      }
+    } else if (item.kind === "tool_call") {
+      turn.toolCalls += 1;
+      if (item.name && !turn.toolNames.includes(item.name)) {
+        turn.toolNames.push(item.name);
+      }
     }
   }
-  return main;
+  for (const turn of turns) {
+    turn.summary ??= replies.get(turn.turnIndex) ?? null;
+  }
+  return turns;
 }
 
 /** Inserts a turn header before the first item of each turn. */
 export function trajectoryRows(
   items: readonly SessionTrajectoryItem[],
-  stream: number | null,
+  onlyTurn: number | null = null,
 ): TrajectoryRow[] {
   const rows: TrajectoryRow[] = [];
   let turn: number | null = null;
   items.forEach((item, index) => {
-    if (stream !== null && item.stream !== stream) {
+    if (onlyTurn !== null && item.turn_index !== onlyTurn) {
       return;
     }
     if (item.turn_index !== turn) {
@@ -112,20 +146,17 @@ export function trajectoryRows(
 export function SessionTrajectory({
   items,
   onOpenEvent,
+  focusedTurn,
+  onFocusTurn,
   formatTime,
   formatNumber,
   labels,
   className,
 }: SessionTrajectoryProps) {
-  const main = React.useMemo(() => mainTrajectoryStream(items), [items]);
-  const streamCount = React.useMemo(
-    () => new Set(items.map((item) => item.stream)).size,
-    [items],
-  );
-  const [showAllStreams, setShowAllStreams] = React.useState(false);
+  const turns = React.useMemo(() => trajectoryTurnSummaries(items), [items]);
   const rows = React.useMemo(
-    () => trajectoryRows(items, showAllStreams ? null : main),
-    [items, main, showAllStreams],
+    () => trajectoryRows(items, focusedTurn),
+    [items, focusedTurn],
   );
   const counts = React.useMemo(() => {
     let itemCount = 0;
@@ -166,75 +197,211 @@ export function SessionTrajectory({
     overscan: VIRTUAL_OVERSCAN_ITEMS,
   });
 
+  // A newly selected turn starts reading from its beginning.
+  React.useEffect(() => {
+    virtualizer.scrollToOffset(0);
+  }, [focusedTurn, virtualizer]);
+
   return (
-    <div className={cn("flex min-h-0 flex-col border-y", className)}>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2">
-        <div className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
-          {labels.summary(
-            formatNumber(counts.items),
-            formatNumber(counts.toolCalls),
+    <div className={cn("flex min-h-0 border-y max-md:flex-col", className)}>
+      <TurnTimeline
+        turns={turns}
+        focusedTurn={focusedTurn}
+        onFocusTurn={onFocusTurn}
+        formatTime={formatTime}
+        formatNumber={formatNumber}
+        labels={labels}
+      />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2">
+          <div className="min-w-0 flex-1 truncate text-sm">
+            <span className="font-medium">
+              {focusedTurn === null
+                ? labels.allTurns
+                : labels.turn(focusedTurn)}
+            </span>
+            <span className="text-muted-foreground ml-2 text-xs">
+              {labels.summary(
+                formatNumber(counts.items),
+                formatNumber(counts.toolCalls),
+              )}
+            </span>
+          </div>
+        </div>
+        <div
+          ref={scrollRef}
+          data-trajectory-content=""
+          className="min-h-0 flex-1 overflow-auto"
+        >
+          {rows.length === 0 ? (
+            <div className="text-muted-foreground py-10 text-center text-sm">
+              {labels.empty}
+            </div>
+          ) : (
+            <div
+              className="relative w-full"
+              style={{ height: virtualizer.getTotalSize() }}
+            >
+              {virtualizer.getVirtualItems().map((virtual) => {
+                const row = rows[virtual.index];
+                if (!row) {
+                  return null;
+                }
+                return (
+                  <div
+                    key={virtual.key}
+                    data-index={virtual.index}
+                    ref={virtualizer.measureElement}
+                    className="absolute top-0 left-0 w-full"
+                    style={{ transform: `translateY(${virtual.start}px)` }}
+                  >
+                    {row.kind === "turn" ? (
+                      <div className="bg-muted/60 flex items-center gap-2 border-b px-3 py-1.5 text-xs">
+                        <span className="font-medium">
+                          {labels.turn(row.turnIndex)}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {formatTime(row.startedAt)}
+                        </span>
+                      </div>
+                    ) : (
+                      <TrajectoryItemRow
+                        item={row.item}
+                        expanded={expanded.has(row.index)}
+                        onToggle={() => toggle(row.index)}
+                        onOpenEvent={onOpenEvent}
+                        formatTime={formatTime}
+                        formatNumber={formatNumber}
+                        labels={labels}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
-        {streamCount > 1 ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowAllStreams((value) => !value)}
-          >
-            {showAllStreams ? labels.mainStream : labels.allStreams}
-          </Button>
-        ) : null}
       </div>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
-        {rows.length === 0 ? (
-          <div className="text-muted-foreground py-10 text-center text-sm">
-            {labels.empty}
-          </div>
-        ) : (
-          <div
-            className="relative w-full"
-            style={{ height: virtualizer.getTotalSize() }}
-          >
-            {virtualizer.getVirtualItems().map((virtual) => {
-              const row = rows[virtual.index];
-              if (!row) {
-                return null;
-              }
-              return (
-                <div
-                  key={virtual.key}
-                  data-index={virtual.index}
-                  ref={virtualizer.measureElement}
-                  className="absolute top-0 left-0 w-full"
-                  style={{ transform: `translateY(${virtual.start}px)` }}
-                >
-                  {row.kind === "turn" ? (
-                    <div className="bg-muted/60 flex items-center gap-2 border-b px-3 py-1.5 text-xs">
-                      <span className="font-medium">
-                        {labels.turn(row.turnIndex)}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {formatTime(row.startedAt)}
-                      </span>
-                    </div>
-                  ) : (
-                    <TrajectoryItemRow
-                      item={row.item}
-                      expanded={expanded.has(row.index)}
-                      showStream={showAllStreams && row.item.stream !== main}
-                      onToggle={() => toggle(row.index)}
-                      onOpenEvent={onOpenEvent}
-                      formatTime={formatTime}
-                      formatNumber={formatNumber}
-                      labels={labels}
-                    />
+    </div>
+  );
+}
+
+/**
+ * Vertical timeline threading every turn; selecting a node shows that turn.
+ * The first node shows the whole session.
+ */
+function TurnTimeline({
+  turns,
+  focusedTurn,
+  onFocusTurn,
+  formatTime,
+  formatNumber,
+  labels,
+}: {
+  turns: TrajectoryTurnSummary[];
+  focusedTurn: number | null;
+  onFocusTurn: (turnIndex: number | null) => void;
+  formatTime: (value: string) => string;
+  formatNumber: (value: number) => string;
+  labels: SessionTrajectoryLabels;
+}) {
+  const nodes: (number | null)[] = [
+    null,
+    ...turns.map((turn) => turn.turnIndex),
+  ];
+  const selectedRef = React.useRef<HTMLButtonElement>(null);
+
+  React.useEffect(() => {
+    selectedRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [focusedTurn]);
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const step =
+      event.key === "ArrowDown" || event.key === "j"
+        ? 1
+        : event.key === "ArrowUp" || event.key === "k"
+          ? -1
+          : 0;
+    if (step === 0) {
+      return;
+    }
+    const position = Math.max(0, nodes.indexOf(focusedTurn));
+    const next = nodes[position + step];
+    if (next !== undefined) {
+      onFocusTurn(next);
+    }
+    event.preventDefault();
+  };
+
+  return (
+    <div
+      role="listbox"
+      aria-label={labels.turnList}
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+      className="bg-muted/20 min-h-0 shrink-0 overflow-auto py-2 outline-none max-md:max-h-56 max-md:border-b md:w-72 md:border-r"
+    >
+      <ol className="relative">
+        <span
+          aria-hidden
+          className="bg-muted-foreground/40 absolute top-4 bottom-4 left-[1.05rem] z-[1] w-0.5"
+        />
+        {nodes.map((turnIndex) => {
+          const turn =
+            turnIndex === null
+              ? undefined
+              : turns.find((candidate) => candidate.turnIndex === turnIndex);
+          const selected = turnIndex === focusedTurn;
+          return (
+            <li key={turnIndex ?? "all"}>
+              <button
+                ref={selected ? selectedRef : undefined}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={() => onFocusTurn(turnIndex)}
+                className={cn(
+                  "relative flex w-full gap-3 px-3 py-2 text-left",
+                  selected ? "bg-accent" : "hover:bg-muted/60",
+                )}
+              >
+                <span
+                  aria-hidden
+                  className={cn(
+                    "relative z-[2] mt-1 size-2.5 shrink-0 rounded-full border-2",
+                    selected
+                      ? "border-primary bg-primary"
+                      : "border-muted-foreground/60 bg-background",
                   )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline gap-2 text-xs">
+                    <span className="font-medium">
+                      {turn ? labels.turn(turn.turnIndex) : labels.allTurns}
+                    </span>
+                    {turn ? (
+                      <span className="text-muted-foreground tabular-nums">
+                        {formatTime(turn.startedAt)}
+                      </span>
+                    ) : null}
+                    {turn && turn.toolCalls > 0 ? (
+                      <span className="text-muted-foreground ml-auto tabular-nums">
+                        {labels.toolCount(formatNumber(turn.toolCalls))}
+                      </span>
+                    ) : null}
+                  </span>
+                  {turn ? (
+                    <span className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
+                      {turn.summary ??
+                        labels.toolsOnly(turn.toolNames.join(", "))}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
@@ -267,7 +434,6 @@ function isLong(text: string): boolean {
 function TrajectoryItemRow({
   item,
   expanded,
-  showStream,
   onToggle,
   onOpenEvent,
   formatTime,
@@ -276,7 +442,6 @@ function TrajectoryItemRow({
 }: {
   item: SessionTrajectoryItem;
   expanded: boolean;
-  showStream: boolean;
   onToggle: () => void;
   onOpenEvent: (eventPk: string) => void;
   formatTime: (value: string) => string;
@@ -325,11 +490,6 @@ function TrajectoryItemRow({
         ) : (
           <span className="min-w-0 flex-1" />
         )}
-        {showStream ? (
-          <span className="text-muted-foreground">
-            {labels.streamLabel(item.stream)}
-          </span>
-        ) : null}
         {tool ? (
           <span className="text-muted-foreground shrink-0 tabular-nums">
             {item.output === undefined

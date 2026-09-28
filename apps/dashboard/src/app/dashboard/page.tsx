@@ -4,6 +4,7 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  ArrowRight,
   Bot,
   ChevronLeft,
   ChevronRight,
@@ -11,8 +12,6 @@ import {
   ChevronsRight,
   Database,
   ExternalLink,
-  Eye,
-  EyeOff,
   MessageSquare,
   RefreshCw,
   Search,
@@ -48,7 +47,6 @@ import {
 } from "@lexmount.com/abyss-ui";
 import { Input } from "@lexmount.com/abyss-ui";
 import { Label } from "@lexmount.com/abyss-ui";
-import { Popover, PopoverContent, PopoverTrigger } from "@lexmount.com/abyss-ui";
 import {
   Select,
   SelectContent,
@@ -90,7 +88,6 @@ const defaultNonDateFilters = {
 
 const providerOptions = ["openai", "anthropic"] as const;
 const pageSizeOptions = [10, 20, 50] as const;
-const recentEventTextPreviewMaxCharacters = 700;
 const tokenChartRangeOptions = [
   { value: "7d", days: 7, labelKey: "dashboard.tokenChart.range7Days" },
   { value: "30d", days: 30, labelKey: "dashboard.tokenChart.range30Days" },
@@ -542,12 +539,6 @@ export function RawEventsTable({
 }) {
   const { t, formatNumber, formatDateTime } = useI18n();
   const pagination = useTablePagination(events);
-  const [openTextEventId, setOpenTextEventId] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    setOpenTextEventId(null);
-  }, [events]);
-
   return (
     <Card>
       <CardHeader>
@@ -583,7 +574,7 @@ export function RawEventsTable({
                 <TableHead>{t("dashboard.recent.platformHost")}</TableHead>
                 <TableHead>{t("common.event")}</TableHead>
                 <TableHead>{t("common.model")}</TableHead>
-                <TableHead>{t("table.text")}</TableHead>
+                <TableHead>{t("dashboard.recent.turn")}</TableHead>
                 <TableHead>{t("common.tokens")}</TableHead>
               </TableRow>
             </TableHeader>
@@ -599,7 +590,6 @@ export function RawEventsTable({
                 </TableRow>
               ) : (
                 pagination.pageRows.map((event) => {
-                  const textPreview = recentEventTextPreview(event.text);
                   const sessionDetailUrl = `/sessions/${event.session_pk}`;
 
                   return (
@@ -655,50 +645,25 @@ export function RawEventsTable({
                       <TableCell className="overflow-hidden">
                         <span className="block truncate">{event.llm_model}</span>
                       </TableCell>
-                      <TableCell className="max-w-0 overflow-hidden whitespace-normal align-top">
-                        <div className="grid w-full min-w-0 max-w-full grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2">
-                          <Popover
-                            open={openTextEventId === event.id}
-                            onOpenChange={(open) =>
-                              setOpenTextEventId(open ? event.id : null)
-                            }
+                      <TableCell className="overflow-hidden">
+                        <Button
+                          asChild
+                          variant="outline"
+                          size="sm"
+                          className="h-7 max-w-full px-2 text-xs"
+                        >
+                          <Link
+                            to={`${sessionDetailUrl}?turn=${event.turn_index}`}
+                            title={t("dashboard.recent.openTurnTitle")}
                           >
-                            <PopoverTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="size-7 shrink-0"
-                                aria-label={
-                                  openTextEventId === event.id
-                                    ? t("dashboard.recent.hideText")
-                                    : t("dashboard.recent.showText")
-                                }
-                              >
-                                {openTextEventId === event.id ? (
-                                  <EyeOff className="size-4" />
-                                ) : (
-                                  <Eye className="size-4" />
-                                )}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent
-                              align="start"
-                              side="left"
-                              className="w-[min(560px,calc(100vw-2rem))] overflow-hidden p-0 data-[state=closed]:animate-none data-[state=open]:animate-none"
-                            >
-                              <RecentEventTextPreview
-                                textPreview={textPreview}
-                                sessionDetailUrl={sessionDetailUrl}
-                              />
-                            </PopoverContent>
-                          </Popover>
-                          <div className="min-w-0 max-w-full overflow-hidden">
-                            <div className="text-muted-foreground truncate leading-7">
-                              {t("dashboard.recent.hidden")}
-                            </div>
-                          </div>
-                        </div>
+                            <span className="truncate">
+                              {t("dashboard.recent.openTurn", {
+                                turn: event.turn_index,
+                              })}
+                            </span>
+                            <ArrowRight className="size-3.5 shrink-0" />
+                          </Link>
+                        </Button>
                       </TableCell>
                       <TableCell className="font-medium tabular-nums">
                         {formatNumber(event.total_tokens)}
@@ -1000,88 +965,6 @@ function countAgentProducts(rows: SummaryRow[]): number {
       .filter((agentName): agentName is string => Boolean(agentName))
       .map(agentProductKey),
   ).size;
-}
-
-function RecentEventTextPreview({
-  textPreview,
-  sessionDetailUrl,
-}: {
-  textPreview: {
-    text: string;
-    truncated: boolean;
-  };
-  sessionDetailUrl: string;
-}) {
-  const { t } = useI18n();
-  const previewRef = React.useRef<HTMLDivElement>(null);
-  const [previewOverflows, setPreviewOverflows] = React.useState(false);
-
-  React.useLayoutEffect(() => {
-    const preview = previewRef.current;
-    if (preview === null) {
-      return;
-    }
-
-    const updatePreviewOverflow = () => {
-      setPreviewOverflows(
-        preview.scrollWidth > preview.clientWidth ||
-          preview.scrollHeight > preview.clientHeight,
-      );
-    };
-
-    updatePreviewOverflow();
-
-    const resizeObserver =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(updatePreviewOverflow);
-    resizeObserver?.observe(preview);
-    window.addEventListener("resize", updatePreviewOverflow);
-
-    return () => {
-      resizeObserver?.disconnect();
-      window.removeEventListener("resize", updatePreviewOverflow);
-    };
-  }, [textPreview.text]);
-
-  const shouldShowSessionDetailLink = textPreview.truncated || previewOverflows;
-
-  return (
-    <>
-      <div ref={previewRef} className="truncate p-3 font-mono text-xs">
-        {textPreview.text}
-      </div>
-      {shouldShowSessionDetailLink ? (
-        <div className="bg-muted/40 text-muted-foreground border-t px-3 py-2 text-xs">
-          <div>{t("dashboard.recent.previewTruncated")}</div>
-          <Button asChild variant="link" className="mt-1 h-auto p-0 text-xs">
-            <Link to={sessionDetailUrl}>
-              {t("dashboard.recent.openSessionDetail")}
-              <ExternalLink className="size-3.5" />
-            </Link>
-          </Button>
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function recentEventTextPreview(text: string | null): {
-  text: string;
-  truncated: boolean;
-} {
-  if (text === null || text.length === 0) {
-    return { text: "-", truncated: false };
-  }
-
-  if (text.length <= recentEventTextPreviewMaxCharacters) {
-    return { text, truncated: false };
-  }
-
-  return {
-    text: `${text.slice(0, recentEventTextPreviewMaxCharacters).trimEnd()}...`,
-    truncated: true,
-  };
 }
 
 function createDefaultFilters(): FilterDraft {
