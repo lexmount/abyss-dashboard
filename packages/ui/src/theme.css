@@ -93,38 +93,41 @@ html:lang(ja) {
     sans-serif;
 }
 
+/* Dark mode is a near-neutral graphite with a faint hue-285 tint. Surfaces
+   step up in lightness from the sidebar frame to the content panel, cards,
+   and popovers; violet is kept for focus and selection. */
 .dark {
-  --background: #08050f;
-  --foreground: #f7f5fb;
-  --card: #120d1d;
-  --card-foreground: #f7f5fb;
-  --popover: #120d1d;
-  --popover-foreground: #f7f5fb;
-  --primary: #f7f5fb;
-  --primary-foreground: #100b1a;
-  --secondary: #1d1629;
-  --secondary-foreground: #f7f5fb;
-  --muted: #1d1629;
-  --muted-foreground: #9c96a8;
-  --accent: #221a31;
-  --accent-foreground: #f7f5fb;
+  --background: #121217;
+  --foreground: #f6f6f9;
+  --card: #19191e;
+  --card-foreground: #f6f6f9;
+  --popover: #1d1d24;
+  --popover-foreground: #f6f6f9;
+  --primary: #f6f6f9;
+  --primary-foreground: #121217;
+  --secondary: #23232a;
+  --secondary-foreground: #f6f6f9;
+  --muted: #23232a;
+  --muted-foreground: #a3a4ac;
+  --accent: #292930;
+  --accent-foreground: #f6f6f9;
   --destructive: oklch(0.704 0.191 22.216);
-  --border: rgb(255 255 255 / 0.1);
-  --input: rgb(255 255 255 / 0.15);
-  --ring: #a78bfa;
+  --border: #2d2d34;
+  --input: #37373e;
+  --ring: #8b6cf0;
   --chart-1: #8b6cf0;
   --chart-2: #3b8ef0;
   --chart-3: #12a594;
   --chart-4: #fa0555;
   --chart-5: #d4900f;
-  --sidebar: #0d0916;
-  --sidebar-foreground: #f7f5fb;
-  --sidebar-primary: #f7f5fb;
-  --sidebar-primary-foreground: #100b1a;
-  --sidebar-accent: #1d1629;
-  --sidebar-accent-foreground: #f7f5fb;
-  --sidebar-border: rgb(255 255 255 / 0.08);
-  --sidebar-ring: #a78bfa;
+  --sidebar: #0c0c10;
+  --sidebar-foreground: #f6f6f9;
+  --sidebar-primary: #f6f6f9;
+  --sidebar-primary-foreground: #121217;
+  --sidebar-accent: #1d1d24;
+  --sidebar-accent-foreground: #f6f6f9;
+  --sidebar-border: #23232a;
+  --sidebar-ring: #8b6cf0;
 }
 
 @layer base {
