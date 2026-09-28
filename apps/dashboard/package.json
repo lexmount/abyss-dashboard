@@ -44,6 +44,8 @@
     "prepublishOnly": "npm test"
   },
   "devDependencies": {
+    "@fontsource/dm-sans": "^5.3.0",
+    "@fontsource/fragment-mono": "^5.3.0",
     "@lexmount.com/abyss-ui": "0.2.2",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-dialog": "^1.1.15",
