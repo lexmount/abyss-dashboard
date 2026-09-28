@@ -331,15 +331,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+// Legend rows: input / output, then cache read / cache write, so cache reads
+// sit under input and cache writes under output.
 const usageShares = [
   { key: "input", dataKey: "input_tokens", color: "var(--usage-input)" },
   { key: "output", dataKey: "output_tokens", color: "var(--usage-output)" },
+  { key: "cacheRead", dataKey: "cache_read_tokens", color: "var(--usage-cache-read)" },
   {
     key: "cacheWrite",
     dataKey: "cache_write_tokens",
     color: "var(--usage-cache-write)",
   },
-  { key: "cacheRead", dataKey: "cache_read_tokens", color: "var(--usage-cache-read)" },
 ] as const;
 
 type UsageShareKey = (typeof usageShares)[number]["key"];
@@ -356,8 +358,8 @@ function formatShare(value: number, total: number, locale: string): string {
 
 /**
  * Token composition for the total card: a proportional bar whose colors match
- * the daily chart, and a legend read by row as input / output and cache write
- * / cache read. Hovering a segment or entry shows its exact count and share.
+ * the daily chart, and a legend with input / output above cache read / cache
+ * write. Hovering a segment or entry shows its exact count and share.
  */
 function TokenBreakdown({ totals }: { totals: UsageTotals }) {
   const { t, locale, formatNumber } = useI18n();
