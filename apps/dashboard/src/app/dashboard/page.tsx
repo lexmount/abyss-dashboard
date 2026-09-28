@@ -330,6 +330,97 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/**
+ * Token composition for the total card: a proportional bar whose colors match
+ * the daily chart, and a two-by-two legend with short labels and counts.
+ * Hovering a legend entry shows its full name and exact count.
+ */
+function TokenBreakdown({ totals }: { totals: UsageTotals }) {
+  const { t, locale, formatNumber } = useI18n();
+  const compactNumber = React.useMemo(
+    () =>
+      new Intl.NumberFormat(locale, {
+        notation: "compact",
+        maximumSignificantDigits: 3,
+      }),
+    [locale],
+  );
+  // Legend order reads by column: input over cache read, output over cache write.
+  const parts = [
+    {
+      key: "input",
+      label: t("dashboard.metric.input"),
+      fullLabel: t("dashboard.tokenChart.inputTokens"),
+      value: totals.inputTokens,
+      color: "var(--chart-2)",
+    },
+    {
+      key: "output",
+      label: t("dashboard.metric.output"),
+      fullLabel: t("dashboard.tokenChart.outputTokens"),
+      value: totals.outputTokens,
+      color: "var(--chart-3)",
+    },
+    {
+      key: "cacheRead",
+      label: t("dashboard.metric.cacheRead"),
+      fullLabel: t("dashboard.tokenChart.cacheReadTokens"),
+      value: totals.cacheReadTokens,
+      color: "var(--chart-1)",
+    },
+    {
+      key: "cacheWrite",
+      label: t("dashboard.metric.cacheWrite"),
+      fullLabel: t("dashboard.tokenChart.cacheWriteTokens"),
+      value: totals.cacheWriteTokens,
+      color: "var(--chart-4)",
+    },
+  ];
+  const barOrder = ["cacheRead", "cacheWrite", "input", "output"];
+  const total = parts.reduce((sum, part) => sum + part.value, 0);
+
+  return (
+    <div className="grid gap-2.5">
+      <div
+        className="bg-muted flex h-1.5 gap-px overflow-hidden rounded-full"
+        aria-hidden="true"
+      >
+        {total > 0
+          ? barOrder.map((key) => {
+              const part = parts.find((item) => item.key === key)!;
+              return part.value > 0 ? (
+                <span
+                  key={key}
+                  className="min-w-0.5"
+                  style={{ flexGrow: part.value, background: part.color }}
+                />
+              ) : null;
+            })
+          : null}
+      </div>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        {parts.map((part) => (
+          <div
+            key={part.key}
+            className="flex min-w-0 items-center gap-1.5"
+            title={`${part.fullLabel} ${formatNumber(part.value)}`}
+          >
+            <span
+              className="size-1.5 shrink-0 rounded-full"
+              style={{ background: part.color }}
+              aria-hidden="true"
+            />
+            <dt className="truncate">{part.label}</dt>
+            <dd className="text-foreground ml-auto font-medium tabular-nums">
+              {compactNumber.format(part.value)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function MetricCards({
   totals,
   agentCount,
@@ -345,21 +436,7 @@ function MetricCards({
       label: t("dashboard.metric.totalTokens"),
       value: totals.totalTokens,
       icon: Database,
-      detail: (
-        <>
-          <div>
-            {t("dashboard.metric.inputOutput", {
-              input: formatNumber(totals.inputTokens),
-              output: formatNumber(totals.outputTokens),
-            })}
-          </div>
-          <div>
-            {t("dashboard.metric.cachedInput", {
-              cached: formatNumber(totals.cachedInputTokens),
-            })}
-          </div>
-        </>
-      ),
+      detail: <TokenBreakdown totals={totals} />,
     },
     {
       label: t("dashboard.metric.sessions"),
@@ -436,8 +513,12 @@ function TokenChart({
     () =>
       ({
         cache_read_tokens: {
-          label: t("dashboard.tokenChart.cachedInputTokens"),
+          label: t("dashboard.tokenChart.cacheReadTokens"),
           color: "var(--chart-1)",
+        },
+        cache_write_tokens: {
+          label: t("dashboard.tokenChart.cacheWriteTokens"),
+          color: "var(--chart-4)",
         },
         input_tokens: {
           label: t("dashboard.tokenChart.inputTokens"),
@@ -541,6 +622,14 @@ function TokenChart({
                 fill="var(--color-input_tokens)"
                 fillOpacity={0.3}
                 stroke="var(--color-input_tokens)"
+                stackId="tokens"
+              />
+              <Area
+                dataKey="cache_write_tokens"
+                type="monotone"
+                fill="var(--color-cache_write_tokens)"
+                fillOpacity={0.3}
+                stroke="var(--color-cache_write_tokens)"
                 stackId="tokens"
               />
               <Area
@@ -861,18 +950,19 @@ interface UsageTotals {
   turns: number;
   requests: number;
   responses: number;
-  /** Uncached input plus input written into a cache. */
+  /** Input that was neither read from nor written to a cache. */
   inputTokens: number;
-  cachedInputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   totalTokens: number;
 }
 
 interface ChartRow {
   day: string;
-  /** Uncached input plus input written into a cache. */
   input_tokens: number;
   cache_read_tokens: number;
+  cache_write_tokens: number;
   output_tokens: number;
   total_tokens: number;
 }
@@ -892,8 +982,9 @@ function summarizeRows(rows: SummaryRow[]): UsageTotals {
       turns: totals.turns + row.turns,
       requests: totals.requests + row.requests,
       responses: totals.responses + row.responses,
-      inputTokens: totals.inputTokens + row.input_tokens + row.cache_write_tokens,
-      cachedInputTokens: totals.cachedInputTokens + row.cache_read_tokens,
+      inputTokens: totals.inputTokens + row.input_tokens,
+      cacheReadTokens: totals.cacheReadTokens + row.cache_read_tokens,
+      cacheWriteTokens: totals.cacheWriteTokens + row.cache_write_tokens,
       outputTokens: totals.outputTokens + row.output_tokens,
       totalTokens: totals.totalTokens + row.total_tokens,
     }),
@@ -903,7 +994,8 @@ function summarizeRows(rows: SummaryRow[]): UsageTotals {
       requests: 0,
       responses: 0,
       inputTokens: 0,
-      cachedInputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
     },
@@ -920,6 +1012,7 @@ export function chartRowsByDay(
       day,
       input_tokens: 0,
       cache_read_tokens: 0,
+      cache_write_tokens: 0,
       output_tokens: 0,
       total_tokens: 0,
     });
@@ -933,8 +1026,9 @@ export function chartRowsByDay(
     if (current === undefined) {
       continue;
     }
-    current.input_tokens += row.input_tokens + row.cache_write_tokens;
+    current.input_tokens += row.input_tokens;
     current.cache_read_tokens += row.cache_read_tokens;
+    current.cache_write_tokens += row.cache_write_tokens;
     current.output_tokens += row.output_tokens;
     current.total_tokens += row.total_tokens;
   }

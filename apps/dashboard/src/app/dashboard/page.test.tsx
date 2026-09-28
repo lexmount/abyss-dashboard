@@ -128,13 +128,15 @@ describe("token chart rows", () => {
       day: "2026-06-25",
       input_tokens: 0,
       cache_read_tokens: 0,
+      cache_write_tokens: 0,
       output_tokens: 0,
       total_tokens: 0,
     });
     expect(rows[6]).toEqual({
       day: "2026-07-01",
-      input_tokens: 2_687,
+      input_tokens: 687,
       cache_read_tokens: 190_000,
+      cache_write_tokens: 2_000,
       output_tokens: 170,
       total_tokens: 192_857,
     });
@@ -193,7 +195,7 @@ describe("UsageDashboard", () => {
     expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object));
   });
 
-  it("shows cached input apart from uncached input and output", async () => {
+  it("shows cache reads and writes apart from input and output", async () => {
     fetchUsageSummaryMock.mockResolvedValue({
       from: null,
       to: null,
@@ -229,8 +231,12 @@ describe("UsageDashboard", () => {
     );
 
     expect(await screen.findByText("192,857")).toBeInTheDocument();
-    expect(screen.getByText("2,687 input / 170 output")).toBeInTheDocument();
-    expect(screen.getByText("190,000 cached input")).toBeInTheDocument();
+    expect(screen.getByTitle("Input tokens 687")).toHaveTextContent("Input687");
+    expect(screen.getByTitle("Output tokens 170")).toHaveTextContent("Output170");
+    expect(screen.getByTitle("Cache read tokens 190,000")).toHaveTextContent(
+      "Read190K",
+    );
+    expect(screen.getByTitle("Cache write tokens 2,000")).toHaveTextContent("Write2K");
   });
 });
 
