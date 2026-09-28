@@ -113,7 +113,10 @@ describe("token chart rows", () => {
         {
           ...baseDailyTokenUsageRow,
           day: "2026-07-01",
-          input_tokens: 192_687,
+          input_tokens: 687,
+          output_tokens: 170,
+          cache_read_tokens: 190_000,
+          cache_write_tokens: 2_000,
           total_tokens: 192_857,
         },
       ],
@@ -124,11 +127,15 @@ describe("token chart rows", () => {
     expect(rows[0]).toEqual({
       day: "2026-06-25",
       input_tokens: 0,
+      cache_read_tokens: 0,
+      output_tokens: 0,
       total_tokens: 0,
     });
     expect(rows[6]).toEqual({
       day: "2026-07-01",
-      input_tokens: 192_687,
+      input_tokens: 2_687,
+      cache_read_tokens: 190_000,
+      output_tokens: 170,
       total_tokens: 192_857,
     });
   });
@@ -185,6 +192,46 @@ describe("UsageDashboard", () => {
     await waitFor(() => expect(fetchUsageSummaryMock).toHaveBeenCalledTimes(1));
     expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object));
   });
+
+  it("shows cached input apart from uncached input and output", async () => {
+    fetchUsageSummaryMock.mockResolvedValue({
+      from: null,
+      to: null,
+      group_by: [],
+      rows: [
+        {
+          sessions: 1,
+          turns: 2,
+          requests: 2,
+          responses: 2,
+          input_tokens: 687,
+          output_tokens: 170,
+          cache_read_tokens: 190_000,
+          cache_write_tokens: 2_000,
+          reasoning_tokens: 40,
+          total_tokens: 192_857,
+        },
+      ],
+      next_page_token: null,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <I18nProvider>
+            <UsageDashboard />
+          </I18nProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("192,857")).toBeInTheDocument();
+    expect(screen.getByText("2,687 input / 170 output")).toBeInTheDocument();
+    expect(screen.getByText("190,000 cached input")).toBeInTheDocument();
+  });
 });
 
 function renderRawEventsTable(events: UsageEvent[]) {
@@ -229,5 +276,8 @@ const baseUsageEvent: UsageEvent = {
 const baseDailyTokenUsageRow: DailyTokenUsageRow = {
   day: "2026-07-01",
   input_tokens: 0,
+  output_tokens: 0,
+  cache_read_tokens: 0,
+  cache_write_tokens: 0,
   total_tokens: 0,
 };

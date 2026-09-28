@@ -345,10 +345,21 @@ function MetricCards({
       label: t("dashboard.metric.totalTokens"),
       value: totals.totalTokens,
       icon: Database,
-      detail: t("dashboard.metric.inputOutput", {
-        input: formatNumber(totals.inputTokens),
-        output: formatNumber(totals.outputTokens),
-      }),
+      detail: (
+        <>
+          <div>
+            {t("dashboard.metric.inputOutput", {
+              input: formatNumber(totals.inputTokens),
+              output: formatNumber(totals.outputTokens),
+            })}
+          </div>
+          <div>
+            {t("dashboard.metric.cachedInput", {
+              cached: formatNumber(totals.cachedInputTokens),
+            })}
+          </div>
+        </>
+      ),
     },
     {
       label: t("dashboard.metric.sessions"),
@@ -412,19 +423,23 @@ function TokenChart({
 }) {
   const { t, formatNumber } = useI18n();
   const hasUsage = React.useMemo(
-    () => rows.some((row) => row.input_tokens > 0 || row.total_tokens > 0),
+    () => rows.some((row) => row.total_tokens > 0),
     [rows],
   );
   const chartConfig = React.useMemo(
     () =>
       ({
-        total_tokens: {
-          label: t("dashboard.metric.totalTokens"),
+        cache_read_tokens: {
+          label: t("dashboard.tokenChart.cachedInputTokens"),
           color: "var(--chart-1)",
         },
         input_tokens: {
           label: t("dashboard.tokenChart.inputTokens"),
           color: "var(--chart-2)",
+        },
+        output_tokens: {
+          label: t("dashboard.tokenChart.outputTokens"),
+          color: "var(--chart-3)",
         },
       }) satisfies ChartConfig,
     [t],
@@ -474,15 +489,15 @@ function TokenChart({
           <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
             <AreaChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
               <defs>
-                <linearGradient id="fillTotalTokens" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="fillCachedInputTokens" x1="0" y1="0" x2="0" y2="1">
                   <stop
                     offset="5%"
-                    stopColor="var(--color-total_tokens)"
+                    stopColor="var(--color-cache_read_tokens)"
                     stopOpacity={0.8}
                   />
                   <stop
                     offset="95%"
-                    stopColor="var(--color-total_tokens)"
+                    stopColor="var(--color-cache_read_tokens)"
                     stopOpacity={0.1}
                   />
                 </linearGradient>
@@ -505,20 +520,29 @@ function TokenChart({
                 tickFormatter={(value) => formatNumber(Number(value))}
               />
               <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+              {/* Disjoint series stack to the daily total. */}
+              <Area
+                dataKey="output_tokens"
+                type="monotone"
+                fill="var(--color-output_tokens)"
+                fillOpacity={0.3}
+                stroke="var(--color-output_tokens)"
+                stackId="tokens"
+              />
               <Area
                 dataKey="input_tokens"
                 type="monotone"
                 fill="var(--color-input_tokens)"
-                fillOpacity={0.14}
+                fillOpacity={0.3}
                 stroke="var(--color-input_tokens)"
-                stackId="a"
+                stackId="tokens"
               />
               <Area
-                dataKey="total_tokens"
+                dataKey="cache_read_tokens"
                 type="monotone"
-                fill="url(#fillTotalTokens)"
-                stroke="var(--color-total_tokens)"
-                stackId="b"
+                fill="url(#fillCachedInputTokens)"
+                stroke="var(--color-cache_read_tokens)"
+                stackId="tokens"
               />
             </AreaChart>
           </ChartContainer>
@@ -831,14 +855,19 @@ interface UsageTotals {
   turns: number;
   requests: number;
   responses: number;
+  /** Uncached input plus input written into a cache. */
   inputTokens: number;
+  cachedInputTokens: number;
   outputTokens: number;
   totalTokens: number;
 }
 
 interface ChartRow {
   day: string;
+  /** Uncached input plus input written into a cache. */
   input_tokens: number;
+  cache_read_tokens: number;
+  output_tokens: number;
   total_tokens: number;
 }
 
@@ -857,7 +886,8 @@ function summarizeRows(rows: SummaryRow[]): UsageTotals {
       turns: totals.turns + row.turns,
       requests: totals.requests + row.requests,
       responses: totals.responses + row.responses,
-      inputTokens: totals.inputTokens + row.input_tokens,
+      inputTokens: totals.inputTokens + row.input_tokens + row.cache_write_tokens,
+      cachedInputTokens: totals.cachedInputTokens + row.cache_read_tokens,
       outputTokens: totals.outputTokens + row.output_tokens,
       totalTokens: totals.totalTokens + row.total_tokens,
     }),
@@ -867,6 +897,7 @@ function summarizeRows(rows: SummaryRow[]): UsageTotals {
       requests: 0,
       responses: 0,
       inputTokens: 0,
+      cachedInputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
     },
@@ -882,6 +913,8 @@ export function chartRowsByDay(
     grouped.set(day, {
       day,
       input_tokens: 0,
+      cache_read_tokens: 0,
+      output_tokens: 0,
       total_tokens: 0,
     });
   }
@@ -894,7 +927,9 @@ export function chartRowsByDay(
     if (current === undefined) {
       continue;
     }
-    current.input_tokens += row.input_tokens;
+    current.input_tokens += row.input_tokens + row.cache_write_tokens;
+    current.cache_read_tokens += row.cache_read_tokens;
+    current.output_tokens += row.output_tokens;
     current.total_tokens += row.total_tokens;
   }
 
