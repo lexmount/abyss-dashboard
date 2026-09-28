@@ -11,11 +11,16 @@ import { SessionSearchResults } from "@/app/sessions/session-search-results";
 import { BaseLayout } from "@/components/layouts/base-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
+import {
+  createTimeRange,
+  isTimeRangePreset,
+  resolveTimeRange,
+  type TimeRange,
+} from "@/lib/time-range";
 
 const defaultFilters: SessionSearchFilters = {
   q: "",
-  from: "",
-  to: "",
+  time: createTimeRange("any"),
   agentName: "",
   provider: "",
   model: "",
@@ -118,8 +123,7 @@ export function filtersFromParams(params: URLSearchParams): SessionSearchFilters
   const eventType = params.get("event_type");
   return {
     q: params.get("q") ?? "",
-    from: params.get("from") ?? "",
-    to: params.get("to") ?? "",
+    time: timeRangeFromParams(params),
     agentName: params.get("agent_name") ?? "",
     provider: params.get("llm_provider") ?? "",
     model: params.get("llm_model") ?? "",
@@ -133,8 +137,13 @@ export function paramsFromFilters(
 ): URLSearchParams {
   const params = new URLSearchParams();
   appendParam(params, "q", filters.q);
-  appendParam(params, "from", filters.from);
-  appendParam(params, "to", filters.to);
+  if (filters.time.preset !== "any") {
+    params.set("range", filters.time.preset);
+  }
+  if (filters.time.preset === "custom") {
+    appendParam(params, "from", filters.time.from);
+    appendParam(params, "to", filters.time.to);
+  }
   appendParam(params, "agent_name", filters.agentName);
   appendParam(params, "llm_provider", filters.provider);
   appendParam(params, "llm_model", filters.model);
@@ -150,8 +159,7 @@ export function paramsFromFilters(
 function apiQuery(filters: SessionSearchFilters, page: number): SessionSearchQuery {
   return {
     q: filters.q,
-    from: isoDateTime(filters.from),
-    to: isoDateTime(filters.to),
+    ...resolveTimeRange(filters.time),
     agentName: filters.agentName || undefined,
     provider: filters.provider || undefined,
     model: filters.model || undefined,
@@ -161,12 +169,16 @@ function apiQuery(filters: SessionSearchFilters, page: number): SessionSearchQue
   };
 }
 
-function isoDateTime(value: string): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+function timeRangeFromParams(params: URLSearchParams): TimeRange {
+  const range = params.get("range");
+  const from = params.get("from") ?? "";
+  const to = params.get("to") ?? "";
+  // Links created before presets existed carry only from/to date-times.
+  const preset = isTimeRangePreset(range) ? range : from || to ? "custom" : "any";
+  const time = createTimeRange(preset);
+  return preset === "custom"
+    ? { preset, from: from || time.from, to: to || time.to }
+    : time;
 }
 
 function appendParam(params: URLSearchParams, key: string, value: string): void {

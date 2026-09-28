@@ -117,6 +117,28 @@ html {
   }
 }
 
+/* A custom time range adds start and end date-time inputs after the range
+   select. On wide screens keep the filters on one row by reserving room for
+   the two minute-precision inputs and narrowing the remaining columns. */
+@media (min-width: 88rem) {
+  .dashboard-filter-grid[data-time-range="custom"],
+  .session-search-filter-grid[data-time-range="custom"] {
+    column-gap: 0.75rem;
+  }
+
+  .dashboard-filter-grid[data-time-range="custom"] {
+    grid-template-columns:
+      minmax(0, 1fr) repeat(2, minmax(11rem, 1.4fr))
+      repeat(5, minmax(0, 1fr));
+  }
+
+  .session-search-filter-grid[data-time-range="custom"] {
+    grid-template-columns:
+      minmax(0, 1fr) repeat(2, minmax(11rem, 1.4fr))
+      repeat(4, minmax(0, 1fr));
+  }
+}
+
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;

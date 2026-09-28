@@ -188,6 +188,7 @@ export interface SummaryRequestOptions {
 const defaultSummaryGroupBy = ["agent", "provider", "model"];
 const summaryFetchLimit = 500;
 const rawEventsFetchLimit = 100;
+const recentSessionsEventLimit = 500;
 
 export function fetchUsageSummary(
   query: UsageQuery,
@@ -212,6 +213,40 @@ export function fetchRawEvents(query: UsageQuery): Promise<RawEventsResponse> {
   const params = usageParams(query);
   params.set("limit", rawEventsFetchLimit.toString());
   return fetchJson<RawEventsResponse>(`/api/v1/agent-usage/events?${params}`);
+}
+
+export interface SessionOption {
+  sessionPk: string;
+  sessionId: string;
+  agentName: string;
+  lastSeenAt: string;
+}
+
+/**
+ * Lists the most recently active sessions in a usage scope. The backend has no
+ * session listing endpoint, so this collapses the latest raw events by session.
+ */
+export async function fetchRecentSessions(query: UsageQuery): Promise<SessionOption[]> {
+  const params = usageParams({ ...query, sessionId: undefined });
+  params.set("limit", recentSessionsEventLimit.toString());
+  const response = await fetchJson<RawEventsResponse>(
+    `/api/v1/agent-usage/events?${params}`,
+  );
+  const sessions = new Map<string, SessionOption>();
+  for (const event of response.events) {
+    const existing = sessions.get(event.session_pk);
+    if (!existing || existing.lastSeenAt < event.observed_at) {
+      sessions.set(event.session_pk, {
+        sessionPk: event.session_pk,
+        sessionId: event.session_id,
+        agentName: event.agent_name,
+        lastSeenAt: event.observed_at,
+      });
+    }
+  }
+  return [...sessions.values()].sort((left, right) =>
+    right.lastSeenAt.localeCompare(left.lastSeenAt),
+  );
 }
 
 export function fetchSessionTimeline(

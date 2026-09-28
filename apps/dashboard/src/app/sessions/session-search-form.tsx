@@ -17,13 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@lexmount.com/abyss-ui";
+import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentFilterOptions } from "@/lib/agents";
+import type { TimeRange } from "@/lib/time-range";
 
 export interface SessionSearchFilters {
   q: string;
-  from: string;
-  to: string;
+  time: TimeRange;
   agentName: string;
   provider: string;
   model: string;
@@ -97,21 +98,13 @@ export function SessionSearchForm({
           <div
             className="session-search-filter-grid grid gap-4"
             data-testid="session-search-filter-grid"
+            data-time-range={draft.time.preset}
           >
-            <Field label={t("common.from")}>
-              <Input
-                type="datetime-local"
-                value={draft.from}
-                onChange={(event) => update("from", event.target.value)}
-              />
-            </Field>
-            <Field label={t("common.to")}>
-              <Input
-                type="datetime-local"
-                value={draft.to}
-                onChange={(event) => update("to", event.target.value)}
-              />
-            </Field>
+            <TimeRangeField
+              value={draft.time}
+              labelClassName="leading-5"
+              onChange={(time) => update("time", time)}
+            />
             <Field label={t("common.agent")}>
               <Select
                 value={draft.agentName || "all"}
@@ -185,7 +178,7 @@ export function SessionSearchForm({
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-2">
+    <div className="grid min-w-0 gap-2">
       <Label className="leading-5">{label}</Label>
       {children}
     </div>

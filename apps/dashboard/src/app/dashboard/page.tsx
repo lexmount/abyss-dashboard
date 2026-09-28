@@ -65,12 +65,14 @@ import {
   TableRow,
 } from "@lexmount.com/abyss-ui";
 import { ToggleGroup, ToggleGroupItem } from "@lexmount.com/abyss-ui";
+import { SessionPicker } from "@/components/session-picker";
+import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
+import { createTimeRange, resolveTimeRange, type TimeRange } from "@/lib/time-range";
 import { agentDisplayName, agentFilterOptions, agentProductKey } from "@/lib/agents";
 
 interface FilterDraft {
-  from: string;
-  to: string;
+  time: TimeRange;
   agentName: string;
   sessionId: string;
   provider: string;
@@ -84,7 +86,7 @@ const defaultNonDateFilters = {
   provider: "",
   model: "",
   eventType: "all",
-} satisfies Omit<FilterDraft, "from" | "to">;
+} satisfies Omit<FilterDraft, "time">;
 
 const providerOptions = ["openai", "anthropic"] as const;
 const pageSizeOptions = [10, 20, 50] as const;
@@ -109,8 +111,7 @@ export function UsageDashboard() {
   const [tokenChartRange, setTokenChartRange] = React.useState<TokenChartRange>("7d");
   const query = React.useMemo<UsageQuery>(
     () => ({
-      from: toUtcIso(filters.from),
-      to: toUtcIso(filters.to),
+      ...resolveTimeRange(filters.time),
       agentName: filters.agentName,
       sessionId: filters.sessionId,
       provider: filters.provider,
@@ -222,9 +223,16 @@ interface UsageFiltersProps {
 
 function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersProps) {
   const { t } = useI18n();
-  const update = (field: keyof FilterDraft, value: string): void => {
+  const update = <Field extends keyof FilterDraft>(
+    field: Field,
+    value: FilterDraft[Field],
+  ): void => {
     onDraftChange({ ...draft, [field]: value });
   };
+  const sessionScope = React.useMemo(
+    () => ({ ...resolveTimeRange(draft.time), agentName: draft.agentName }),
+    [draft.time, draft.agentName],
+  );
   return (
     <Card>
       <CardHeader>
@@ -244,21 +252,9 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
       <CardContent
         className="dashboard-filter-grid grid gap-4"
         data-testid="usage-filters-grid"
+        data-time-range={draft.time.preset}
       >
-        <Field label={t("common.from")}>
-          <Input
-            type="datetime-local"
-            value={draft.from}
-            onChange={(event) => update("from", event.target.value)}
-          />
-        </Field>
-        <Field label={t("common.to")}>
-          <Input
-            type="datetime-local"
-            value={draft.to}
-            onChange={(event) => update("to", event.target.value)}
-          />
-        </Field>
+        <TimeRangeField value={draft.time} onChange={(time) => update("time", time)} />
         <Field label={t("common.agent")}>
           <Select
             value={draft.agentName || "all"}
@@ -302,9 +298,10 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
           />
         </Field>
         <Field label={t("common.session")}>
-          <Input
+          <SessionPicker
             value={draft.sessionId}
-            onChange={(event) => update("sessionId", event.target.value)}
+            scope={sessionScope}
+            onChange={(sessionId) => update("sessionId", sessionId)}
           />
         </Field>
         <Field label={t("common.event")}>
@@ -329,7 +326,7 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid gap-2">
+    <div className="grid min-w-0 gap-2">
       <Label>{label}</Label>
       {children}
     </div>
@@ -1088,36 +1085,12 @@ function recentEventTextPreview(text: string | null): {
 }
 
 function createDefaultFilters(): FilterDraft {
-  const to = new Date();
-  to.setSeconds(0, 0);
-  const from = new Date(to);
-  from.setDate(from.getDate() - 7);
-
   return {
-    from: toDateTimeLocalInputValue(from),
-    to: toDateTimeLocalInputValue(to),
+    time: createTimeRange("7d"),
     ...defaultNonDateFilters,
   };
 }
 
-function toDateTimeLocalInputValue(date: Date): string {
-  return (
-    [date.getFullYear(), pad2(date.getMonth() + 1), pad2(date.getDate())].join("-") +
-    `T${pad2(date.getHours())}:${pad2(date.getMinutes())}`
-  );
-}
-
 function pad2(value: number): string {
   return value.toString().padStart(2, "0");
-}
-
-function toUtcIso(value: string): string | undefined {
-  if (value.length === 0) {
-    return undefined;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return undefined;
-  }
-  return date.toISOString();
 }

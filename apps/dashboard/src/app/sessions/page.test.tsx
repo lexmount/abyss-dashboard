@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/contexts/i18n-context";
-import SessionsPage, { paramsFromFilters } from "./page";
+import SessionsPage, { filtersFromParams, paramsFromFilters } from "./page";
 
 const { searchSessionsMock } = vi.hoisted(() => ({
   searchSessionsMock: vi.fn(),
@@ -89,8 +89,7 @@ describe("session search URL parameters", () => {
     const params = paramsFromFilters(
       {
         q: " timeout ",
-        from: "",
-        to: "",
+        time: { preset: "any", from: "2026-09-01T08:30", to: "2026-09-07T18:00" },
         agentName: "codex",
         provider: "",
         model: "gpt-5",
@@ -102,6 +101,39 @@ describe("session search URL parameters", () => {
     expect(params.toString()).toBe(
       "q=timeout&agent_name=codex&llm_model=gpt-5&event_type=request",
     );
+  });
+
+  it("writes custom date-time bounds only for the custom time range", () => {
+    const base = {
+      q: "timeout",
+      agentName: "",
+      provider: "",
+      model: "",
+      eventType: "all" as const,
+    };
+    const dates = { from: "2026-09-01T08:30", to: "2026-09-07T18:00" };
+
+    expect(
+      paramsFromFilters({ ...base, time: { preset: "7d", ...dates } }, 1).toString(),
+    ).toBe("q=timeout&range=7d");
+    expect(
+      paramsFromFilters(
+        { ...base, time: { preset: "custom", ...dates } },
+        1,
+      ).toString(),
+    ).toBe("q=timeout&range=custom&from=2026-09-01T08%3A30&to=2026-09-07T18%3A00");
+  });
+
+  it("reads legacy date-time links as a custom range", () => {
+    const filters = filtersFromParams(
+      new URLSearchParams("q=x&from=2026-09-01T08:30&to=2026-09-07T18:00"),
+    );
+
+    expect(filters.time).toEqual({
+      preset: "custom",
+      from: "2026-09-01T08:30",
+      to: "2026-09-07T18:00",
+    });
   });
 });
 
