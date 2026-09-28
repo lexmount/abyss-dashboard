@@ -391,7 +391,7 @@ function MetricCards({
         <Card key={card.label} className="@container/card">
           <CardHeader>
             <CardDescription>{card.label}</CardDescription>
-            <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+            <CardTitle className="text-2xl font-semibold tabular-nums @[300px]/card:text-3xl">
               {loading ? "..." : formatNumber(card.value)}
             </CardTitle>
             <CardAction>
@@ -421,7 +421,13 @@ function TokenChart({
   range: TokenChartRange;
   onRangeChange: (range: TokenChartRange) => void;
 }) {
-  const { t, formatNumber } = useI18n();
+  const { t, locale } = useI18n();
+  // Daily totals reach the billions once cached input is counted.
+  const compactNumber = React.useMemo(
+    () =>
+      new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }),
+    [locale],
+  );
   const hasUsage = React.useMemo(
     () => rows.some((row) => row.total_tokens > 0),
     [rows],
@@ -513,11 +519,11 @@ function TokenChart({
               <YAxis
                 tickLine={false}
                 axisLine={false}
-                width={78}
+                width={56}
                 tickMargin={8}
                 allowDecimals={false}
                 domain={[0, "auto"]}
-                tickFormatter={(value) => formatNumber(Number(value))}
+                tickFormatter={(value) => compactNumber.format(Number(value))}
               />
               <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
               {/* Disjoint series stack to the daily total. */}
