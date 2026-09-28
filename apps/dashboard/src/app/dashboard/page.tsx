@@ -382,7 +382,7 @@ function TokenBreakdown({ totals }: { totals: UsageTotals }) {
   return (
     <div className="grid gap-2.5">
       <div
-        className="bg-muted flex h-1.5 gap-px overflow-hidden rounded-full"
+        className="bg-muted flex h-1.5 gap-0.5 overflow-hidden rounded-full"
         aria-hidden="true"
       >
         {total > 0

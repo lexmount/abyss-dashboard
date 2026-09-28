@@ -65,11 +65,12 @@
   --border: #e5e0ec;
   --input: #ddd6e7;
   --ring: #6d4fc2;
+  /* Categorical order validated for adjacent-pair CVD and contrast. */
   --chart-1: #6d4fc2;
-  --chart-2: #c084fc;
-  --chart-3: #0f9f9a;
-  --chart-4: #e0a019;
-  --chart-5: #e0508f;
+  --chart-2: #2f7fe0;
+  --chart-3: #0e9f8f;
+  --chart-4: #fa0555;
+  --chart-5: #e0a019;
   --sidebar: #f3f0f8;
   --sidebar-foreground: #211d26;
   --sidebar-primary: #21182c;
@@ -111,11 +112,11 @@ html:lang(ja) {
   --border: rgb(255 255 255 / 0.1);
   --input: rgb(255 255 255 / 0.15);
   --ring: #a78bfa;
-  --chart-1: #a78bfa;
-  --chart-2: #f0abfc;
-  --chart-3: #2dd4bf;
-  --chart-4: #fbbf24;
-  --chart-5: #fb7185;
+  --chart-1: #8b6cf0;
+  --chart-2: #3b8ef0;
+  --chart-3: #12a594;
+  --chart-4: #fa0555;
+  --chart-5: #d4900f;
   --sidebar: #0d0916;
   --sidebar-foreground: #f7f5fb;
   --sidebar-primary: #f7f5fb;
