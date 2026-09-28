@@ -71,6 +71,12 @@
   --chart-3: #0e9f8f;
   --chart-4: #fa0555;
   --chart-5: #e0a019;
+  /* Token usage composition colors, one hue per share. Validated per mode
+     for adjacent-pair CVD separation and surface contrast. */
+  --usage-cache-read: #6d4fc2;
+  --usage-cache-write: #fa0555;
+  --usage-input: #2f7fe0;
+  --usage-output: #0e9f8f;
   --sidebar: #f3f0f8;
   --sidebar-foreground: #211d26;
   --sidebar-primary: #21182c;
@@ -120,6 +126,10 @@ html:lang(ja) {
   --chart-3: #12a594;
   --chart-4: #fa0555;
   --chart-5: #d4900f;
+  --usage-cache-read: #9346e8;
+  --usage-cache-write: #fa0555;
+  --usage-input: #3b8ef0;
+  --usage-output: #12a594;
   --sidebar: #0c0c10;
   --sidebar-foreground: #f6f6f9;
   --sidebar-primary: #f6f6f9;

@@ -63,6 +63,7 @@ import {
   TableRow,
 } from "@lexmount.com/abyss-ui";
 import { ToggleGroup, ToggleGroupItem } from "@lexmount.com/abyss-ui";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@lexmount.com/abyss-ui";
 import { SessionPicker } from "@/components/session-picker";
 import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
@@ -330,10 +331,33 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+const usageShares = [
+  { key: "input", dataKey: "input_tokens", color: "var(--usage-input)" },
+  { key: "output", dataKey: "output_tokens", color: "var(--usage-output)" },
+  {
+    key: "cacheWrite",
+    dataKey: "cache_write_tokens",
+    color: "var(--usage-cache-write)",
+  },
+  { key: "cacheRead", dataKey: "cache_read_tokens", color: "var(--usage-cache-read)" },
+] as const;
+
+type UsageShareKey = (typeof usageShares)[number]["key"];
+
+/** Bar order puts the dominant cache reads first and output last. */
+const usageBarOrder: UsageShareKey[] = ["cacheRead", "cacheWrite", "input", "output"];
+
+function formatShare(value: number, total: number, locale: string): string {
+  return new Intl.NumberFormat(locale, {
+    style: "percent",
+    maximumFractionDigits: 1,
+  }).format(total > 0 ? value / total : 0);
+}
+
 /**
  * Token composition for the total card: a proportional bar whose colors match
- * the daily chart, and a two-by-two legend with short labels and counts.
- * Hovering a legend entry shows its full name and exact count.
+ * the daily chart, and a legend read by row as input / output and cache write
+ * / cache read. Hovering a segment or entry shows its exact count and share.
  */
 function TokenBreakdown({ totals }: { totals: UsageTotals }) {
   const { t, locale, formatNumber } = useI18n();
@@ -345,78 +369,98 @@ function TokenBreakdown({ totals }: { totals: UsageTotals }) {
       }),
     [locale],
   );
-  // Legend order reads by column: input over cache read, output over cache write.
-  const parts = [
-    {
-      key: "input",
-      label: t("dashboard.metric.input"),
-      fullLabel: t("dashboard.tokenChart.inputTokens"),
-      value: totals.inputTokens,
-      color: "var(--chart-2)",
-    },
-    {
-      key: "output",
-      label: t("dashboard.metric.output"),
-      fullLabel: t("dashboard.tokenChart.outputTokens"),
-      value: totals.outputTokens,
-      color: "var(--chart-3)",
-    },
-    {
-      key: "cacheRead",
-      label: t("dashboard.metric.cacheRead"),
-      fullLabel: t("dashboard.tokenChart.cacheReadTokens"),
-      value: totals.cacheReadTokens,
-      color: "var(--chart-1)",
-    },
-    {
-      key: "cacheWrite",
-      label: t("dashboard.metric.cacheWrite"),
-      fullLabel: t("dashboard.tokenChart.cacheWriteTokens"),
-      value: totals.cacheWriteTokens,
-      color: "var(--chart-4)",
-    },
-  ];
-  const barOrder = ["cacheRead", "cacheWrite", "input", "output"];
-  const total = parts.reduce((sum, part) => sum + part.value, 0);
+  const values: Record<UsageShareKey, number> = {
+    input: totals.inputTokens,
+    output: totals.outputTokens,
+    cacheWrite: totals.cacheWriteTokens,
+    cacheRead: totals.cacheReadTokens,
+  };
+  const labels: Record<UsageShareKey, string> = {
+    input: t("dashboard.metric.input"),
+    output: t("dashboard.metric.output"),
+    cacheWrite: t("dashboard.metric.cacheWrite"),
+    cacheRead: t("dashboard.metric.cacheRead"),
+  };
+  const total = Object.values(values).reduce((sum, value) => sum + value, 0);
+  const shareText = (key: UsageShareKey): string =>
+    t("dashboard.metric.share", {
+      label: labels[key],
+      value: formatNumber(values[key]),
+      percent: formatShare(values[key], total, locale),
+    });
+  const colorOf = (key: UsageShareKey): string =>
+    usageShares.find((share) => share.key === key)?.color ?? "";
 
   return (
     <div className="grid gap-2.5">
-      <div
-        className="bg-muted flex h-1.5 gap-0.5 overflow-hidden rounded-full"
-        aria-hidden="true"
-      >
+      <div className="bg-muted flex h-1.5 gap-0.5 rounded-full">
         {total > 0
-          ? barOrder.map((key) => {
-              const part = parts.find((item) => item.key === key)!;
-              return part.value > 0 ? (
-                <span
-                  key={key}
-                  className="min-w-0.5"
-                  style={{ flexGrow: part.value, background: part.color }}
-                />
-              ) : null;
-            })
+          ? usageBarOrder
+              .filter((key) => values[key] > 0)
+              .map((key) => (
+                <Tooltip key={key}>
+                  <TooltipTrigger asChild>
+                    <span
+                      aria-label={shareText(key)}
+                      className="relative min-w-0.5 first:rounded-l-full last:rounded-r-full before:absolute before:-inset-y-1.5 before:inset-x-0"
+                      style={{ flexGrow: values[key], background: colorOf(key) }}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent>{shareText(key)}</TooltipContent>
+                </Tooltip>
+              ))
           : null}
       </div>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-        {parts.map((part) => (
-          <div
-            key={part.key}
-            className="flex min-w-0 items-center gap-1.5"
-            title={`${part.fullLabel} ${formatNumber(part.value)}`}
-          >
-            <span
-              className="size-1.5 shrink-0 rounded-full"
-              style={{ background: part.color }}
-              aria-hidden="true"
-            />
-            <dt className="truncate">{part.label}</dt>
-            <dd className="text-foreground ml-auto font-medium tabular-nums">
-              {compactNumber.format(part.value)}
-            </dd>
-          </div>
+        {usageShares.map(({ key, color }) => (
+          <Tooltip key={key}>
+            <TooltipTrigger asChild>
+              <div className="flex min-w-0 cursor-default items-center gap-1.5">
+                <span
+                  className="size-1.5 shrink-0 rounded-full"
+                  style={{ background: color }}
+                  aria-hidden="true"
+                />
+                <dt className="truncate">{labels[key]}</dt>
+                <dd className="text-foreground ml-auto font-medium tabular-nums">
+                  {compactNumber.format(values[key])}
+                </dd>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>{shareText(key)}</TooltipContent>
+          </Tooltip>
         ))}
       </dl>
+    </div>
+  );
+}
+
+function TokenTooltipRow({
+  label,
+  color,
+  value,
+  total,
+}: {
+  label: React.ReactNode;
+  color: string | undefined;
+  value: number;
+  total: number;
+}) {
+  const { locale, formatNumber } = useI18n();
+  return (
+    <div className="flex w-full items-center gap-2">
+      <span
+        className="size-2.5 shrink-0 rounded-[2px]"
+        style={{ background: color }}
+        aria-hidden="true"
+      />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-foreground ml-auto font-mono font-medium tabular-nums">
+        {formatNumber(value)}
+      </span>
+      <span className="text-muted-foreground w-11 text-right tabular-nums">
+        {formatShare(value, total, locale)}
+      </span>
     </div>
   );
 }
@@ -514,19 +558,19 @@ function TokenChart({
       ({
         cache_read_tokens: {
           label: t("dashboard.tokenChart.cacheReadTokens"),
-          color: "var(--chart-1)",
+          color: "var(--usage-cache-read)",
         },
         cache_write_tokens: {
           label: t("dashboard.tokenChart.cacheWriteTokens"),
-          color: "var(--chart-4)",
+          color: "var(--usage-cache-write)",
         },
         input_tokens: {
           label: t("dashboard.tokenChart.inputTokens"),
-          color: "var(--chart-2)",
+          color: "var(--usage-input)",
         },
         output_tokens: {
           label: t("dashboard.tokenChart.outputTokens"),
-          color: "var(--chart-3)",
+          color: "var(--usage-output)",
         },
       }) satisfies ChartConfig,
     [t],
@@ -606,7 +650,24 @@ function TokenChart({
                 domain={[0, "auto"]}
                 tickFormatter={(value) => compactNumber.format(Number(value))}
               />
-              <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+              <ChartTooltip
+                cursor={false}
+                content={
+                  <ChartTooltipContent
+                    className="min-w-[13rem]"
+                    formatter={(value, name, item) => (
+                      <TokenTooltipRow
+                        label={chartConfig[name as keyof typeof chartConfig]?.label}
+                        color={item.color}
+                        value={Number(value)}
+                        total={Number(
+                          (item.payload as ChartRow | undefined)?.total_tokens ?? 0,
+                        )}
+                      />
+                    )}
+                  />
+                }
+              />
               {/* Disjoint series stack to the daily total. */}
               <Area
                 dataKey="output_tokens"

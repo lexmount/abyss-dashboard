@@ -231,12 +231,17 @@ describe("UsageDashboard", () => {
     );
 
     expect(await screen.findByText("192,857")).toBeInTheDocument();
-    expect(screen.getByTitle("Input tokens 687")).toHaveTextContent("Input687");
-    expect(screen.getByTitle("Output tokens 170")).toHaveTextContent("Output170");
-    expect(screen.getByTitle("Cache read tokens 190,000")).toHaveTextContent(
-      "Read190K",
+    expect(screen.getByText("Input").parentElement).toHaveTextContent("Input687");
+    expect(screen.getByText("Output").parentElement).toHaveTextContent("Output170");
+    expect(screen.getByText("Cache write").parentElement).toHaveTextContent(
+      "Cache write2K",
     );
-    expect(screen.getByTitle("Cache write tokens 2,000")).toHaveTextContent("Write2K");
+    expect(screen.getByText("Cache read").parentElement).toHaveTextContent(
+      "Cache read190K",
+    );
+    expect(
+      screen.getByLabelText("Cache read 190,000 · 98.5% of total"),
+    ).toBeInTheDocument();
   });
 });
 
