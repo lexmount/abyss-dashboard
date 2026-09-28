@@ -1,7 +1,15 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  CornerDownRight,
+  ExternalLink,
+  FileText,
+  Sparkles,
+  UserRound,
+  Wrench,
+} from "lucide-react";
 import * as React from "react";
-import { Badge } from "../components/badge";
 import { cn } from "../utils";
 
 const ESTIMATED_ITEM_HEIGHT_PX = 72;
@@ -203,7 +211,12 @@ export function SessionTrajectory({
   }, [focusedTurn, virtualizer]);
 
   return (
-    <div className={cn("flex min-h-0 border-y max-md:flex-col", className)}>
+    <div
+      className={cn(
+        "bg-card flex min-h-0 overflow-hidden rounded-xl border shadow-xs max-md:flex-col",
+        className,
+      )}
+    >
       <TurnTimeline
         turns={turns}
         focusedTurn={focusedTurn}
@@ -213,7 +226,7 @@ export function SessionTrajectory({
         labels={labels}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5">
           <div className="min-w-0 flex-1 truncate text-sm">
             <span className="font-medium">
               {focusedTurn === null
@@ -256,13 +269,14 @@ export function SessionTrajectory({
                     style={{ transform: `translateY(${virtual.start}px)` }}
                   >
                     {row.kind === "turn" ? (
-                      <div className="bg-muted/60 flex items-center gap-2 border-b px-3 py-1.5 text-xs">
-                        <span className="font-medium">
+                      <div className="flex items-center gap-3 px-4 pt-5 pb-1.5 text-xs">
+                        <span className="font-semibold">
                           {labels.turn(row.turnIndex)}
                         </span>
-                        <span className="text-muted-foreground">
+                        <span className="text-muted-foreground tabular-nums">
                           {formatTime(row.startedAt)}
                         </span>
+                        <span aria-hidden className="bg-border h-px flex-1" />
                       </div>
                     ) : (
                       <TrajectoryItemRow
@@ -339,12 +353,12 @@ function TurnTimeline({
       aria-label={labels.turnList}
       tabIndex={0}
       onKeyDown={onKeyDown}
-      className="bg-muted/20 min-h-0 shrink-0 overflow-auto py-2 outline-none max-md:max-h-56 max-md:border-b md:w-72 md:border-r"
+      className="bg-muted/30 focus-visible:ring-ring/40 min-h-0 shrink-0 overflow-auto py-2 outline-none focus-visible:ring-2 focus-visible:ring-inset max-md:max-h-56 max-md:border-b md:w-72 md:border-r"
     >
       <ol className="relative">
         <span
           aria-hidden
-          className="bg-muted-foreground/40 absolute top-4 bottom-4 left-[1.05rem] z-[1] w-0.5"
+          className="bg-border absolute top-5 bottom-5 left-[1.3rem] z-[1] w-px"
         />
         {nodes.map((turnIndex) => {
           const turn =
@@ -361,22 +375,24 @@ function TurnTimeline({
                 aria-selected={selected}
                 onClick={() => onFocusTurn(turnIndex)}
                 className={cn(
-                  "relative flex w-full gap-3 px-3 py-2 text-left",
-                  selected ? "bg-accent" : "hover:bg-muted/60",
+                  "relative mx-1.5 flex w-[calc(100%-0.75rem)] gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
+                  selected ? "bg-ring/10" : "hover:bg-muted/70",
                 )}
               >
                 <span
                   aria-hidden
                   className={cn(
-                    "relative z-[2] mt-1 size-2.5 shrink-0 rounded-full border-2",
+                    "relative z-[2] mt-1 size-2.5 shrink-0 rounded-full border-2 transition-shadow",
                     selected
-                      ? "border-primary bg-primary"
-                      : "border-muted-foreground/60 bg-background",
+                      ? "border-ring bg-ring ring-ring/20 ring-4"
+                      : "border-muted-foreground/40 bg-card",
                   )}
                 />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2 text-xs">
-                    <span className="font-medium">
+                    <span
+                      className={cn("font-medium", selected && "text-ring")}
+                    >
                       {turn ? labels.turn(turn.turnIndex) : labels.allTurns}
                     </span>
                     {turn ? (
@@ -385,7 +401,7 @@ function TurnTimeline({
                       </span>
                     ) : null}
                     {turn && turn.toolCalls > 0 ? (
-                      <span className="text-muted-foreground ml-auto tabular-nums">
+                      <span className="bg-muted text-muted-foreground ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] tabular-nums">
                         {labels.toolCount(formatNumber(turn.toolCalls))}
                       </span>
                     ) : null}
@@ -431,6 +447,25 @@ function isLong(text: string): boolean {
   );
 }
 
+const kindIcons = {
+  context: FileText,
+  user: UserRound,
+  assistant: Sparkles,
+  tool_call: Wrench,
+  tool_result: CornerDownRight,
+} satisfies Record<
+  SessionTrajectoryItemKind,
+  React.ComponentType<{ className?: string }>
+>;
+
+const kindIconColors: Record<SessionTrajectoryItemKind, string> = {
+  context: "text-muted-foreground",
+  user: "text-ring",
+  assistant: "text-muted-foreground",
+  tool_call: "text-chart-2",
+  tool_result: "text-chart-3",
+};
+
 function TrajectoryItemRow({
   item,
   expanded,
@@ -451,110 +486,158 @@ function TrajectoryItemRow({
   const tool = item.kind === "tool_call" || item.kind === "tool_result";
   const text = item.text ?? "";
   // Context is the whole system prompt, so it starts collapsed like tools.
-  const collapsible = tool || item.kind === "context" || isLong(text);
+  const compact = tool || item.kind === "context";
+  const collapsible = compact || isLong(text);
   const Chevron = expanded ? ChevronDown : ChevronRight;
+  const Icon = kindIcons[item.kind];
 
-  return (
-    <div
-      className={cn(
-        "group border-b px-3 py-2 text-sm",
-        item.kind === "user" && "bg-primary/5",
-      )}
-    >
-      <div className="flex items-center gap-2 text-xs">
-        {collapsible ? (
-          <button
-            type="button"
+  const meta = (
+    <>
+      {tool ? (
+        <span className="text-muted-foreground shrink-0 tabular-nums">
+          {item.output === undefined
+            ? labels.noOutput
+            : labels.characters(formatNumber(item.output.length))}
+        </span>
+      ) : item.kind === "context" ? (
+        <span className="text-muted-foreground shrink-0 tabular-nums">
+          {labels.characters(formatNumber(text.length))}
+        </span>
+      ) : null}
+      <span className="text-muted-foreground shrink-0 tabular-nums">
+        {formatTime(item.observed_at)}
+      </span>
+      <button
+        type="button"
+        title={labels.openEvent}
+        aria-label={labels.openEvent}
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpenEvent(item.event_pk);
+        }}
+        className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+      >
+        <ExternalLink className="size-3.5" />
+      </button>
+    </>
+  );
+
+  if (compact) {
+    return (
+      <div className="group px-4 py-1">
+        <div
+          className={cn(
+            "rounded-lg border transition-colors",
+            expanded ? "bg-card" : "bg-muted/30 hover:bg-muted/60",
+          )}
+        >
+          <div
+            role="button"
+            tabIndex={0}
             aria-expanded={expanded}
             aria-label={expanded ? labels.showLess : labels.showMore}
             onClick={onToggle}
-            className="text-muted-foreground hover:text-foreground -ml-1"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onToggle();
+              }
+            }}
+            className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-xs"
           >
-            <Chevron className="size-4" />
-          </button>
-        ) : (
-          <span className="w-3" />
-        )}
-        <Badge
-          variant={
-            item.kind === "user" ? "default" : tool ? "outline" : "secondary"
-          }
-        >
-          {kindLabel(item.kind, labels)}
-        </Badge>
-        {item.name ? <span className="font-medium">{item.name}</span> : null}
-        {tool ? (
-          <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono">
-            {oneLine(item.input ?? item.output ?? "")}
-          </span>
-        ) : (
-          <span className="min-w-0 flex-1" />
-        )}
-        {tool ? (
-          <span className="text-muted-foreground shrink-0 tabular-nums">
-            {item.output === undefined
-              ? labels.noOutput
-              : labels.characters(formatNumber(item.output.length))}
-          </span>
-        ) : item.kind === "context" ? (
-          <span className="text-muted-foreground shrink-0 tabular-nums">
-            {labels.characters(formatNumber(text.length))}
-          </span>
-        ) : null}
-        <span className="text-muted-foreground shrink-0 tabular-nums">
-          {formatTime(item.observed_at)}
-        </span>
-        <button
-          type="button"
-          title={labels.openEvent}
-          aria-label={labels.openEvent}
-          onClick={() => onOpenEvent(item.event_pk)}
-          className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-        >
-          <ExternalLink className="size-3.5" />
-        </button>
-      </div>
-
-      {tool ? (
-        expanded ? (
-          <div className="mt-2 space-y-2">
-            {item.input !== undefined ? (
-              <ContentBlock label={labels.input} text={item.input} />
-            ) : null}
-            <ContentBlock
-              label={labels.output}
-              text={item.output ?? labels.noOutput}
+            <Chevron className="text-muted-foreground size-3.5 shrink-0" />
+            <Icon
+              className={cn("size-3.5 shrink-0", kindIconColors[item.kind])}
             />
+            <span className="text-muted-foreground shrink-0">
+              {kindLabel(item.kind, labels)}
+            </span>
+            {item.name ? (
+              <span className="shrink-0 font-medium">{item.name}</span>
+            ) : null}
+            <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[11px]">
+              {tool ? oneLine(item.input ?? item.output ?? "") : ""}
+            </span>
+            {meta}
           </div>
-        ) : null
-      ) : item.kind === "context" && !expanded ? null : (
+          {expanded ? (
+            <div className="space-y-2 border-t p-2.5">
+              {tool ? (
+                <>
+                  {item.input !== undefined ? (
+                    <ContentBlock label={labels.input} text={item.input} />
+                  ) : null}
+                  <ContentBlock
+                    label={labels.output}
+                    text={item.output ?? labels.noOutput}
+                  />
+                </>
+              ) : (
+                <pre className="max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap">
+                  {text}
+                </pre>
+              )}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  const user = item.kind === "user";
+  return (
+    <div className="group px-4 py-1.5">
+      <div
+        className={cn(
+          user
+            ? "border-ring/20 bg-ring/[0.06] rounded-lg border px-3.5 py-2.5"
+            : "px-1 py-1",
+        )}
+      >
+        <div className="flex items-center gap-2 text-xs">
+          <Icon
+            className={cn("size-3.5 shrink-0", kindIconColors[item.kind])}
+          />
+          <span
+            className={cn(
+              "font-medium",
+              user ? "text-ring" : "text-muted-foreground",
+            )}
+          >
+            {kindLabel(item.kind, labels)}
+          </span>
+          <span className="min-w-0 flex-1" />
+          {meta}
+        </div>
         <div
           className={cn(
-            "mt-1.5 pl-5 break-words whitespace-pre-wrap",
+            "mt-1.5 text-sm leading-relaxed break-words whitespace-pre-wrap",
             collapsible && !expanded && "line-clamp-6",
           )}
         >
           {item.continued ? "…" : ""}
           {text}
         </div>
-      )}
-      {collapsible && !tool && item.kind !== "context" ? (
-        <button
-          type="button"
-          onClick={onToggle}
-          className="text-muted-foreground hover:text-foreground mt-1 pl-5 text-xs"
-        >
-          {expanded ? labels.showLess : labels.showMore}
-        </button>
-      ) : null}
+        {collapsible ? (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={onToggle}
+            className="text-muted-foreground hover:text-foreground mt-1 inline-flex items-center gap-0.5 text-xs"
+          >
+            <Chevron className="size-3.5" />
+            {expanded ? labels.showLess : labels.showMore}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
 
 function ContentBlock({ label, text }: { label: string; text: string }) {
   return (
-    <div className="bg-muted/40 rounded-md">
-      <div className="text-muted-foreground border-b px-3 py-1 text-xs">
+    <div className="bg-muted/40 overflow-hidden rounded-md border">
+      <div className="text-muted-foreground border-b px-3 py-1 text-[11px] font-medium tracking-wide uppercase">
         {label}
       </div>
       <pre className="max-h-96 overflow-auto p-3 font-mono text-xs break-all whitespace-pre-wrap">

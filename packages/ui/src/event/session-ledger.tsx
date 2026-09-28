@@ -206,11 +206,11 @@ export function SessionLedger({
   return (
     <div
       className={cn(
-        "flex min-h-0 flex-col overflow-hidden border-y",
+        "bg-card flex min-h-0 flex-col overflow-hidden rounded-xl border shadow-xs",
         className,
       )}
     >
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5">
         <div className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
           {labels.sessionSummary(
             formatNumber(outline.turns.length),
@@ -397,10 +397,10 @@ function TurnRow({
       type="button"
       aria-expanded={!row.collapsed}
       onClick={onToggle}
-      className="bg-muted/60 hover:bg-muted flex h-full w-full items-center gap-2 border-b px-3 text-left text-xs"
+      className="bg-muted/40 hover:bg-muted/70 flex h-full w-full items-center gap-2 border-b px-4 text-left text-xs transition-colors"
     >
       <Icon className="text-muted-foreground size-3.5 shrink-0" />
-      <span className="font-medium">{labels.turn(row.turn.turn_index)}</span>
+      <span className="font-semibold">{labels.turn(row.turn.turn_index)}</span>
       <span className="text-muted-foreground">
         {formatTime(row.turn.started_at)}
       </span>
@@ -447,24 +447,21 @@ function EventRow({
       aria-selected={selected}
       onClick={onSelect}
       className={cn(
-        "relative flex h-full cursor-pointer items-center gap-2 border-b px-3 text-xs",
-        selected ? "bg-accent" : "hover:bg-muted/50",
+        "relative flex h-full cursor-pointer items-center gap-2 border-b px-4 text-xs transition-colors",
+        selected ? "bg-ring/10" : "hover:bg-muted/50",
       )}
     >
       {selected ? (
-        <span className="bg-primary absolute inset-y-0 left-0 w-0.5" />
+        <span className="bg-ring absolute inset-y-0 left-0 w-0.5" />
       ) : null}
       <span className="text-muted-foreground w-12 shrink-0 font-mono tabular-nums">
         {requestNumber === null
           ? "↳"
           : labels.requestNumber(formatNumber(requestNumber))}
       </span>
-      <Badge
-        variant={request ? "default" : "secondary"}
-        className="w-[4.25rem] shrink-0 justify-center"
-      >
+      <EventTypeBadge request={request} className="w-[4.25rem] justify-center">
         {request ? labels.request : labels.response}
-      </Badge>
+      </EventTypeBadge>
       <span
         className={cn(
           "min-w-0 flex-1 truncate",
@@ -620,9 +617,9 @@ function EventInspector({
   return (
     <>
       <div className="flex items-center gap-2 border-b px-3 py-2">
-        <Badge variant={request ? "default" : "secondary"}>
+        <EventTypeBadge request={request}>
           {request ? labels.request : labels.response}
-        </Badge>
+        </EventTypeBadge>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">
             {requestNumber === null
@@ -893,3 +890,27 @@ function PropertiesPanel({
 
 /** Fields shown in their own tabs rather than as properties. */
 const nonScalarFields = new Set(["text", "preview", "metadata", "attachments"]);
+
+/** Requests take the violet accent and responses teal, as soft tints. */
+function EventTypeBadge({
+  request,
+  className,
+  children,
+}: {
+  request: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "shrink-0 border-transparent font-medium",
+        request ? "bg-ring/12 text-ring" : "bg-chart-3/12 text-chart-3",
+        className,
+      )}
+    >
+      {children}
+    </Badge>
+  );
+}
