@@ -5,12 +5,12 @@
 
 ## 概览
 
-| 阶段                                    | 分支                       | 状态                            |
-| --------------------------------------- | -------------------------- | ------------------------------- |
-| 1. 主题与首页风格对齐                   | `feat/ui-style-sync`       | 已快进合并到本地 `main`，未推送 |
-| 2. 过滤器改进（时间范围、会话下拉）     | `feat/ui-style-sync`       | 同上                            |
-| 3. 测试环境修复（Node 26）              | `feat/ui-style-sync`       | 同上                            |
-| 4. Token 新口径适配、配色与深色主题重做 | `feat/token-usage-support` | 未合并，未推送                  |
+| 阶段                                    | 分支                       | 状态                                                   |
+| --------------------------------------- | -------------------------- | ------------------------------------------------------ |
+| 1. 主题与首页风格对齐                   | `feat/ui-style-sync`       | 已快进合并到本地 `main`，未推送                        |
+| 2. 过滤器改进（时间范围、会话下拉）     | `feat/ui-style-sync`       | 同上                                                   |
+| 3. 测试环境修复（Node 26）              | `feat/ui-style-sync`       | 同上                                                   |
+| 4. Token 新口径适配、配色与深色主题重做 | `feat/token-usage-support` | 已 rebase 到 `46dae90` 并快进合并到本地 `main`，未推送 |
 
 `main` 上的提交（相对 `852d360`）：
 
@@ -20,16 +20,16 @@ a6cb3d5 feat(dashboard): add time range presets and a searchable session picker
 38f091f test: provide localStorage when Node shadows jsdom storage
 ```
 
-`feat/token-usage-support` 上的提交（基于 `a6cb3d5`）：
+`feat/token-usage-support` 上的提交（rebase 到 `46dae90` 之后）：
 
 ```
-21ce58e fix(dashboard): align cache reads under input in the token legend
-3912387 feat(dashboard): label token shares clearly and show them on hover
-378763a feat(ui): rebuild the dark theme on graphite surfaces
-fee8487 feat(ui): use a validated chart palette anchored on #fa0555
-849ebd6 feat(dashboard): show cache reads and writes apart from input
-837ac0a fix(dashboard): fit billion-scale token totals in cards and chart
-a42bd70 feat(dashboard): show cached input apart from input and output
+c04a577 fix(dashboard): align cache reads under input in the token legend
+a725b7f feat(dashboard): label token shares clearly and show them on hover
+7198c9c feat(ui): rebuild the dark theme on graphite surfaces
+ce10553 feat(ui): use a validated chart palette anchored on #fa0555
+5cd0aef feat(dashboard): show cache reads and writes apart from input
+7df2a62 fix(dashboard): fit billion-scale token totals in cards and chart
+c8faedc feat(dashboard): show cached input apart from input and output
 ```
 
 ## 1. 主题与首页风格对齐
@@ -85,10 +85,10 @@ Node 25 及以上版本自带一个全局 `localStorage`，不加 `--localstorag
 
 ### 接入
 
-- cherry-pick 了 `abyss-dashboard-token-usage` worktree 中的 `58e47fd`（变为 `a42bd70`）。它补齐了 `DailyTokenUsageRow` 的字段，并把图表改成堆叠图。冲突只有图表颜色一处，已按新配色解决。
-- `849ebd6`：写缓存不再并入"输入"，单独展示。
+- cherry-pick 了 `abyss-dashboard-token-usage` worktree 中的 `58e47fd`（变为 `c8faedc`）。它补齐了 `DailyTokenUsageRow` 的字段，并把图表改成堆叠图。冲突只有图表颜色一处，已按新配色解决。
+- `5cd0aef`：写缓存不再并入"输入"，单独展示。
 
-### 数字变大后的排版修复（`837ac0a`）
+### 数字变大后的排版修复（`7df2a62`）
 
 计入缓存后，每日总量达到十亿级：
 
@@ -120,7 +120,7 @@ Node 25 及以上版本自带一个全局 `localStorage`，不加 `--localstorag
 
 所有分类色都用 dataviz 技能的 `validate_palette.js` 验证过，检查项包括：亮度范围、饱和度下限、相邻色的色弱区分度、正常视力区分度、对背景 3:1 的对比度。
 
-### Token 用量色（`--usage-*`，`3912387`）
+### Token 用量色（`--usage-*`，`a725b7f`）
 
 | 项     | 浅色      | 深色      |
 | ------ | --------- | --------- |
@@ -130,9 +130,9 @@ Node 25 及以上版本自带一个全局 `localStorage`，不加 `--localstorag
 | 输出   | `#0e9f8f` | `#12a594` |
 
 - 比例条顺序为读缓存、写缓存、输入、输出，图表从下往上的堆叠顺序与之相反。只有相邻两段需要互相区分，这两种顺序都通过了验证。蓝色的输入紧挨紫色的读缓存时，浅色下区分度不达标，所以比例条没有把两者放在一起。
-- 通用的 `--chart-1..5` 也改成了同一组验证过的颜色（`fee8487`）。
+- 通用的 `--chart-1..5` 也改成了同一组验证过的颜色（`ce10553`）。
 
-### 深色主题重做（`378763a`）
+### 深色主题重做（`7198c9c`）
 
 原深色主题的问题：
 
@@ -168,8 +168,8 @@ Node 25 及以上版本自带一个全局 `localStorage`，不加 `--localstorag
 
 ## 待办与注意事项
 
-- **合并冲突风险**：`main` 在合并 `feat/ui-style-sync` 之后多了另一个会话的提交 `d09b7a4 feat(sessions): merged trajectory and virtualized raw-event views`。它和 `feat/token-usage-support` 都修改了 `src/api/usage.ts` 与 `src/i18n/messages.ts`，合并时需要 rebase 或手动解决冲突。
-- **推送**：本地 `main` 和 `feat/token-usage-support` 都未推送。以往 `main` 的提交都是通过 PR 合入的。
+- **合并记录**：合并 `feat/ui-style-sync` 之后，`main` 上多了另一个会话的 `d09b7a4` 与 `46dae90`（会话轨迹与时间线）。`feat/token-usage-support` rebase 到它们之上时没有冲突；`@tanstack/react-virtual` 需要重新 `npm install`。合并后的会话详情页需要后端的 `/outline` 与 `/trajectory` 接口，当前运行的 token-usage 后端没有，所以会返回 404，与本次改动无关。
+- **推送**：本地 `main` 未推送。以往 `main` 的提交都是通过 PR 合入的。
 - **abyss-frontend**：配色改在 `@lexmount.com/abyss-ui` 中，需要发布新版本，并在 `abyss-frontend` 中升级依赖后才会生效。
 - **遗留 worktree**：`abyss-dashboard-token-usage` 的 `feat/token-usage-breakdown` 已被 `feat/token-usage-support` 取代。端口 53502 上运行的 dashboard 仍使用那个 worktree 的构建，合并后需要切回主目录的构建产物（见 `update.md`）。
 - **会话列表接口**：后端若补上列出会话的接口，会话下拉就不必再依赖事件去重和全文搜索。
