@@ -72,6 +72,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@lexmount.com/abyss-ui"
 import { SessionPicker } from "@/components/session-picker";
 import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
+import { shortSessionId } from "@/lib/session-id";
 import { cn } from "@/lib/utils";
 import { createTimeRange, resolveTimeRange, type TimeRange } from "@/lib/time-range";
 import { agentDisplayName, agentFilterOptions, agentProductKey } from "@/lib/agents";
@@ -1005,12 +1006,6 @@ export function RawEventsTable({
       {!loading && error === null ? <TablePagination pagination={pagination} /> : null}
     </Card>
   );
-}
-
-/** First segment of a session ID; the full ID stays available on hover. */
-function shortSessionId(sessionId: string): string {
-  const [first] = sessionId.split("-");
-  return first && first.length >= 6 ? first : sessionId.slice(0, 8);
 }
 
 interface TablePaginationState<T> {

@@ -280,6 +280,52 @@ export function fetchUsageEvent(eventPk: string): Promise<UsageEvent> {
   );
 }
 
+export interface SessionListQuery {
+  from?: string;
+  to?: string;
+  agentName?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface SessionListResponse {
+  total_sessions: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+  items: SessionListItem[];
+}
+
+export interface SessionListItem {
+  session_pk: string;
+  session_id: string;
+  agent_name: string;
+  agent_version: string | null;
+  host_name: string;
+  platform: string;
+  started_at: string;
+  ended_at: string | null;
+  last_activity_at: string;
+  turns: number;
+  events: number;
+  total_tokens: number;
+}
+
+/** Lists observed sessions, most recently active first. */
+export function listSessions(query: SessionListQuery): Promise<SessionListResponse> {
+  const params = new URLSearchParams();
+  append(params, "from", query.from);
+  append(params, "to", query.to);
+  append(params, "agent_name", query.agentName);
+  if (query.page !== undefined) {
+    params.set("page", query.page.toString());
+  }
+  if (query.pageSize !== undefined) {
+    params.set("page_size", query.pageSize.toString());
+  }
+  return fetchJson<SessionListResponse>(`/api/v1/agent-usage/sessions?${params}`);
+}
+
 export function searchSessions(
   query: SessionSearchQuery,
 ): Promise<SessionSearchResponse> {

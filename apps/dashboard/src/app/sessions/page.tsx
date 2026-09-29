@@ -1,12 +1,12 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
 import * as React from "react";
 import { useSearchParams } from "react-router-dom";
-import { searchSessions, type SessionSearchQuery } from "@/api/usage";
+import { listSessions, searchSessions, type SessionSearchQuery } from "@/api/usage";
 import {
   SessionSearchForm,
   type SessionSearchFilters,
 } from "@/app/sessions/session-search-form";
+import { SessionList } from "@/app/sessions/session-list";
 import { SessionSearchResults } from "@/app/sessions/session-search-results";
 import { BaseLayout } from "@/components/layouts/base-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@lexmount.com/abyss-ui";
@@ -17,6 +17,8 @@ import {
   resolveTimeRange,
   type TimeRange,
 } from "@/lib/time-range";
+
+const sessionListPageSize = 20;
 
 const defaultFilters: SessionSearchFilters = {
   q: "",
@@ -43,6 +45,19 @@ export default function SessionsPage() {
     enabled: hasQuery,
     placeholderData: keepPreviousData,
   });
+  // Without a keyword the page lists every session in the time and Agent scope.
+  const listQuery = useQuery({
+    queryKey: ["session-list", appliedFilters.time, appliedFilters.agentName, page],
+    queryFn: () =>
+      listSessions({
+        ...resolveTimeRange(appliedFilters.time),
+        agentName: appliedFilters.agentName || undefined,
+        page,
+        pageSize: sessionListPageSize,
+      }),
+    enabled: !hasQuery,
+    placeholderData: keepPreviousData,
+  });
 
   React.useEffect(() => {
     setDraft(appliedFilters);
@@ -65,13 +80,30 @@ export default function SessionsPage() {
       <div className="@container/main space-y-6 px-4 lg:px-6">
         <SessionSearchForm
           draft={draft}
-          searching={searchQuery.isFetching}
+          searching={hasQuery ? searchQuery.isFetching : listQuery.isFetching}
           onDraftChange={setDraft}
           onSubmit={applySearch}
           onReset={resetSearch}
         />
 
-        {!hasQuery ? <SearchIntroduction /> : null}
+        {!hasQuery ? (
+          listQuery.isError ? (
+            <Card className="border-destructive/40">
+              <CardHeader>
+                <CardTitle>{t("sessions.list.errorTitle")}</CardTitle>
+              </CardHeader>
+              <CardContent className="text-muted-foreground text-sm">
+                {listQuery.error.message}
+              </CardContent>
+            </Card>
+          ) : (
+            <SessionList
+              response={listQuery.data}
+              loading={listQuery.isFetching}
+              onPageChange={changePage}
+            />
+          )
+        ) : null}
         {hasQuery && searchQuery.isLoading ? <SearchLoading /> : null}
         {searchQuery.isError ? (
           <Card className="border-destructive/40">
@@ -88,23 +120,6 @@ export default function SessionsPage() {
         ) : null}
       </div>
     </BaseLayout>
-  );
-}
-
-function SearchIntroduction() {
-  const { t } = useI18n();
-  return (
-    <Card>
-      <CardContent className="text-muted-foreground flex flex-col items-center gap-3 py-12 text-center">
-        <Search className="size-8" />
-        <div className="text-foreground font-medium">
-          {t("sessions.search.introductionTitle")}
-        </div>
-        <div className="max-w-2xl text-sm">
-          {t("sessions.search.introductionDescription")}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -7,13 +7,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/contexts/i18n-context";
 import SessionsPage, { filtersFromParams, paramsFromFilters } from "./page";
 
-const { searchSessionsMock } = vi.hoisted(() => ({
+const { listSessionsMock, searchSessionsMock } = vi.hoisted(() => ({
+  listSessionsMock: vi.fn(),
   searchSessionsMock: vi.fn(),
 }));
 
 vi.mock("@/api/usage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/usage")>();
-  return { ...actual, searchSessions: searchSessionsMock };
+  return {
+    ...actual,
+    listSessions: listSessionsMock,
+    searchSessions: searchSessionsMock,
+  };
 });
 
 vi.mock("@/components/layouts/base-layout", () => ({
@@ -24,32 +29,36 @@ describe("SessionsPage", () => {
   beforeEach(() => {
     window.localStorage.setItem("abyss-ui-language", "en");
     searchSessionsMock.mockResolvedValue(searchResponse());
+    listSessionsMock.mockResolvedValue(listResponse());
   });
 
   afterEach(() => {
     cleanup();
     searchSessionsMock.mockReset();
+    listSessionsMock.mockReset();
   });
 
-  it("does not query until the user submits a keyword", () => {
+  it("lists every session until the user searches for a keyword", async () => {
     renderPage("/sessions");
 
-    expect(
-      screen.getByRole("textbox", { name: "Search keywords" }),
-    ).toBeInTheDocument();
+    const link = await screen.findByRole("link", { name: "019fcfff" });
+    expect(link).toHaveAttribute(
+      "href",
+      "/sessions/019fcfff-ba46-7340-bd15-600791fe583f",
+    );
+    expect(link).toHaveAttribute("title", "019fcfff-ba46-7340-bd15-600791fe583f");
+    const table = within(screen.getByRole("table"));
+    expect(table.getByText("Codex")).toBeInTheDocument();
+    expect(table.getByText("alice-mbp")).toBeInTheDocument();
+    expect(listSessionsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 1, pageSize: 20 }),
+    );
     expect(searchSessionsMock).not.toHaveBeenCalled();
-    expect(screen.getByText("Search session context")).toBeInTheDocument();
+    // Content-only filters wait for a keyword.
+    expect(screen.getByRole("textbox", { name: "Model" })).toBeDisabled();
     expect(screen.getByTestId("session-search-filter-grid")).toHaveClass(
       "session-search-filter-grid",
     );
-    expect(screen.getByTestId("session-search-query-input")).toHaveClass(
-      "session-search-query-input",
-    );
-    expect(
-      screen.queryByText(
-        "Search captured conversation text, tool calls, commands, and file paths.",
-      ),
-    ).not.toBeInTheDocument();
   });
 
   it("renders safe highlights and links the whole result to the existing detail page", async () => {
@@ -194,6 +203,31 @@ function searchResponse() {
             ],
           },
         ],
+      },
+    ],
+  };
+}
+
+function listResponse() {
+  return {
+    total_sessions: 1,
+    page: 1,
+    page_size: 20,
+    has_more: false,
+    items: [
+      {
+        session_pk: "019fcfff-ba46-7340-bd15-600791fe583f",
+        session_id: "019fcfff-ba46-7340-bd15-600791fe583f",
+        agent_name: "codex",
+        agent_version: "0.8.1",
+        host_name: "alice-mbp",
+        platform: "macos",
+        started_at: "2026-09-01T00:00:00Z",
+        ended_at: null,
+        last_activity_at: "2026-09-02T00:00:00Z",
+        turns: 3,
+        events: 12,
+        total_tokens: 45000,
       },
     ],
   };

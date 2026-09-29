@@ -1,4 +1,4 @@
-import { RefreshCw, Search } from "lucide-react";
+import { RotateCcw, Search } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import { Button } from "@lexmount.com/abyss-ui";
 import {
@@ -53,11 +53,12 @@ export function SessionSearchForm({
     key: Key,
     value: SessionSearchFilters[Key],
   ): void => onDraftChange({ ...draft, [key]: value });
+  // Provider, model, and event type narrow content matches, so they only
+  // apply once a keyword turns the session list into a search.
+  const searchOnly = draft.q.trim().length === 0;
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (draft.q.trim()) {
-      onSubmit();
-    }
+    onSubmit();
   };
 
   return (
@@ -69,10 +70,10 @@ export function SessionSearchForm({
           </CardTitle>
           <CardAction className="row-span-1 flex self-center gap-2">
             <Button type="button" variant="outline" size="sm" onClick={onReset}>
-              <RefreshCw className="size-4" />
+              <RotateCcw className="size-4" />
               {t("common.reset")}
             </Button>
-            <Button type="submit" size="sm" disabled={!draft.q.trim() || searching}>
+            <Button type="submit" size="sm" disabled={searching}>
               <Search className="size-4" />
               {t("sessions.search.submit")}
             </Button>
@@ -125,8 +126,12 @@ export function SessionSearchForm({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label={t("common.provider")}>
+            <Field
+              label={t("common.provider")}
+              hint={searchOnly ? t("sessions.search.keywordOnly") : undefined}
+            >
               <Select
+                disabled={searchOnly}
                 value={draft.provider || "all"}
                 onValueChange={(value) =>
                   update("provider", value === "all" ? "" : value)
@@ -145,15 +150,24 @@ export function SessionSearchForm({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label={t("common.model")}>
+            <Field
+              label={t("common.model")}
+              hint={searchOnly ? t("sessions.search.keywordOnly") : undefined}
+            >
               <Input
+                disabled={searchOnly}
+                aria-label={t("common.model")}
                 value={draft.model}
                 maxLength={256}
                 onChange={(event) => update("model", event.target.value)}
               />
             </Field>
-            <Field label={t("common.event")}>
+            <Field
+              label={t("common.event")}
+              hint={searchOnly ? t("sessions.search.keywordOnly") : undefined}
+            >
               <Select
+                disabled={searchOnly}
                 value={draft.eventType}
                 onValueChange={(value: SessionSearchFilters["eventType"]) =>
                   update("eventType", value)
@@ -176,9 +190,17 @@ export function SessionSearchForm({
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="grid min-w-0 gap-2">
+    <div className="grid min-w-0 gap-2" title={hint}>
       <Label className="leading-5">{label}</Label>
       {children}
     </div>
