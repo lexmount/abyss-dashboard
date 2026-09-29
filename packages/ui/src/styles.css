@@ -228,3 +228,14 @@ html {
     transition: none;
   }
 }
+
+/* A faint violet glow at the top of the content panel echoes the Abyss
+   site's night hero without competing with the data below. */
+.dark [data-slot="sidebar-inset"] {
+  background-image: radial-gradient(
+    ellipse 70% 45% at 50% -10%,
+    rgb(124 58 237 / 0.14),
+    transparent 70%
+  );
+  background-repeat: no-repeat;
+}

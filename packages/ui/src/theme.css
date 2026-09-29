@@ -99,28 +99,29 @@ html:lang(ja) {
     sans-serif;
 }
 
-/* Dark mode is a near-neutral graphite with a faint hue-285 tint. Surfaces
-   step up in lightness from the sidebar frame to the content panel, cards,
-   and popovers; violet is kept for focus and selection. */
+/* Dark mode follows the Abyss site's night palette: violet-black surfaces
+   at a constant hue-298 tint, stepping up in lightness from the sidebar frame
+   (the site background) to the content panel, cards, and popovers. The site's
+   lavender accent marks focus and selection. */
 .dark {
-  --background: #121217;
-  --foreground: #f6f6f9;
-  --card: #19191e;
-  --card-foreground: #f6f6f9;
-  --popover: #1d1d24;
-  --popover-foreground: #f6f6f9;
-  --primary: #f6f6f9;
-  --primary-foreground: #121217;
-  --secondary: #23232a;
-  --secondary-foreground: #f6f6f9;
-  --muted: #23232a;
-  --muted-foreground: #a3a4ac;
-  --accent: #292930;
-  --accent-foreground: #f6f6f9;
+  --background: #0e0a16;
+  --foreground: #f6f5fb;
+  --card: #15111e;
+  --card-foreground: #f6f5fb;
+  --popover: #1b1724;
+  --popover-foreground: #f6f5fb;
+  --primary: #f6f5fb;
+  --primary-foreground: #0f0a18;
+  --secondary: #1f1b29;
+  --secondary-foreground: #f6f5fb;
+  --muted: #1f1b29;
+  --muted-foreground: #a9a5b4;
+  --accent: #24202f;
+  --accent-foreground: #f6f5fb;
   --destructive: oklch(0.704 0.191 22.216);
-  --border: #2d2d34;
-  --input: #37373e;
-  --ring: #8b6cf0;
+  --border: #2b2735;
+  --input: #363140;
+  --ring: #c4b5fd;
   --chart-1: #8b6cf0;
   --chart-2: #3b8ef0;
   --chart-3: #12a594;
@@ -130,14 +131,14 @@ html:lang(ja) {
   --usage-cache-write: #fa0555;
   --usage-input: #3b8ef0;
   --usage-output: #12a594;
-  --sidebar: #0c0c10;
-  --sidebar-foreground: #f6f6f9;
-  --sidebar-primary: #f6f6f9;
-  --sidebar-primary-foreground: #121217;
-  --sidebar-accent: #1d1d24;
-  --sidebar-accent-foreground: #f6f6f9;
-  --sidebar-border: #23232a;
-  --sidebar-ring: #8b6cf0;
+  --sidebar: #08050f;
+  --sidebar-foreground: #f6f5fb;
+  --sidebar-primary: #f6f5fb;
+  --sidebar-primary-foreground: #0f0a18;
+  --sidebar-accent: #1b1724;
+  --sidebar-accent-foreground: #f6f5fb;
+  --sidebar-border: #1f1b29;
+  --sidebar-ring: #c4b5fd;
 }
 
 @layer base {
