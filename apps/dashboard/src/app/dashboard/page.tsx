@@ -180,20 +180,7 @@ export function UsageDashboard() {
   );
 
   return (
-    <BaseLayout
-      title={t("dashboard.title")}
-      description={t("dashboard.description")}
-      headerAction={
-        <RefreshControl
-          refreshing={refreshing}
-          updatedAt={updatedAt}
-          onRefresh={() => {
-            setNow(new Date());
-            void queryClient.invalidateQueries({ predicate: isUsageQuery });
-          }}
-        />
-      }
-    >
+    <BaseLayout title={t("dashboard.title")} description={t("dashboard.description")}>
       <div className="@container/main space-y-6 px-4 lg:px-6">
         <UsageFilters
           draft={draft}
@@ -239,6 +226,16 @@ export function UsageDashboard() {
           events={events}
           loading={eventsQuery.isLoading}
           error={eventsQuery.error}
+          action={
+            <RefreshControl
+              refreshing={refreshing}
+              updatedAt={updatedAt}
+              onRefresh={() => {
+                setNow(new Date());
+                void queryClient.invalidateQueries({ predicate: isUsageQuery });
+              }}
+            />
+          }
         />
       </div>
     </BaseLayout>
@@ -828,10 +825,13 @@ export function RawEventsTable({
   events,
   loading,
   error,
+  action,
 }: {
   events: UsageEvent[];
   loading: boolean;
   error: Error | null;
+  /** Controls shown at the top right of the card, such as refresh. */
+  action?: React.ReactNode;
 }) {
   const { t, locale, formatNumber, formatDateTime } = useI18n();
   const pagination = useTablePagination(events);
@@ -848,6 +848,7 @@ export function RawEventsTable({
       <CardHeader>
         <CardTitle>{t("dashboard.recent.title")}</CardTitle>
         <CardDescription>{t("dashboard.recent.description")}</CardDescription>
+        {action ? <CardAction>{action}</CardAction> : null}
       </CardHeader>
       <CardContent>
         {error ? (
