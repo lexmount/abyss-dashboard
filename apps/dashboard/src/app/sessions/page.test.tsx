@@ -54,11 +54,23 @@ describe("SessionsPage", () => {
       expect.objectContaining({ page: 1, pageSize: 20 }),
     );
     expect(searchSessionsMock).not.toHaveBeenCalled();
-    // Content-only filters wait for a keyword.
-    expect(screen.getByRole("textbox", { name: "Model" })).toBeDisabled();
+    // Provider and model narrow the list too; the event filter is gone.
+    expect(screen.getByRole("combobox", { name: "Provider" })).toBeEnabled();
+    expect(screen.getByRole("combobox", { name: "Model" })).toBeEnabled();
+    expect(screen.queryByRole("combobox", { name: "Event" })).not.toBeInTheDocument();
     expect(screen.getByTestId("session-search-filter-grid")).toHaveClass(
       "session-search-filter-grid",
     );
+  });
+
+  it("lists only sessions that used the chosen provider and model", async () => {
+    renderPage("/sessions?llm_provider=openai&llm_model=gpt-5");
+
+    await screen.findByRole("link", { name: "019fcfff" });
+    expect(listSessionsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "openai", model: "gpt-5" }),
+    );
+    expect(searchSessionsMock).not.toHaveBeenCalled();
   });
 
   it("renders safe highlights and links the whole result to the existing detail page", async () => {
@@ -102,14 +114,11 @@ describe("session search URL parameters", () => {
         agentName: "codex",
         provider: "",
         model: "gpt-5",
-        eventType: "request",
       },
       1,
     );
 
-    expect(params.toString()).toBe(
-      "q=timeout&agent_name=codex&llm_model=gpt-5&event_type=request",
-    );
+    expect(params.toString()).toBe("q=timeout&agent_name=codex&llm_model=gpt-5");
   });
 
   it("writes custom date-time bounds only for the custom time range", () => {
@@ -118,7 +127,6 @@ describe("session search URL parameters", () => {
       agentName: "",
       provider: "",
       model: "",
-      eventType: "all" as const,
     };
     const dates = { from: "2026-09-01T08:30", to: "2026-09-07T18:00" };
 

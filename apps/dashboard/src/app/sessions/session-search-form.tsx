@@ -1,5 +1,8 @@
 import { RotateCcw, Search } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import * as React from "react";
 import type { FormEvent, ReactNode } from "react";
+import { fetchUsageSummary } from "@/api/usage";
 import { Button } from "@lexmount.com/abyss-ui";
 import {
   Card,
@@ -20,7 +23,8 @@ import {
 import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentFilterOptions } from "@/lib/agents";
-import type { TimeRange } from "@/lib/time-range";
+import { resolveTimeRange, type TimeRange } from "@/lib/time-range";
+import { modelChoices, providerChoices } from "@/lib/usage-choices";
 
 export interface SessionSearchFilters {
   q: string;
@@ -28,7 +32,6 @@ export interface SessionSearchFilters {
   agentName: string;
   provider: string;
   model: string;
-  eventType: "all" | "request" | "response";
 }
 
 interface SessionSearchFormProps {
@@ -38,8 +41,6 @@ interface SessionSearchFormProps {
   onSubmit: () => void;
   onReset: () => void;
 }
-
-const providerOptions = ["openai", "anthropic"] as const;
 
 export function SessionSearchForm({
   draft,
@@ -53,9 +54,23 @@ export function SessionSearchForm({
     key: Key,
     value: SessionSearchFilters[Key],
   ): void => onDraftChange({ ...draft, [key]: value });
-  // Provider, model, and event type narrow content matches, so they only
-  // apply once a keyword turns the session list into a search.
-  const searchOnly = draft.q.trim().length === 0;
+  // Provider and model choices come from the sessions in the time and Agent
+  // scope; picking a provider narrows the models to the ones it served.
+  const choiceScope = React.useMemo(
+    () => ({ ...resolveTimeRange(draft.time), agentName: draft.agentName }),
+    [draft.time, draft.agentName],
+  );
+  const choicesQuery = useQuery({
+    queryKey: ["usage-models", "session-filters", choiceScope],
+    queryFn: () => fetchUsageSummary(choiceScope, { groupBy: ["provider", "model"] }),
+    staleTime: 60_000,
+  });
+  const rows = choicesQuery.data?.rows ?? [];
+  const providers = providerChoices(rows, draft.provider);
+  const models = modelChoices(
+    draft.provider ? rows.filter((row) => row.llm_provider === draft.provider) : rows,
+    draft.model,
+  );
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     onSubmit();
@@ -126,23 +141,23 @@ export function SessionSearchForm({
                 </SelectContent>
               </Select>
             </Field>
-            <Field
-              label={t("common.provider")}
-              hint={searchOnly ? t("sessions.search.keywordOnly") : undefined}
-            >
+            <Field label={t("common.provider")}>
               <Select
-                disabled={searchOnly}
                 value={draft.provider || "all"}
                 onValueChange={(value) =>
-                  update("provider", value === "all" ? "" : value)
+                  onDraftChange({
+                    ...draft,
+                    provider: value === "all" ? "" : value,
+                    model: "",
+                  })
                 }
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full" aria-label={t("common.provider")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t("common.all")}</SelectItem>
-                  {providerOptions.map((provider) => (
+                  {providers.map((provider) => (
                     <SelectItem key={provider} value={provider}>
                       {provider}
                     </SelectItem>
@@ -150,36 +165,25 @@ export function SessionSearchForm({
                 </SelectContent>
               </Select>
             </Field>
-            <Field
-              label={t("common.model")}
-              hint={searchOnly ? t("sessions.search.keywordOnly") : undefined}
-            >
-              <Input
-                disabled={searchOnly}
-                aria-label={t("common.model")}
-                value={draft.model}
-                maxLength={256}
-                onChange={(event) => update("model", event.target.value)}
-              />
-            </Field>
-            <Field
-              label={t("common.event")}
-              hint={searchOnly ? t("sessions.search.keywordOnly") : undefined}
-            >
+            <Field label={t("common.model")}>
               <Select
-                disabled={searchOnly}
-                value={draft.eventType}
-                onValueChange={(value: SessionSearchFilters["eventType"]) =>
-                  update("eventType", value)
-                }
+                value={draft.model || "all"}
+                onValueChange={(value) => update("model", value === "all" ? "" : value)}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger
+                  className="w-full"
+                  aria-label={t("common.model")}
+                  title={draft.model || undefined}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t("common.all")}</SelectItem>
-                  <SelectItem value="request">{t("common.request")}</SelectItem>
-                  <SelectItem value="response">{t("common.response")}</SelectItem>
+                  {models.map((model) => (
+                    <SelectItem key={model} value={model} className="font-mono text-xs">
+                      {model}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </Field>
@@ -190,17 +194,9 @@ export function SessionSearchForm({
   );
 }
 
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid min-w-0 gap-2" title={hint}>
+    <div className="grid min-w-0 gap-2">
       <Label className="leading-5">{label}</Label>
       {children}
     </div>

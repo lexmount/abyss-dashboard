@@ -26,7 +26,6 @@ const defaultFilters: SessionSearchFilters = {
   agentName: "",
   provider: "",
   model: "",
-  eventType: "all",
 };
 
 export default function SessionsPage() {
@@ -45,13 +44,22 @@ export default function SessionsPage() {
     enabled: hasQuery,
     placeholderData: keepPreviousData,
   });
-  // Without a keyword the page lists every session in the time and Agent scope.
+  // Without a keyword the page lists every session in the filter scope.
   const listQuery = useQuery({
-    queryKey: ["session-list", appliedFilters.time, appliedFilters.agentName, page],
+    queryKey: [
+      "session-list",
+      appliedFilters.time,
+      appliedFilters.agentName,
+      appliedFilters.provider,
+      appliedFilters.model,
+      page,
+    ],
     queryFn: () =>
       listSessions({
         ...resolveTimeRange(appliedFilters.time),
         agentName: appliedFilters.agentName || undefined,
+        provider: appliedFilters.provider || undefined,
+        model: appliedFilters.model || undefined,
         page,
         pageSize: sessionListPageSize,
       }),
@@ -135,14 +143,12 @@ function SearchLoading() {
 }
 
 export function filtersFromParams(params: URLSearchParams): SessionSearchFilters {
-  const eventType = params.get("event_type");
   return {
     q: params.get("q") ?? "",
     time: timeRangeFromParams(params),
     agentName: params.get("agent_name") ?? "",
     provider: params.get("llm_provider") ?? "",
     model: params.get("llm_model") ?? "",
-    eventType: eventType === "request" || eventType === "response" ? eventType : "all",
   };
 }
 
@@ -162,9 +168,6 @@ export function paramsFromFilters(
   appendParam(params, "agent_name", filters.agentName);
   appendParam(params, "llm_provider", filters.provider);
   appendParam(params, "llm_model", filters.model);
-  if (filters.eventType !== "all") {
-    params.set("event_type", filters.eventType);
-  }
   if (page > 1) {
     params.set("page", page.toString());
   }
@@ -178,7 +181,6 @@ function apiQuery(filters: SessionSearchFilters, page: number): SessionSearchQue
     agentName: filters.agentName || undefined,
     provider: filters.provider || undefined,
     model: filters.model || undefined,
-    eventType: filters.eventType === "all" ? undefined : filters.eventType,
     page,
     pageSize: 20,
   };

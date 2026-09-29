@@ -284,6 +284,8 @@ export interface SessionListQuery {
   from?: string;
   to?: string;
   agentName?: string;
+  provider?: string;
+  model?: string;
   page?: number;
   pageSize?: number;
 }
@@ -317,6 +319,8 @@ export function listSessions(query: SessionListQuery): Promise<SessionListRespon
   append(params, "from", query.from);
   append(params, "to", query.to);
   append(params, "agent_name", query.agentName);
+  append(params, "llm_provider", query.provider);
+  append(params, "llm_model", query.model);
   if (query.page !== undefined) {
     params.set("page", query.page.toString());
   }

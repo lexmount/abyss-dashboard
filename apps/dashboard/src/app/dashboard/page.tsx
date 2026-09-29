@@ -73,6 +73,7 @@ import { SessionPicker } from "@/components/session-picker";
 import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
 import { shortSessionId } from "@/lib/session-id";
+import { modelChoices } from "@/lib/usage-choices";
 import { cn } from "@/lib/utils";
 import { createTimeRange, resolveTimeRange, type TimeRange } from "@/lib/time-range";
 import { agentDisplayName, agentFilterOptions, agentProductKey } from "@/lib/agents";
@@ -418,20 +419,6 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
       </CardContent>
     </Card>
   );
-}
-
-/** Models seen in scope, busiest first, keeping the current choice listed. */
-export function modelChoices(rows: SummaryRow[], selected: string): string[] {
-  const totals = new Map<string, number>();
-  for (const row of rows) {
-    if (row.llm_model) {
-      totals.set(row.llm_model, (totals.get(row.llm_model) ?? 0) + row.total_tokens);
-    }
-  }
-  const models = [...totals.keys()].sort(
-    (left, right) => (totals.get(right) ?? 0) - (totals.get(left) ?? 0),
-  );
-  return selected && !totals.has(selected) ? [selected, ...models] : models;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

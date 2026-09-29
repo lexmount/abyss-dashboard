@@ -4,10 +4,10 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/contexts/i18n-context";
+import { modelChoices } from "@/lib/usage-choices";
 import { type DailyTokenUsageRow, type UsageEvent, type SummaryRow } from "@/api/usage";
 import {
   chartRowsByDay,
-  modelChoices,
   RawEventsTable,
   tokenChartDateWindow,
   UsageDashboard,

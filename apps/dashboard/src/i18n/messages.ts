@@ -184,7 +184,6 @@ export const messages = {
     "sessions.list.previous": "上一页",
     "sessions.list.title": "全部会话",
     "sessions.list.turns": "轮次",
-    "sessions.search.keywordOnly": "输入关键词后可用，用于筛选内容搜索结果",
     "sessions.search.emptyDescription": "尝试更换关键词、扩大时间范围或清除筛选条件。",
     "sessions.search.emptyTitle": "没有找到相关会话",
     "sessions.search.errorTitle": "会话搜索暂时不可用",
@@ -389,8 +388,6 @@ export const messages = {
     "sessions.list.previous": "Previous page",
     "sessions.list.title": "All sessions",
     "sessions.list.turns": "Turns",
-    "sessions.search.keywordOnly":
-      "Available with a keyword; narrows content search results",
     "sessions.search.emptyDescription":
       "Try another keyword, widen the time range, or clear some filters.",
     "sessions.search.emptyTitle": "No matching sessions",
@@ -595,8 +592,6 @@ export const messages = {
     "sessions.list.previous": "前のページ",
     "sessions.list.title": "すべてのセッション",
     "sessions.list.turns": "ターン",
-    "sessions.search.keywordOnly":
-      "キーワード入力時に使用できます（内容検索の絞り込み）",
     "sessions.search.emptyDescription":
       "別のキーワード、より広い期間、または少ないフィルターでお試しください。",
     "sessions.search.emptyTitle": "一致するセッションがありません",
