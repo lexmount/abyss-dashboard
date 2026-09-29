@@ -63,6 +63,7 @@ export const messages = {
     "dashboard.summary.empty": "没有汇总行。",
     "dashboard.summary.loading": "正在加载汇总...",
     "dashboard.summary.title": "汇总",
+    "dashboard.refresh": "刷新",
     "dashboard.summaryError": "统计查询失败",
     "dashboard.title": "Agent 看板",
     "dashboard.tokenChart.description":
@@ -102,6 +103,7 @@ export const messages = {
     "sessionPicker.loading": "正在加载会话...",
     "sessionPicker.noMatches": "没有匹配的会话",
     "sessionPicker.placeholder": "搜索会话 ID 或对话内容",
+    "dashboard.updatedAt": "更新于 {time}",
     "sessions.back": "Agent 看板",
     "sessions.description": "搜索部署所绑定数据所有者的会话上下文。",
     "sessions.detail.copyId": "复制会话 ID",
@@ -250,6 +252,7 @@ export const messages = {
     "dashboard.summary.empty": "No summary rows.",
     "dashboard.summary.loading": "Loading summary...",
     "dashboard.summary.title": "Summary",
+    "dashboard.refresh": "Refresh",
     "dashboard.summaryError": "Summary query failed",
     "dashboard.title": "Dashboard",
     "dashboard.tokenChart.description":
@@ -290,6 +293,7 @@ export const messages = {
     "sessionPicker.loading": "Loading sessions...",
     "sessionPicker.noMatches": "No matching sessions",
     "sessionPicker.placeholder": "Search session ID or conversation",
+    "dashboard.updatedAt": "Updated {time}",
     "sessions.back": "Dashboard",
     "sessions.description": "Search sessions for the configured data owner.",
     "sessions.detail.copyId": "Copy session ID",
@@ -439,6 +443,7 @@ export const messages = {
     "dashboard.summary.empty": "集計行はありません。",
     "dashboard.summary.loading": "集計を読み込み中...",
     "dashboard.summary.title": "集計",
+    "dashboard.refresh": "更新",
     "dashboard.summaryError": "集計の取得に失敗しました",
     "dashboard.title": "Agent ダッシュボード",
     "dashboard.tokenChart.description":
@@ -478,6 +483,7 @@ export const messages = {
     "sessionPicker.loading": "セッションを読み込み中...",
     "sessionPicker.noMatches": "一致するセッションはありません",
     "sessionPicker.placeholder": "セッション ID または会話内容を検索",
+    "dashboard.updatedAt": "{time} に更新",
     "sessions.back": "Agent ダッシュボード",
     "sessions.description": "設定されたデータ所有者のセッションを検索します。",
     "sessions.detail.copyId": "セッション ID をコピー",

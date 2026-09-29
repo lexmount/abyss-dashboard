@@ -1,7 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import {
+  type Query,
+  useIsFetching,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   Activity,
   ArrowRight,
@@ -14,6 +19,7 @@ import {
   ExternalLink,
   MessageSquare,
   RefreshCw,
+  RotateCcw,
   Search,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -45,7 +51,6 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@lexmount.com/abyss-ui";
-import { Input } from "@lexmount.com/abyss-ui";
 import { Label } from "@lexmount.com/abyss-ui";
 import {
   Select,
@@ -67,6 +72,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@lexmount.com/abyss-ui"
 import { SessionPicker } from "@/components/session-picker";
 import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
+import { cn } from "@/lib/utils";
 import { createTimeRange, resolveTimeRange, type TimeRange } from "@/lib/time-range";
 import { agentDisplayName, agentFilterOptions, agentProductKey } from "@/lib/agents";
 
@@ -107,20 +113,23 @@ export function UsageDashboard() {
     createDefaultFilters(),
   );
   const [tokenChartRange, setTokenChartRange] = React.useState<TokenChartRange>("7d");
+  // Relative ranges end at this moment; applying filters or refreshing moves it.
+  const [now, setNow] = React.useState(() => new Date());
+  const queryClient = useQueryClient();
   const query = React.useMemo<UsageQuery>(
     () => ({
-      ...resolveTimeRange(filters.time),
+      ...resolveTimeRange(filters.time, now),
       agentName: filters.agentName,
       sessionId: filters.sessionId,
       provider: filters.provider,
       model: filters.model,
       eventType: filters.eventType === "all" ? "" : filters.eventType,
     }),
-    [filters],
+    [filters, now],
   );
   const tokenChartWindow = React.useMemo(
-    () => tokenChartDateWindow(tokenChartRange),
-    [tokenChartRange],
+    () => tokenChartDateWindow(tokenChartRange, now),
+    [tokenChartRange, now],
   );
   const chartQuery = React.useMemo<UsageQuery>(
     () => ({
@@ -163,15 +172,39 @@ export function UsageDashboard() {
     [chartSummaryRows, tokenChartWindow],
   );
 
+  const refreshing = useIsFetching({ predicate: isUsageQuery }) > 0;
+  const updatedAt = Math.max(
+    summaryQuery.dataUpdatedAt,
+    chartSummaryQuery.dataUpdatedAt,
+    eventsQuery.dataUpdatedAt,
+  );
+
   return (
-    <BaseLayout title={t("dashboard.title")} description={t("dashboard.description")}>
+    <BaseLayout
+      title={t("dashboard.title")}
+      description={t("dashboard.description")}
+      headerAction={
+        <RefreshControl
+          refreshing={refreshing}
+          updatedAt={updatedAt}
+          onRefresh={() => {
+            setNow(new Date());
+            void queryClient.invalidateQueries({ predicate: isUsageQuery });
+          }}
+        />
+      }
+    >
       <div className="@container/main space-y-6 px-4 lg:px-6">
         <UsageFilters
           draft={draft}
           onDraftChange={setDraft}
-          onApply={() => setFilters(draft)}
+          onApply={() => {
+            setNow(new Date());
+            setFilters(draft);
+          }}
           onReset={() => {
             const nextFilters = createDefaultFilters();
+            setNow(new Date());
             setDraft(nextFilters);
             setFilters(nextFilters);
           }}
@@ -212,6 +245,46 @@ export function UsageDashboard() {
   );
 }
 
+const usageQueryRoots = new Set([
+  "usage-summary",
+  "usage-events",
+  "usage-models",
+  "session-options",
+]);
+
+function isUsageQuery(query: Query): boolean {
+  return usageQueryRoots.has(String(query.queryKey[0]));
+}
+
+function RefreshControl({
+  refreshing,
+  updatedAt,
+  onRefresh,
+}: {
+  refreshing: boolean;
+  updatedAt: number;
+  onRefresh: () => void;
+}) {
+  const { t, locale } = useI18n();
+  return (
+    <div className="flex items-center gap-3">
+      {updatedAt > 0 ? (
+        <span className="text-muted-foreground text-xs tabular-nums">
+          {t("dashboard.updatedAt", {
+            time: new Intl.DateTimeFormat(locale, { timeStyle: "medium" }).format(
+              updatedAt,
+            ),
+          })}
+        </span>
+      ) : null}
+      <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
+        <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
+        {t("dashboard.refresh")}
+      </Button>
+    </div>
+  );
+}
+
 interface UsageFiltersProps {
   draft: FilterDraft;
   onDraftChange: (draft: FilterDraft) => void;
@@ -231,6 +304,21 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
     () => ({ ...resolveTimeRange(draft.time), agentName: draft.agentName }),
     [draft.time, draft.agentName],
   );
+  // Model choices follow the other filters but not the chosen model, so
+  // picking one never hides the alternatives.
+  const modelScope = React.useMemo(
+    () => ({ ...sessionScope, provider: draft.provider }),
+    [sessionScope, draft.provider],
+  );
+  const modelsQuery = useQuery({
+    queryKey: ["usage-models", modelScope],
+    queryFn: () => fetchUsageSummary(modelScope, { groupBy: ["model"] }),
+    staleTime: 60_000,
+  });
+  const modelOptions = React.useMemo(
+    () => modelChoices(modelsQuery.data?.rows ?? [], draft.model),
+    [modelsQuery.data?.rows, draft.model],
+  );
   return (
     <Card>
       <CardHeader>
@@ -238,7 +326,7 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
         <CardDescription>{t("dashboard.filters.description")}</CardDescription>
         <CardAction className="flex gap-2">
           <Button variant="outline" size="sm" onClick={onReset}>
-            <RefreshCw className="size-4" />
+            <RotateCcw className="size-4" />
             {t("common.reset")}
           </Button>
           <Button size="sm" onClick={onApply}>
@@ -290,10 +378,22 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
           </Select>
         </Field>
         <Field label={t("common.model")}>
-          <Input
-            value={draft.model}
-            onChange={(event) => update("model", event.target.value)}
-          />
+          <Select
+            value={draft.model || "all"}
+            onValueChange={(value) => update("model", value === "all" ? "" : value)}
+          >
+            <SelectTrigger className="w-full" title={draft.model || undefined}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("common.all")}</SelectItem>
+              {modelOptions.map((model) => (
+                <SelectItem key={model} value={model} className="font-mono text-xs">
+                  {model}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
         <Field label={t("common.session")}>
           <SessionPicker
@@ -320,6 +420,20 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
       </CardContent>
     </Card>
   );
+}
+
+/** Models seen in scope, busiest first, keeping the current choice listed. */
+export function modelChoices(rows: SummaryRow[], selected: string): string[] {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    if (row.llm_model) {
+      totals.set(row.llm_model, (totals.get(row.llm_model) ?? 0) + row.total_tokens);
+    }
+  }
+  const models = [...totals.keys()].sort(
+    (left, right) => (totals.get(right) ?? 0) - (totals.get(left) ?? 0),
+  );
+  return selected && !totals.has(selected) ? [selected, ...models] : models;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

@@ -4,9 +4,10 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/contexts/i18n-context";
-import { type DailyTokenUsageRow, type UsageEvent } from "@/api/usage";
+import { type DailyTokenUsageRow, type UsageEvent, type SummaryRow } from "@/api/usage";
 import {
   chartRowsByDay,
+  modelChoices,
   RawEventsTable,
   tokenChartDateWindow,
   UsageDashboard,
@@ -191,8 +192,12 @@ describe("UsageDashboard", () => {
     expect(await screen.findByText("Token Usage")).toBeInTheDocument();
     expect(screen.queryByText("Agent Distribution")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Summary" })).not.toBeInTheDocument();
-    await waitFor(() => expect(fetchUsageSummaryMock).toHaveBeenCalledTimes(1));
+    // One summary for the metric cards, one for the model filter's choices.
+    await waitFor(() => expect(fetchUsageSummaryMock).toHaveBeenCalledTimes(2));
     expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object));
+    expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object), {
+      groupBy: ["model"],
+    });
   });
 
   it("shows cache reads and writes apart from input and output", async () => {
@@ -290,5 +295,31 @@ const baseDailyTokenUsageRow: DailyTokenUsageRow = {
   output_tokens: 0,
   cache_read_tokens: 0,
   cache_write_tokens: 0,
+  total_tokens: 0,
+};
+
+describe("modelChoices", () => {
+  it("lists models by token volume and keeps an unseen selection first", () => {
+    const rows = [
+      { ...baseSummaryRow, llm_model: "small", total_tokens: 10 },
+      { ...baseSummaryRow, llm_model: "large", total_tokens: 500 },
+      { ...baseSummaryRow, llm_model: "small", total_tokens: 20 },
+    ];
+
+    expect(modelChoices(rows, "")).toEqual(["large", "small"]);
+    expect(modelChoices(rows, "retired")).toEqual(["retired", "large", "small"]);
+  });
+});
+
+const baseSummaryRow: SummaryRow = {
+  sessions: 1,
+  turns: 1,
+  requests: 1,
+  responses: 1,
+  input_tokens: 0,
+  output_tokens: 0,
+  cache_read_tokens: 0,
+  cache_write_tokens: 0,
+  reasoning_tokens: 0,
   total_tokens: 0,
 };
