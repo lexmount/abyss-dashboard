@@ -880,13 +880,13 @@ export function RawEventsTable({
                 <TableHead>{t("dashboard.recent.turn")}</TableHead>
                 <TableHead>{t("common.model")}</TableHead>
                 <TableHead>{t("common.agent")}</TableHead>
-                <TableHead className="text-right leading-tight">
+                <TableHead className="leading-tight">
                   <div>{t("common.tokens")}</div>
                   <div className="text-muted-foreground text-xs font-normal">
                     {t("dashboard.recent.tokenBreakdown")}
                   </div>
                 </TableHead>
-                <TableHead className="pl-6">{t("common.event")}</TableHead>
+                <TableHead>{t("common.event")}</TableHead>
                 <TableHead>{t("dashboard.recent.platformHost")}</TableHead>
               </TableRow>
             </TableHeader>
@@ -958,7 +958,7 @@ export function RawEventsTable({
                           ) : null}
                         </div>
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">
+                      <TableCell className="tabular-nums">
                         <div className="font-medium">
                           {formatNumber(event.total_tokens)}
                         </div>
@@ -975,7 +975,7 @@ export function RawEventsTable({
                           </div>
                         ) : null}
                       </TableCell>
-                      <TableCell className="overflow-hidden pl-6">
+                      <TableCell className="overflow-hidden">
                         <Badge
                           variant={
                             event.event_type === "request" ? "default" : "secondary"
