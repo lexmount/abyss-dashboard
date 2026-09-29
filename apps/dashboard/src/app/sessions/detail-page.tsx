@@ -6,7 +6,7 @@ import {
   type SessionEventInspectorLabels,
   type SessionTrajectoryLabels,
 } from "@lexmount.com/abyss-ui";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Bot, Check, Copy, Info } from "lucide-react";
 import * as React from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -16,7 +16,8 @@ import {
   type SessionInfo,
 } from "@/api/usage";
 import { BaseLayout } from "@/components/layouts/base-layout";
-import { Button } from "@lexmount.com/abyss-ui";
+import { Badge, Button } from "@lexmount.com/abyss-ui";
+import { Popover, PopoverContent, PopoverTrigger } from "@lexmount.com/abyss-ui";
 import {
   Card,
   CardContent,
@@ -26,6 +27,7 @@ import {
 } from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
+import { cn } from "@/lib/utils";
 
 const eventSearchParam = "event";
 const turnSearchParam = "turn";
@@ -83,27 +85,30 @@ export default function SessionDetailPage() {
       ? { status: "ready", event: eventQuery.data }
       : { status: "loading" };
 
+  const turnCount = trajectory
+    ? new Set(trajectory.items.map((item) => item.turn_index)).size
+    : null;
+  const models = trajectory?.items.map((item) => item.llm_model) ?? [];
+
   return (
-    <BaseLayout
-      title={
-        session
-          ? [agentDisplayName(session.agent_name), session.agent_version]
-              .filter(Boolean)
-              .join(" ")
-          : t("sessions.detail.title")
-      }
-      description={session ? session.session_id : t("sessions.detail.description")}
-    >
-      <div className="space-y-4 px-4 lg:px-6">
-        <div className="flex flex-wrap items-start gap-x-6 gap-y-2">
-          <Button asChild variant="outline" size="sm">
-            <Link to="/dashboard">
-              <ArrowLeft className="size-4" />
-              {t("sessions.back")}
-            </Link>
-          </Button>
+    <BaseLayout>
+      <div className="space-y-5 px-4 lg:px-6">
+        <div className="grid gap-4">
+          <Link
+            to="/dashboard"
+            className="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1.5 text-sm transition-colors"
+          >
+            <ArrowLeft className="size-3.5" />
+            {t("sessions.back")}
+          </Link>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <SessionIdentity session={session} />
+            {session ? (
+              <SessionDetails session={session} formatDateTime={formatDateTime} />
+            ) : null}
+          </div>
           {session ? (
-            <SessionProperties session={session} formatDateTime={formatDateTime} />
+            <SessionStats session={session} turnCount={turnCount} models={models} />
           ) : null}
         </div>
 
@@ -126,7 +131,7 @@ export default function SessionDetailPage() {
 
         {trajectory ? (
           <SessionTrajectory
-            className="h-[calc(100svh-14rem)] min-h-[28rem]"
+            className="h-[calc(100svh-18rem)] min-h-[28rem]"
             items={trajectory.items}
             selectedEventId={selectedEventId}
             onSelectEvent={(eventPk) => updateParam(eventSearchParam, eventPk)}
@@ -212,14 +217,178 @@ function inspectorLabels(
   };
 }
 
+function SessionIdentity({ session }: { session: SessionInfo | undefined }) {
+  const { t } = useI18n();
+  return (
+    <div className="flex min-w-0 items-center gap-3.5">
+      <div className="bg-ring/10 text-ring ring-ring/20 flex size-11 shrink-0 items-center justify-center rounded-xl ring-1">
+        <Bot className="size-5" />
+      </div>
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="truncate text-xl font-semibold tracking-tight">
+            {session
+              ? agentDisplayName(session.agent_name)
+              : t("sessions.detail.title")}
+          </h1>
+          {session?.agent_version ? (
+            <Badge variant="outline" className="font-mono text-[11px]">
+              v{session.agent_version}
+            </Badge>
+          ) : null}
+        </div>
+        {session ? (
+          <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1 font-mono text-xs">
+            <span className="truncate">{session.session_id}</span>
+            <CopyButton
+              value={session.session_id}
+              label={t("sessions.detail.copyId")}
+            />
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = React.useState(false);
+  React.useEffect(() => {
+    if (!copied) {
+      return;
+    }
+    const timer = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      aria-label={copied ? t("sessions.detail.copied") : label}
+      title={copied ? t("sessions.detail.copied") : label}
+      className="hover:text-foreground hover:bg-accent shrink-0 rounded p-1 transition-colors"
+      onClick={() => {
+        void navigator.clipboard?.writeText(value).then(() => setCopied(true));
+      }}
+    >
+      {copied ? (
+        <Check className="text-ring size-3.5" />
+      ) : (
+        <Copy className="size-3.5" />
+      )}
+    </button>
+  );
+}
+
+/** Headline facts about the session in one strip. */
+function SessionStats({
+  session,
+  turnCount,
+  models,
+}: {
+  session: SessionInfo;
+  turnCount: number | null;
+  models: string[];
+}) {
+  const { t, formatDateTime, formatNumber } = useI18n();
+  const modelSummary = React.useMemo(() => primaryModel(models), [models]);
+  const stats = [
+    {
+      label: t("sessions.detail.startedAt"),
+      value: formatDateTime(session.started_at),
+    },
+    {
+      label: t("sessions.detail.duration"),
+      value: session.ended_at
+        ? formatDuration(session.started_at, session.ended_at, t)
+        : t("sessions.detail.ongoing"),
+    },
+    {
+      label: t("sessions.detail.turnCount"),
+      value: turnCount === null ? "—" : formatNumber(turnCount),
+    },
+    {
+      label: t("sessions.detail.model"),
+      value: modelSummary
+        ? modelSummary.others > 0
+          ? `${modelSummary.name} +${modelSummary.others}`
+          : modelSummary.name
+        : "—",
+      title: [...new Set(models)].join("\n"),
+      mono: true,
+    },
+  ];
+  return (
+    <dl className="bg-card grid grid-cols-2 overflow-hidden rounded-xl border shadow-xs md:grid-cols-4">
+      {stats.map((stat, index) => (
+        <div
+          key={stat.label}
+          className={cn(
+            "min-w-0 px-4 py-3",
+            index % 2 === 1 && "border-l",
+            index >= 2 && "max-md:border-t",
+            index === 2 && "md:border-l",
+          )}
+        >
+          <dt className="text-muted-foreground text-xs">{stat.label}</dt>
+          <dd
+            className={cn(
+              "mt-1 truncate text-sm font-medium tabular-nums",
+              stat.mono && "font-mono text-[13px]",
+            )}
+            title={stat.title}
+          >
+            {stat.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** The most frequent model, plus how many other models the session used. */
+function primaryModel(models: string[]): { name: string; others: number } | null {
+  const counts = new Map<string, number>();
+  for (const model of models) {
+    if (model) {
+      counts.set(model, (counts.get(model) ?? 0) + 1);
+    }
+  }
+  let best: string | null = null;
+  for (const [model, count] of counts) {
+    if (best === null || count > (counts.get(best) ?? 0)) {
+      best = model;
+    }
+  }
+  return best === null ? null : { name: best, others: counts.size - 1 };
+}
+
+function formatDuration(
+  startedAt: string,
+  endedAt: string,
+  t: ReturnType<typeof useI18n>["t"],
+): string {
+  const minutes = Math.floor(
+    (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 60_000,
+  );
+  if (minutes < 1) {
+    return t("sessions.detail.durationUnderMinute");
+  }
+  const hours = Math.floor(minutes / 60);
+  return hours > 0
+    ? t("sessions.detail.durationHours", { hours, minutes: minutes % 60 })
+    : t("sessions.detail.durationMinutes", { minutes });
+}
+
 /** Every session field, verbatim, including collector-provided metadata. */
-function SessionProperties({
+function SessionDetails({
   session,
   formatDateTime,
 }: {
   session: SessionInfo;
   formatDateTime: (value: string) => string;
 }) {
+  const { t } = useI18n();
   const { metadata, ...fields } = session;
   const entries: [string, string][] = Object.entries(fields).map(([key, value]) => [
     key,
@@ -238,13 +407,26 @@ function SessionProperties({
     }
   }
   return (
-    <dl className="text-muted-foreground flex min-w-0 flex-1 flex-wrap gap-x-5 gap-y-1 text-xs">
-      {entries.map(([key, value]) => (
-        <div key={key} className="flex min-w-0 gap-1.5">
-          <dt className="font-mono">{key}</dt>
-          <dd className="text-foreground truncate font-mono">{value}</dd>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Info className="size-4" />
+          {t("sessions.detail.details")}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[28rem] max-w-[calc(100vw-2rem)] p-0">
+        <div className="border-b px-4 py-2.5 text-sm font-medium">
+          {t("sessions.detail.details")}
         </div>
-      ))}
-    </dl>
+        <dl className="grid max-h-80 grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 overflow-auto p-4 text-xs">
+          {entries.map(([key, value]) => (
+            <React.Fragment key={key}>
+              <dt className="text-muted-foreground font-mono">{key}</dt>
+              <dd className="font-mono break-all">{value}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
+      </PopoverContent>
+    </Popover>
   );
 }

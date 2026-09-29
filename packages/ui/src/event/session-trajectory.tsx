@@ -1,7 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import * as React from "react";
-import { Badge } from "../components/badge";
 import { cn } from "../utils";
 
 const ESTIMATED_ITEM_HEIGHT_PX = 72;
@@ -212,7 +211,7 @@ export function SessionTrajectory({
   return (
     <div
       className={cn(
-        "relative flex min-h-0 border-y max-md:flex-col",
+        "bg-card relative flex min-h-0 overflow-hidden rounded-xl border shadow-xs max-md:flex-col",
         className,
       )}
     >
@@ -225,7 +224,7 @@ export function SessionTrajectory({
         labels={labels}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5">
           <div className="min-w-0 flex-1 truncate text-sm">
             <span className="font-medium">
               {focusedTurn === null
@@ -268,13 +267,14 @@ export function SessionTrajectory({
                     style={{ transform: `translateY(${virtual.start}px)` }}
                   >
                     {row.kind === "turn" ? (
-                      <div className="bg-muted/60 flex items-center gap-2 border-b px-3 py-1.5 text-xs">
-                        <span className="font-medium">
+                      <div className="flex items-center gap-3 px-4 pt-5 pb-1.5 text-xs">
+                        <span className="font-semibold">
                           {labels.turn(row.turnIndex)}
                         </span>
-                        <span className="text-muted-foreground">
+                        <span className="text-muted-foreground tabular-nums">
                           {formatTime(row.startedAt)}
                         </span>
+                        <span aria-hidden className="bg-border h-px flex-1" />
                       </div>
                     ) : (
                       <TrajectoryItemRow
@@ -353,12 +353,12 @@ function TurnTimeline({
       aria-label={labels.turnList}
       tabIndex={0}
       onKeyDown={onKeyDown}
-      className="bg-muted/20 min-h-0 shrink-0 overflow-auto py-2 outline-none max-md:max-h-56 max-md:border-b md:w-72 md:border-r"
+      className="bg-muted/30 focus-visible:ring-ring/40 min-h-0 shrink-0 overflow-auto py-2 outline-none focus-visible:ring-2 focus-visible:ring-inset max-md:max-h-56 max-md:border-b md:w-72 md:border-r"
     >
       <ol className="relative">
         <span
           aria-hidden
-          className="bg-muted-foreground/40 absolute top-4 bottom-4 left-[1.05rem] z-[1] w-0.5"
+          className="bg-border absolute top-5 bottom-5 left-[1.3rem] z-[1] w-px"
         />
         {nodes.map((turnIndex) => {
           const turn =
@@ -375,22 +375,24 @@ function TurnTimeline({
                 aria-selected={selected}
                 onClick={() => onFocusTurn(turnIndex)}
                 className={cn(
-                  "relative flex w-full gap-3 px-3 py-2 text-left",
-                  selected ? "bg-accent" : "hover:bg-muted/60",
+                  "relative mx-1.5 flex w-[calc(100%-0.75rem)] gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
+                  selected ? "bg-ring/10" : "hover:bg-muted/70",
                 )}
               >
                 <span
                   aria-hidden
                   className={cn(
-                    "relative z-[2] mt-1 size-2.5 shrink-0 rounded-full border-2",
+                    "relative z-[2] mt-1 size-2.5 shrink-0 rounded-full border-2 transition-shadow",
                     selected
-                      ? "border-primary bg-primary"
-                      : "border-muted-foreground/60 bg-background",
+                      ? "border-ring bg-ring ring-ring/20 ring-4"
+                      : "border-muted-foreground/40 bg-card",
                   )}
                 />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2 text-xs">
-                    <span className="font-medium">
+                    <span
+                      className={cn("font-medium", selected && "text-ring")}
+                    >
                       {turn ? labels.turn(turn.turnIndex) : labels.allTurns}
                     </span>
                     {turn ? (
@@ -399,7 +401,7 @@ function TurnTimeline({
                       </span>
                     ) : null}
                     {turn && turn.toolCalls > 0 ? (
-                      <span className="text-muted-foreground ml-auto tabular-nums">
+                      <span className="bg-muted text-muted-foreground ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] tabular-nums">
                         {labels.toolCount(formatNumber(turn.toolCalls))}
                       </span>
                     ) : null}
@@ -467,133 +469,191 @@ function TrajectoryItemRow({
   const tool = item.kind === "tool_call" || item.kind === "tool_result";
   const text = item.text ?? "";
   // Context is the whole system prompt, so it starts collapsed like tools.
-  const collapsible = tool || item.kind === "context" || isLong(text);
+  const compact = tool || item.kind === "context";
+  const collapsible = compact || isLong(text);
   const Chevron = expanded ? ChevronDown : ChevronRight;
-  const selected = item.event_pk === selectedEventId;
   // A tool result usually arrives in a later request than its call.
   const resultEventPk =
     item.output_event_pk !== undefined && item.output_event_pk !== item.event_pk
       ? item.output_event_pk
       : null;
-  const resultSelected =
-    resultEventPk !== null && resultEventPk === selectedEventId;
-  // Controls inside the row act on their own; the row itself selects the event.
+  const selected =
+    item.event_pk === selectedEventId ||
+    (resultEventPk !== null && resultEventPk === selectedEventId);
+  // The item selects its raw event; controls inside it act on their own.
   const stop = (event: React.SyntheticEvent) => event.stopPropagation();
+  const toggle = (event: React.SyntheticEvent) => {
+    stop(event);
+    onToggle();
+  };
+  const selectable = {
+    role: "button",
+    tabIndex: 0,
+    "aria-pressed": selected,
+    onClick: () => onSelectEvent(item.event_pk),
+    onKeyDown: (event: React.KeyboardEvent) => {
+      if (event.target === event.currentTarget && event.key === "Enter") {
+        onSelectEvent(item.event_pk);
+      }
+    },
+  } as const;
+  const selectedRing = selected && "ring-ring/60 ring-2";
 
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-pressed={selected}
-      onClick={() => onSelectEvent(item.event_pk)}
-      onKeyDown={(event) => {
-        if (event.target === event.currentTarget && event.key === "Enter") {
-          onSelectEvent(item.event_pk);
-        }
-      }}
-      className={cn(
-        "relative cursor-pointer border-b px-3 py-2 text-sm outline-none",
-        item.kind === "user" && "bg-primary/5",
-        selected || resultSelected ? "bg-accent" : "hover:bg-muted/40",
-      )}
-    >
-      {selected || resultSelected ? (
-        <span className="bg-primary absolute inset-y-0 left-0 w-0.5" />
-      ) : null}
-      <div className="flex items-center gap-2 text-xs">
-        {collapsible ? (
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-label={expanded ? labels.showLess : labels.showMore}
-            onClick={(event) => {
-              stop(event);
-              onToggle();
-            }}
-            className="text-muted-foreground hover:text-foreground -ml-1"
-          >
-            <Chevron className="size-4" />
-          </button>
-        ) : (
-          <span className="w-3" />
-        )}
-        <Badge
-          variant={
-            item.kind === "user" ? "default" : tool ? "outline" : "secondary"
-          }
-        >
-          {kindLabel(item.kind, labels)}
-        </Badge>
-        {item.name ? <span className="font-medium">{item.name}</span> : null}
-        {tool ? (
-          <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono">
-            {oneLine(item.input ?? item.output ?? "")}
-          </span>
-        ) : (
-          <span className="min-w-0 flex-1" />
-        )}
-        {tool ? (
-          <span className="text-muted-foreground shrink-0 tabular-nums">
-            {item.output === undefined
-              ? labels.noOutput
-              : labels.characters(formatNumber(item.output.length))}
-          </span>
-        ) : item.kind === "context" ? (
-          <span className="text-muted-foreground shrink-0 tabular-nums">
-            {labels.characters(formatNumber(text.length))}
-          </span>
-        ) : null}
-        <span className="text-muted-foreground shrink-0 tabular-nums">
-          {formatTime(item.observed_at)}
-        </span>
-      </div>
-
+  const meta = (
+    <>
       {tool ? (
-        expanded ? (
-          <div className="mt-2 cursor-auto space-y-2" onClick={stop}>
-            {item.input !== undefined ? (
-              <ContentBlock label={labels.input} text={item.input} />
-            ) : null}
-            <ContentBlock
-              label={labels.output}
-              text={item.output ?? labels.noOutput}
-              action={
-                resultEventPk !== null ? (
-                  <button
-                    type="button"
-                    onClick={() => onSelectEvent(resultEventPk)}
-                    className="hover:text-foreground underline-offset-2 hover:underline"
-                  >
-                    {labels.openEvent}
-                  </button>
-                ) : null
-              }
-            />
-          </div>
-        ) : null
-      ) : item.kind === "context" && !expanded ? null : (
+        <span className="text-muted-foreground shrink-0 tabular-nums">
+          {item.output === undefined
+            ? labels.noOutput
+            : labels.characters(formatNumber(item.output.length))}
+        </span>
+      ) : item.kind === "context" ? (
+        <span className="text-muted-foreground shrink-0 tabular-nums">
+          {labels.characters(formatNumber(text.length))}
+        </span>
+      ) : null}
+      <span className="text-muted-foreground shrink-0 tabular-nums">
+        {formatTime(item.observed_at)}
+      </span>
+    </>
+  );
+
+  if (compact) {
+    return (
+      <div className="px-4 py-1">
         <div
+          {...selectable}
           className={cn(
-            "mt-1.5 pl-5 break-words whitespace-pre-wrap",
-            collapsible && !expanded && "line-clamp-6",
+            "cursor-pointer rounded-lg border transition-colors outline-none",
+            expanded ? "bg-card" : "bg-muted/30 hover:bg-muted/60",
+            selectedRing,
           )}
         >
-          {item.continued ? "…" : ""}
-          {text}
+          <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-label={expanded ? labels.showLess : labels.showMore}
+              onClick={toggle}
+              className="text-muted-foreground hover:text-foreground -m-1 rounded p-1"
+            >
+              <Chevron className="size-3.5 shrink-0" />
+            </button>
+            <span className="text-muted-foreground shrink-0">
+              {kindLabel(item.kind, labels)}
+            </span>
+            {item.name ? (
+              <span className="shrink-0 font-medium">{item.name}</span>
+            ) : null}
+            <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[11px]">
+              {tool ? oneLine(item.input ?? item.output ?? "") : ""}
+            </span>
+            {meta}
+          </div>
+          {expanded ? (
+            <div
+              className="cursor-auto space-y-2 border-t p-2.5"
+              onClick={stop}
+            >
+              {tool ? (
+                <>
+                  {item.input !== undefined ? (
+                    <ContentBlock label={labels.input} text={item.input} />
+                  ) : null}
+                  <ContentBlock
+                    label={labels.output}
+                    text={item.output ?? labels.noOutput}
+                    action={
+                      resultEventPk !== null ? (
+                        <button
+                          type="button"
+                          onClick={() => onSelectEvent(resultEventPk)}
+                          className="hover:text-foreground normal-case underline-offset-2 hover:underline"
+                        >
+                          {labels.openEvent}
+                        </button>
+                      ) : null
+                    }
+                  />
+                </>
+              ) : (
+                <pre className="max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap">
+                  {text}
+                </pre>
+              )}
+            </div>
+          ) : null}
         </div>
+      </div>
+    );
+  }
+
+  const body = (
+    <div
+      className={cn(
+        "text-sm leading-relaxed break-words whitespace-pre-wrap",
+        collapsible && !expanded && "line-clamp-6",
       )}
-      {collapsible && !tool && item.kind !== "context" ? (
-        <button
-          type="button"
-          onClick={(event) => {
-            stop(event);
-            onToggle();
-          }}
-          className="text-muted-foreground hover:text-foreground mt-1 pl-5 text-xs"
+    >
+      {item.continued ? "…" : ""}
+      {text}
+    </div>
+  );
+  const more = collapsible ? (
+    <button
+      type="button"
+      aria-expanded={expanded}
+      onClick={toggle}
+      className="text-muted-foreground hover:text-foreground mt-1 inline-flex items-center gap-0.5 text-xs"
+    >
+      <Chevron className="size-3.5" />
+      {expanded ? labels.showLess : labels.showMore}
+    </button>
+  ) : null;
+
+  if (item.kind === "user") {
+    return (
+      <div className="px-4 py-1.5">
+        <div
+          {...selectable}
+          className={cn(
+            "border-ring/20 bg-ring/[0.06] cursor-pointer rounded-lg border px-3.5 py-2.5 outline-none",
+            selectedRing,
+          )}
         >
-          {expanded ? labels.showLess : labels.showMore}
-        </button>
-      ) : null}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-ring font-medium">
+              {kindLabel(item.kind, labels)}
+            </span>
+            <span className="min-w-0 flex-1" />
+            {meta}
+          </div>
+          <div className="mt-1.5">{body}</div>
+          {more}
+        </div>
+      </div>
+    );
+  }
+
+  // Assistant replies read as plain prose with the time beside the first line.
+  return (
+    <div className="px-4 py-1">
+      <div
+        {...selectable}
+        className={cn(
+          "hover:bg-muted/40 flex cursor-pointer items-start gap-3 rounded-lg px-1 py-1 outline-none",
+          selected && "bg-ring/[0.06]",
+          selectedRing,
+        )}
+      >
+        <div className="min-w-0 flex-1">
+          {body}
+          {more}
+        </div>
+        <div className="flex shrink-0 items-center gap-2 pt-0.5 text-xs">
+          {meta}
+        </div>
+      </div>
     </div>
   );
 }
@@ -608,8 +668,8 @@ function ContentBlock({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="bg-muted/40 rounded-md">
-      <div className="text-muted-foreground flex items-center justify-between border-b px-3 py-1 text-xs">
+    <div className="bg-muted/40 overflow-hidden rounded-md border">
+      <div className="text-muted-foreground flex items-center justify-between border-b px-3 py-1 text-[11px] font-medium tracking-wide uppercase">
         <span>{label}</span>
         {action}
       </div>
