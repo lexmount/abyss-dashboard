@@ -719,8 +719,16 @@ export function RawEventsTable({
   loading: boolean;
   error: Error | null;
 }) {
-  const { t, formatNumber, formatDateTime } = useI18n();
+  const { t, locale, formatNumber, formatDateTime } = useI18n();
   const pagination = useTablePagination(events);
+  const compactNumber = React.useMemo(
+    () =>
+      new Intl.NumberFormat(locale, {
+        notation: "compact",
+        maximumSignificantDigits: 3,
+      }),
+    [locale],
+  );
   return (
     <Card>
       <CardHeader>
@@ -737,27 +745,34 @@ export function RawEventsTable({
             {t("dashboard.recent.loading")}
           </div>
         ) : (
-          <Table className="w-full min-w-[1280px] table-fixed">
+          <Table className="w-full min-w-[1100px] table-fixed">
+            {/* When, then the session and its turn together, then model and
+                agent; token count, event type, and device context last. */}
             <colgroup>
-              <col className="w-[14%]" />
-              <col className="w-[22%]" />
-              <col className="w-[10%]" />
-              <col className="w-[14%]" />
-              <col className="w-[8%]" />
               <col className="w-[15%]" />
               <col className="w-[10%]" />
-              <col className="w-[7%]" />
+              <col className="w-[9%]" />
+              <col className="w-[15%]" />
+              <col className="w-[12%]" />
+              <col className="w-[11%]" />
+              <col className="w-[8%]" />
+              <col className="w-[20%]" />
             </colgroup>
             <TableHeader>
               <TableRow>
                 <TableHead>{t("table.observed")}</TableHead>
                 <TableHead>{t("common.session")}</TableHead>
-                <TableHead>{t("common.agent")}</TableHead>
-                <TableHead>{t("dashboard.recent.platformHost")}</TableHead>
-                <TableHead>{t("common.event")}</TableHead>
-                <TableHead>{t("common.model")}</TableHead>
                 <TableHead>{t("dashboard.recent.turn")}</TableHead>
-                <TableHead>{t("common.tokens")}</TableHead>
+                <TableHead>{t("common.model")}</TableHead>
+                <TableHead>{t("common.agent")}</TableHead>
+                <TableHead className="text-right leading-tight">
+                  <div>{t("common.tokens")}</div>
+                  <div className="text-muted-foreground text-xs font-normal">
+                    {t("dashboard.recent.tokenBreakdown")}
+                  </div>
+                </TableHead>
+                <TableHead className="pl-6">{t("common.event")}</TableHead>
+                <TableHead>{t("dashboard.recent.platformHost")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -782,50 +797,16 @@ export function RawEventsTable({
                         </span>
                       </TableCell>
                       <TableCell className="overflow-hidden">
-                        <Button
-                          asChild
-                          variant="link"
-                          className="h-auto w-full min-w-0 justify-start p-0 font-mono text-xs"
+                        <Link
+                          to={sessionDetailUrl}
+                          title={event.session_id}
+                          className="text-foreground hover:text-ring inline-flex max-w-full items-center gap-1 font-mono text-xs underline-offset-4 hover:underline"
                         >
-                          <Link to={sessionDetailUrl} className="min-w-0">
-                            <span className="min-w-0 truncate">{event.session_id}</span>
-                            <ExternalLink className="size-3.5" />
-                          </Link>
-                        </Button>
-                      </TableCell>
-                      <TableCell className="overflow-hidden">
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">
-                            {agentDisplayName(event.agent_name)}
-                          </div>
-                          {event.agent_version ? (
-                            <div className="text-muted-foreground truncate text-xs">
-                              {event.agent_version}
-                            </div>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell className="overflow-hidden">
-                        <div className="min-w-0">
-                          <div className="truncate">{event.platform ?? "-"}</div>
-                          <div className="text-muted-foreground truncate font-mono text-xs">
-                            {event.host_name || t("common.unknown")}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="overflow-hidden">
-                        <Badge
-                          variant={
-                            event.event_type === "request" ? "default" : "secondary"
-                          }
-                        >
-                          {event.event_type === "request"
-                            ? t("common.request")
-                            : t("common.response")}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="overflow-hidden">
-                        <span className="block truncate">{event.llm_model}</span>
+                          <span className="min-w-0 truncate">
+                            {shortSessionId(event.session_id)}
+                          </span>
+                          <ExternalLink className="text-muted-foreground size-3 shrink-0" />
+                        </Link>
                       </TableCell>
                       <TableCell className="overflow-hidden">
                         <Button
@@ -847,8 +828,56 @@ export function RawEventsTable({
                           </Link>
                         </Button>
                       </TableCell>
-                      <TableCell className="font-medium tabular-nums">
-                        {formatNumber(event.total_tokens)}
+                      <TableCell className="overflow-hidden">
+                        <span className="block truncate">{event.llm_model}</span>
+                      </TableCell>
+                      <TableCell className="overflow-hidden">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">
+                            {agentDisplayName(event.agent_name)}
+                          </div>
+                          {event.agent_version ? (
+                            <div className="text-muted-foreground truncate text-xs">
+                              {event.agent_version}
+                            </div>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        <div className="font-medium">
+                          {formatNumber(event.total_tokens)}
+                        </div>
+                        {event.event_type === "request" ? (
+                          <div
+                            className="text-muted-foreground truncate text-xs"
+                            title={t("dashboard.recent.tokenBreakdownTitle", {
+                              input: formatNumber(event.input_tokens),
+                              cached: formatNumber(event.cache_read_tokens),
+                            })}
+                          >
+                            {compactNumber.format(event.input_tokens)} /{" "}
+                            {compactNumber.format(event.cache_read_tokens)}
+                          </div>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="overflow-hidden pl-6">
+                        <Badge
+                          variant={
+                            event.event_type === "request" ? "default" : "secondary"
+                          }
+                        >
+                          {event.event_type === "request"
+                            ? t("common.request")
+                            : t("common.response")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="overflow-hidden">
+                        <div className="min-w-0">
+                          <div className="truncate">{event.platform ?? "-"}</div>
+                          <div className="text-muted-foreground truncate font-mono text-xs">
+                            {event.host_name || t("common.unknown")}
+                          </div>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -861,6 +890,12 @@ export function RawEventsTable({
       {!loading && error === null ? <TablePagination pagination={pagination} /> : null}
     </Card>
   );
+}
+
+/** First segment of a session ID; the full ID stays available on hover. */
+function shortSessionId(sessionId: string): string {
+  const [first] = sessionId.split("-");
+  return first && first.length >= 6 ? first : sessionId.slice(0, 8);
 }
 
 interface TablePaginationState<T> {
