@@ -1,14 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import {
-  ChevronDown,
-  ChevronRight,
-  CornerDownRight,
-  ExternalLink,
-  FileText,
-  Sparkles,
-  UserRound,
-  Wrench,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import * as React from "react";
 import { cn } from "../utils";
 
@@ -447,25 +438,6 @@ function isLong(text: string): boolean {
   );
 }
 
-const kindIcons = {
-  context: FileText,
-  user: UserRound,
-  assistant: Sparkles,
-  tool_call: Wrench,
-  tool_result: CornerDownRight,
-} satisfies Record<
-  SessionTrajectoryItemKind,
-  React.ComponentType<{ className?: string }>
->;
-
-const kindIconColors: Record<SessionTrajectoryItemKind, string> = {
-  context: "text-muted-foreground",
-  user: "text-ring",
-  assistant: "text-muted-foreground",
-  tool_call: "text-chart-2",
-  tool_result: "text-chart-3",
-};
-
 function TrajectoryItemRow({
   item,
   expanded,
@@ -489,7 +461,6 @@ function TrajectoryItemRow({
   const compact = tool || item.kind === "context";
   const collapsible = compact || isLong(text);
   const Chevron = expanded ? ChevronDown : ChevronRight;
-  const Icon = kindIcons[item.kind];
 
   const meta = (
     <>
@@ -546,9 +517,6 @@ function TrajectoryItemRow({
             className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-xs"
           >
             <Chevron className="text-muted-foreground size-3.5 shrink-0" />
-            <Icon
-              className={cn("size-3.5 shrink-0", kindIconColors[item.kind])}
-            />
             <span className="text-muted-foreground shrink-0">
               {kindLabel(item.kind, labels)}
             </span>
@@ -584,51 +552,59 @@ function TrajectoryItemRow({
     );
   }
 
-  const user = item.kind === "user";
+  const body = (
+    <div
+      className={cn(
+        "text-sm leading-relaxed break-words whitespace-pre-wrap",
+        collapsible && !expanded && "line-clamp-6",
+      )}
+    >
+      {item.continued ? "…" : ""}
+      {text}
+    </div>
+  );
+  const more = collapsible ? (
+    <button
+      type="button"
+      aria-expanded={expanded}
+      onClick={onToggle}
+      className="text-muted-foreground hover:text-foreground mt-1 inline-flex items-center gap-0.5 text-xs"
+    >
+      <Chevron className="size-3.5" />
+      {expanded ? labels.showLess : labels.showMore}
+    </button>
+  ) : null;
+
+  if (item.kind === "user") {
+    return (
+      <div className="group px-4 py-1.5">
+        <div className="border-ring/20 bg-ring/[0.06] rounded-lg border px-3.5 py-2.5">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-ring font-medium">
+              {kindLabel(item.kind, labels)}
+            </span>
+            <span className="min-w-0 flex-1" />
+            {meta}
+          </div>
+          <div className="mt-1.5">{body}</div>
+          {more}
+        </div>
+      </div>
+    );
+  }
+
+  // Assistant replies read as plain prose; the time and event link sit beside
+  // the first line.
   return (
-    <div className="group px-4 py-1.5">
-      <div
-        className={cn(
-          user
-            ? "border-ring/20 bg-ring/[0.06] rounded-lg border px-3.5 py-2.5"
-            : "px-1 py-1",
-        )}
-      >
-        <div className="flex items-center gap-2 text-xs">
-          <Icon
-            className={cn("size-3.5 shrink-0", kindIconColors[item.kind])}
-          />
-          <span
-            className={cn(
-              "font-medium",
-              user ? "text-ring" : "text-muted-foreground",
-            )}
-          >
-            {kindLabel(item.kind, labels)}
-          </span>
-          <span className="min-w-0 flex-1" />
+    <div className="group px-5 py-2">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          {body}
+          {more}
+        </div>
+        <div className="flex shrink-0 items-center gap-2 pt-0.5 text-xs">
           {meta}
         </div>
-        <div
-          className={cn(
-            "mt-1.5 text-sm leading-relaxed break-words whitespace-pre-wrap",
-            collapsible && !expanded && "line-clamp-6",
-          )}
-        >
-          {item.continued ? "…" : ""}
-          {text}
-        </div>
-        {collapsible ? (
-          <button
-            type="button"
-            aria-expanded={expanded}
-            onClick={onToggle}
-            className="text-muted-foreground hover:text-foreground mt-1 inline-flex items-center gap-0.5 text-xs"
-          >
-            <Chevron className="size-3.5" />
-            {expanded ? labels.showLess : labels.showMore}
-          </button>
-        ) : null}
       </div>
     </div>
   );
