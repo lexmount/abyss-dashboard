@@ -192,12 +192,14 @@ describe("UsageDashboard", () => {
     expect(await screen.findByText("Token Usage")).toBeInTheDocument();
     expect(screen.queryByText("Agent Distribution")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Summary" })).not.toBeInTheDocument();
-    // One summary for the metric cards, one for the model filter's choices.
+    // One summary for the metric cards, one for the provider and model
+    // filters' choices.
     await waitFor(() => expect(fetchUsageSummaryMock).toHaveBeenCalledTimes(2));
     expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object));
-    expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object), {
-      groupBy: ["model"],
-    });
+    expect(fetchUsageSummaryMock).toHaveBeenCalledWith(
+      expect.not.objectContaining({ provider: expect.anything() }),
+      { groupBy: ["provider", "model"] },
+    );
   });
 
   it("shows cache reads and writes apart from input and output", async () => {

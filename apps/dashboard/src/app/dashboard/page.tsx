@@ -73,7 +73,7 @@ import { SessionPicker } from "@/components/session-picker";
 import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
 import { shortSessionId } from "@/lib/session-id";
-import { modelChoices } from "@/lib/usage-choices";
+import { modelChoices, providerChoices } from "@/lib/usage-choices";
 import { cn } from "@/lib/utils";
 import { createTimeRange, resolveTimeRange, type TimeRange } from "@/lib/time-range";
 import { agentDisplayName, agentFilterOptions, agentProductKey } from "@/lib/agents";
@@ -95,7 +95,6 @@ const defaultNonDateFilters = {
   eventType: "all",
 } satisfies Omit<FilterDraft, "time">;
 
-const providerOptions = ["openai", "anthropic"] as const;
 const pageSizeOptions = [10, 20, 50] as const;
 const tokenChartRangeOptions = [
   { value: "7d", days: 7, labelKey: "dashboard.tokenChart.range7Days" },
@@ -303,20 +302,31 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
     () => ({ ...resolveTimeRange(draft.time), agentName: draft.agentName }),
     [draft.time, draft.agentName],
   );
-  // Model choices follow the other filters but not the chosen model, so
-  // picking one never hides the alternatives.
-  const modelScope = React.useMemo(
-    () => ({ ...sessionScope, provider: draft.provider }),
-    [sessionScope, draft.provider],
-  );
-  const modelsQuery = useQuery({
-    queryKey: ["usage-models", modelScope],
-    queryFn: () => fetchUsageSummary(modelScope, { groupBy: ["model"] }),
+  // Provider and model choices come from the data in the time and Agent
+  // scope, so custom gateways are listed; picking a provider narrows the
+  // models to the ones it served. Neither choice hides its own alternatives.
+  const choicesQuery = useQuery({
+    queryKey: ["usage-models", "dashboard-filters", sessionScope],
+    queryFn: () => fetchUsageSummary(sessionScope, { groupBy: ["provider", "model"] }),
     staleTime: 60_000,
   });
+  const choiceRows = React.useMemo(
+    () => choicesQuery.data?.rows ?? [],
+    [choicesQuery.data?.rows],
+  );
+  const providerOptions = React.useMemo(
+    () => providerChoices(choiceRows, draft.provider),
+    [choiceRows, draft.provider],
+  );
   const modelOptions = React.useMemo(
-    () => modelChoices(modelsQuery.data?.rows ?? [], draft.model),
-    [modelsQuery.data?.rows, draft.model],
+    () =>
+      modelChoices(
+        draft.provider
+          ? choiceRows.filter((row) => row.llm_provider === draft.provider)
+          : choiceRows,
+        draft.model,
+      ),
+    [choiceRows, draft.provider, draft.model],
   );
   return (
     <Card>
