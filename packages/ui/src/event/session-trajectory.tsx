@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import * as React from "react";
 import { Badge } from "../components/badge";
 import { cn } from "../utils";
@@ -53,7 +53,12 @@ export interface SessionTrajectoryLabels {
 
 export interface SessionTrajectoryProps {
   items: SessionTrajectoryItem[];
-  onOpenEvent: (eventPk: string) => void;
+  /** Raw event opened in the inspector, or null. */
+  selectedEventId: string | null;
+  /** Selects an item's raw event; items from the same event highlight together. */
+  onSelectEvent: (eventPk: string) => void;
+  /** Raw event inspector, shown beside the content while an event is selected. */
+  inspector?: React.ReactNode;
   /** Turn shown on its own, or null for the whole session. */
   focusedTurn: number | null;
   onFocusTurn: (turnIndex: number | null) => void;
@@ -145,7 +150,9 @@ export function trajectoryRows(
  */
 export function SessionTrajectory({
   items,
-  onOpenEvent,
+  selectedEventId,
+  onSelectEvent,
+  inspector,
   focusedTurn,
   onFocusTurn,
   formatTime,
@@ -203,7 +210,12 @@ export function SessionTrajectory({
   }, [focusedTurn, virtualizer]);
 
   return (
-    <div className={cn("flex min-h-0 border-y max-md:flex-col", className)}>
+    <div
+      className={cn(
+        "relative flex min-h-0 border-y max-md:flex-col",
+        className,
+      )}
+    >
       <TurnTimeline
         turns={turns}
         focusedTurn={focusedTurn}
@@ -268,8 +280,9 @@ export function SessionTrajectory({
                       <TrajectoryItemRow
                         item={row.item}
                         expanded={expanded.has(row.index)}
+                        selectedEventId={selectedEventId}
                         onToggle={() => toggle(row.index)}
-                        onOpenEvent={onOpenEvent}
+                        onSelectEvent={onSelectEvent}
                         formatTime={formatTime}
                         formatNumber={formatNumber}
                         labels={labels}
@@ -282,6 +295,7 @@ export function SessionTrajectory({
           )}
         </div>
       </div>
+      {inspector}
     </div>
   );
 }
@@ -434,16 +448,18 @@ function isLong(text: string): boolean {
 function TrajectoryItemRow({
   item,
   expanded,
+  selectedEventId,
   onToggle,
-  onOpenEvent,
+  onSelectEvent,
   formatTime,
   formatNumber,
   labels,
 }: {
   item: SessionTrajectoryItem;
   expanded: boolean;
+  selectedEventId: string | null;
   onToggle: () => void;
-  onOpenEvent: (eventPk: string) => void;
+  onSelectEvent: (eventPk: string) => void;
   formatTime: (value: string) => string;
   formatNumber: (value: number) => string;
   labels: SessionTrajectoryLabels;
@@ -453,21 +469,47 @@ function TrajectoryItemRow({
   // Context is the whole system prompt, so it starts collapsed like tools.
   const collapsible = tool || item.kind === "context" || isLong(text);
   const Chevron = expanded ? ChevronDown : ChevronRight;
+  const selected = item.event_pk === selectedEventId;
+  // A tool result usually arrives in a later request than its call.
+  const resultEventPk =
+    item.output_event_pk !== undefined && item.output_event_pk !== item.event_pk
+      ? item.output_event_pk
+      : null;
+  const resultSelected =
+    resultEventPk !== null && resultEventPk === selectedEventId;
+  // Controls inside the row act on their own; the row itself selects the event.
+  const stop = (event: React.SyntheticEvent) => event.stopPropagation();
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      onClick={() => onSelectEvent(item.event_pk)}
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && event.key === "Enter") {
+          onSelectEvent(item.event_pk);
+        }
+      }}
       className={cn(
-        "group border-b px-3 py-2 text-sm",
+        "relative cursor-pointer border-b px-3 py-2 text-sm outline-none",
         item.kind === "user" && "bg-primary/5",
+        selected || resultSelected ? "bg-accent" : "hover:bg-muted/40",
       )}
     >
+      {selected || resultSelected ? (
+        <span className="bg-primary absolute inset-y-0 left-0 w-0.5" />
+      ) : null}
       <div className="flex items-center gap-2 text-xs">
         {collapsible ? (
           <button
             type="button"
             aria-expanded={expanded}
             aria-label={expanded ? labels.showLess : labels.showMore}
-            onClick={onToggle}
+            onClick={(event) => {
+              stop(event);
+              onToggle();
+            }}
             className="text-muted-foreground hover:text-foreground -ml-1"
           >
             <Chevron className="size-4" />
@@ -504,26 +546,28 @@ function TrajectoryItemRow({
         <span className="text-muted-foreground shrink-0 tabular-nums">
           {formatTime(item.observed_at)}
         </span>
-        <button
-          type="button"
-          title={labels.openEvent}
-          aria-label={labels.openEvent}
-          onClick={() => onOpenEvent(item.event_pk)}
-          className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-        >
-          <ExternalLink className="size-3.5" />
-        </button>
       </div>
 
       {tool ? (
         expanded ? (
-          <div className="mt-2 space-y-2">
+          <div className="mt-2 cursor-auto space-y-2" onClick={stop}>
             {item.input !== undefined ? (
               <ContentBlock label={labels.input} text={item.input} />
             ) : null}
             <ContentBlock
               label={labels.output}
               text={item.output ?? labels.noOutput}
+              action={
+                resultEventPk !== null ? (
+                  <button
+                    type="button"
+                    onClick={() => onSelectEvent(resultEventPk)}
+                    className="hover:text-foreground underline-offset-2 hover:underline"
+                  >
+                    {labels.openEvent}
+                  </button>
+                ) : null
+              }
             />
           </div>
         ) : null
@@ -541,7 +585,10 @@ function TrajectoryItemRow({
       {collapsible && !tool && item.kind !== "context" ? (
         <button
           type="button"
-          onClick={onToggle}
+          onClick={(event) => {
+            stop(event);
+            onToggle();
+          }}
           className="text-muted-foreground hover:text-foreground mt-1 pl-5 text-xs"
         >
           {expanded ? labels.showLess : labels.showMore}
@@ -551,11 +598,20 @@ function TrajectoryItemRow({
   );
 }
 
-function ContentBlock({ label, text }: { label: string; text: string }) {
+function ContentBlock({
+  label,
+  text,
+  action,
+}: {
+  label: string;
+  text: string;
+  action?: React.ReactNode;
+}) {
   return (
     <div className="bg-muted/40 rounded-md">
-      <div className="text-muted-foreground border-b px-3 py-1 text-xs">
-        {label}
+      <div className="text-muted-foreground flex items-center justify-between border-b px-3 py-1 text-xs">
+        <span>{label}</span>
+        {action}
       </div>
       <pre className="max-h-96 overflow-auto p-3 font-mono text-xs break-all whitespace-pre-wrap">
         {text}

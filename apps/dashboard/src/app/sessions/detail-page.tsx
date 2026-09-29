@@ -1,19 +1,15 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
-  neighborEventIds,
-  SessionLedger,
+  SessionEventInspector,
   SessionTrajectory,
-  ToggleGroup,
-  ToggleGroupItem,
-  type SessionLedgerDetailState,
-  type SessionLedgerLabels,
+  type SessionEventDetailState,
+  type SessionEventInspectorLabels,
   type SessionTrajectoryLabels,
 } from "@lexmount.com/abyss-ui";
 import { ArrowLeft } from "lucide-react";
 import * as React from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
-  fetchSessionOutline,
   fetchSessionTrajectory,
   fetchUsageEvent,
   usageAttachmentUrl,
@@ -32,105 +28,45 @@ import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 
 const eventSearchParam = "event";
-const viewSearchParam = "view";
 const turnSearchParam = "turn";
-const eventsView = "events";
-
-function usageEventQuery(eventPk: string) {
-  return {
-    queryKey: ["usage-event", eventPk],
-    queryFn: () => fetchUsageEvent(eventPk),
-    // Persisted events never change, so a loaded event stays valid.
-    staleTime: Infinity,
-  };
-}
 
 export default function SessionDetailPage() {
   const { t, locale, formatDateTime, formatNumber } = useI18n();
   const { sessionPk } = useParams<{ sessionPk: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedEventId = searchParams.get(eventSearchParam);
-  const showEvents = searchParams.get(viewSearchParam) === eventsView;
   const turnParam = Number.parseInt(searchParams.get(turnSearchParam) ?? "", 10);
   const focusedTurn = Number.isNaN(turnParam) ? null : turnParam;
-  const queryClient = useQueryClient();
 
   const trajectoryQuery = useQuery({
     queryKey: ["session-trajectory", sessionPk],
     queryFn: () => fetchSessionTrajectory(sessionPk ?? ""),
-    enabled: Boolean(sessionPk) && !showEvents,
+    enabled: Boolean(sessionPk),
   });
-  const outlineQuery = useQuery({
-    queryKey: ["session-outline", sessionPk],
-    queryFn: () => fetchSessionOutline(sessionPk ?? ""),
-    enabled: Boolean(sessionPk) && showEvents,
-  });
-  const outline = outlineQuery.data;
   const trajectory = trajectoryQuery.data;
-  const session = outline?.session ?? trajectory?.session;
-  const activeQuery = showEvents ? outlineQuery : trajectoryQuery;
+  const session = trajectory?.session;
   const eventQuery = useQuery({
-    ...usageEventQuery(selectedEventId ?? ""),
+    queryKey: ["usage-event", selectedEventId],
+    queryFn: () => fetchUsageEvent(selectedEventId ?? ""),
     enabled: selectedEventId !== null,
+    // Persisted events never change, so a loaded event stays valid.
+    staleTime: Infinity,
   });
 
-  // Prefetch adjacent events so stepping through the ledger stays instant.
-  React.useEffect(() => {
-    if (!outline || selectedEventId === null) {
-      return;
-    }
-    for (const eventPk of neighborEventIds(outline.turns, selectedEventId)) {
-      void queryClient.prefetchQuery(usageEventQuery(eventPk));
-    }
-  }, [outline, queryClient, selectedEventId]);
-
-  const selectEvent = React.useCallback(
-    (eventPk: string | null) => {
+  const updateParam = React.useCallback(
+    (name: string, value: string | null) => {
       setSearchParams(
         (current) => {
           const next = new URLSearchParams(current);
-          if (eventPk === null) {
-            next.delete(eventSearchParam);
+          if (value === null) {
+            next.delete(name);
           } else {
-            next.set(eventSearchParam, eventPk);
+            next.set(name, value);
           }
           return next;
         },
-        { replace: true },
+        { replace: name === eventSearchParam },
       );
-    },
-    [setSearchParams],
-  );
-
-  const showView = React.useCallback(
-    (events: boolean, eventPk?: string) => {
-      setSearchParams((current) => {
-        const next = new URLSearchParams(current);
-        if (events) {
-          next.set(viewSearchParam, eventsView);
-        } else {
-          next.delete(viewSearchParam);
-        }
-        if (eventPk !== undefined) {
-          next.set(eventSearchParam, eventPk);
-        }
-        return next;
-      });
-    },
-    [setSearchParams],
-  );
-
-  const focusTurn = React.useCallback(
-    (turnIndex: number | null) => {
-      setSearchParams((current) => {
-        const next = new URLSearchParams(current);
-        if (turnIndex === null) {
-          next.delete(turnSearchParam);
-        } else {
-          next.set(turnSearchParam, turnIndex.toString());
-        }
-        return next;
-      });
     },
     [setSearchParams],
   );
@@ -141,7 +77,7 @@ export default function SessionDetailPage() {
     [locale],
   );
 
-  const detail: SessionLedgerDetailState = eventQuery.isError
+  const detail: SessionEventDetailState = eventQuery.isError
     ? { status: "error", message: eventQuery.error.message }
     : eventQuery.data
       ? { status: "ready", event: eventQuery.data }
@@ -169,36 +105,18 @@ export default function SessionDetailPage() {
           {session ? (
             <SessionProperties session={session} formatDateTime={formatDateTime} />
           ) : null}
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            size="sm"
-            value={showEvents ? eventsView : "merged"}
-            onValueChange={(value) => {
-              if (value) {
-                showView(value === eventsView);
-              }
-            }}
-          >
-            <ToggleGroupItem value="merged" className="px-3">
-              {t("sessions.trajectory.view")}
-            </ToggleGroupItem>
-            <ToggleGroupItem value={eventsView} className="px-3">
-              {t("sessions.ledger.view")}
-            </ToggleGroupItem>
-          </ToggleGroup>
         </div>
 
-        {activeQuery.isError ? (
+        {trajectoryQuery.isError ? (
           <Card className="border-destructive/40">
             <CardHeader>
               <CardTitle>{t("sessions.detail.unavailable")}</CardTitle>
-              <CardDescription>{activeQuery.error.message}</CardDescription>
+              <CardDescription>{trajectoryQuery.error.message}</CardDescription>
             </CardHeader>
           </Card>
         ) : null}
 
-        {activeQuery.isLoading ? (
+        {trajectoryQuery.isLoading ? (
           <Card>
             <CardContent className="text-muted-foreground py-10 text-center text-sm">
               {t("sessions.detail.loading")}
@@ -206,31 +124,32 @@ export default function SessionDetailPage() {
           </Card>
         ) : null}
 
-        {!showEvents && trajectory ? (
+        {trajectory ? (
           <SessionTrajectory
             className="h-[calc(100svh-14rem)] min-h-[28rem]"
             items={trajectory.items}
-            onOpenEvent={(eventPk) => showView(true, eventPk)}
+            selectedEventId={selectedEventId}
+            onSelectEvent={(eventPk) => updateParam(eventSearchParam, eventPk)}
             focusedTurn={focusedTurn}
-            onFocusTurn={focusTurn}
+            onFocusTurn={(turnIndex) =>
+              updateParam(turnSearchParam, turnIndex?.toString() ?? null)
+            }
             formatTime={formatTime}
             formatNumber={formatNumber}
             labels={trajectoryLabels(t)}
-          />
-        ) : null}
-
-        {showEvents && outline ? (
-          <SessionLedger
-            className="h-[calc(100svh-14rem)] min-h-[28rem]"
-            outline={outline}
-            selectedEventId={selectedEventId}
-            onSelectEvent={selectEvent}
-            detail={detail}
-            attachmentUrl={usageAttachmentUrl}
-            formatDateTime={formatDateTime}
-            formatTime={formatTime}
-            formatNumber={formatNumber}
-            labels={ledgerLabels(t)}
+            inspector={
+              selectedEventId === null ? null : (
+                <SessionEventInspector
+                  key={selectedEventId}
+                  detail={detail}
+                  onClose={() => updateParam(eventSearchParam, null)}
+                  attachmentUrl={usageAttachmentUrl}
+                  formatDateTime={formatDateTime}
+                  formatNumber={formatNumber}
+                  labels={inspectorLabels(t)}
+                />
+              )
+            }
           />
         ) : null}
       </div>
@@ -252,7 +171,7 @@ function trajectoryLabels(t: ReturnType<typeof useI18n>["t"]): SessionTrajectory
     showLess: t("sessions.trajectory.showLess"),
     openEvent: t("sessions.trajectory.openEvent"),
     turn: (index) => t("sessions.detail.turn", { index }),
-    characters: (count) => t("sessions.ledger.characters", { count }),
+    characters: (count) => t("sessions.event.characters", { count }),
     summary: (items, toolCalls) =>
       t("sessions.trajectory.summary", { items, toolCalls }),
     empty: t("sessions.trajectory.empty"),
@@ -263,36 +182,26 @@ function trajectoryLabels(t: ReturnType<typeof useI18n>["t"]): SessionTrajectory
   };
 }
 
-function ledgerLabels(t: ReturnType<typeof useI18n>["t"]): SessionLedgerLabels {
+function inspectorLabels(
+  t: ReturnType<typeof useI18n>["t"],
+): SessionEventInspectorLabels {
   return {
-    all: t("sessions.ledger.all"),
+    title: t("sessions.event.title"),
     request: t("common.request"),
     response: t("common.response"),
-    requestNumber: (number) => t("sessions.ledger.requestNumber", { number }),
     turn: (index) => t("sessions.detail.turn", { index }),
-    turnSummary: (events, input, output) =>
-      t("sessions.ledger.turnSummary", { events, input, output }),
-    sessionSummary: (turns, events, requests) =>
-      t("sessions.ledger.sessionSummary", { turns, events, requests }),
-    collapseAll: t("sessions.ledger.collapseAll"),
-    expandAll: t("sessions.ledger.expandAll"),
-    filter: t("sessions.ledger.filter"),
-    noText: t("sessions.ledger.noText"),
-    noTurns: t("sessions.detail.noTurns"),
-    characters: (count) => t("sessions.ledger.characters", { count }),
-    tokens: (count) => t("sessions.ledger.tokens", { count }),
-    estimatedTokens: t("sessions.detail.estimatedTokens"),
-    close: t("sessions.ledger.close"),
-    resize: t("sessions.ledger.resize"),
-    loading: t("sessions.ledger.loading"),
-    error: (message) => t("sessions.ledger.error", { message }),
-    copy: t("sessions.ledger.copy"),
-    tabContent: t("sessions.ledger.tabContent"),
-    tabTools: t("sessions.ledger.tabTools"),
-    tabAttachments: t("sessions.ledger.tabAttachments"),
-    tabMetadata: t("sessions.ledger.tabMetadata"),
-    tabProperties: t("sessions.ledger.tabProperties"),
-    noTools: t("sessions.ledger.noTools"),
+    close: t("sessions.event.close"),
+    resize: t("sessions.event.resize"),
+    loading: t("sessions.event.loading"),
+    error: (message) => t("sessions.event.error", { message }),
+    copy: t("sessions.event.copy"),
+    noText: t("sessions.event.noText"),
+    tabContent: t("sessions.event.tabContent"),
+    tabTools: t("sessions.event.tabTools"),
+    tabAttachments: t("sessions.event.tabAttachments"),
+    tabMetadata: t("sessions.event.tabMetadata"),
+    tabProperties: t("sessions.event.tabProperties"),
+    noTools: t("sessions.event.noTools"),
     toolCall: t("sessions.detail.toolCall"),
     toolResult: t("sessions.detail.toolResult"),
     callId: t("sessions.detail.callId"),

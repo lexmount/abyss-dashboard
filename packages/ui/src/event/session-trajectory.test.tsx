@@ -5,6 +5,7 @@ import {
   screen,
   within,
 } from "@testing-library/react";
+import type * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SessionTrajectory,
@@ -24,6 +25,7 @@ const items: SessionTrajectoryItem[] = [
     name: "Bash",
     input: '{"command":"ls"}',
     output: "README.md",
+    output_event_pk: "event-result",
   }),
   item({ kind: "user", stream: 1, turn_index: 1, text: "classifier input" }),
   item({ kind: "assistant", stream: 0, turn_index: 2, text: "Found README" }),
@@ -113,19 +115,34 @@ describe("SessionTrajectory", () => {
     expect(onFocusTurn).toHaveBeenLastCalledWith(2);
   });
 
-  it("shows side requests inline, expands tool results, and opens raw events", () => {
-    const onOpenEvent = vi.fn();
-    renderTrajectory(onOpenEvent);
+  it("selects an item's raw event and a tool result's own event", () => {
+    const onSelectEvent = vi.fn();
+    renderTrajectory(onSelectEvent);
 
-    expect(content().getByText("list files")).toBeInTheDocument();
     expect(content().getByText("classifier input")).toBeInTheDocument();
-    expect(content().queryByText("README.md")).not.toBeInTheDocument();
+    fireEvent.click(content().getByText("list files"));
+    expect(onSelectEvent).toHaveBeenLastCalledWith("event-user-list files");
 
+    // Expanding does not select; the result links to the event carrying it.
     fireEvent.click(screen.getAllByRole("button", { name: "Show more" })[1]!);
+    expect(onSelectEvent).toHaveBeenCalledTimes(1);
     expect(content().getByText("README.md")).toBeInTheDocument();
+    fireEvent.click(content().getByRole("button", { name: "Open event" }));
+    expect(onSelectEvent).toHaveBeenLastCalledWith("event-result");
+  });
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Open event" })[1]!);
-    expect(onOpenEvent).toHaveBeenCalledWith("event-user-list files");
+  it("highlights the selected event and shows the inspector beside it", () => {
+    renderTrajectory(
+      vi.fn(),
+      null,
+      vi.fn(),
+      "event-user-list files",
+      <aside>raw event panel</aside>,
+    );
+
+    const row = content().getByText("list files").closest("[aria-pressed]");
+    expect(row).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("raw event panel")).toBeInTheDocument();
   });
 });
 
@@ -141,9 +158,11 @@ function content() {
 }
 
 function renderTrajectory(
-  onOpenEvent: (eventPk: string) => void,
+  onSelectEvent: (eventPk: string) => void,
   focusedTurn: number | null = null,
   onFocusTurn: (turnIndex: number | null) => void = vi.fn(),
+  selectedEventId: string | null = null,
+  inspector: React.ReactNode = null,
 ) {
   // jsdom has no layout, so give the virtualized list a measurable viewport.
   vi.stubGlobal(
@@ -170,7 +189,9 @@ function renderTrajectory(
   return render(
     <SessionTrajectory
       items={items}
-      onOpenEvent={onOpenEvent}
+      selectedEventId={selectedEventId}
+      onSelectEvent={onSelectEvent}
+      inspector={inspector}
       focusedTurn={focusedTurn}
       onFocusTurn={onFocusTurn}
       formatTime={(value) => value}
