@@ -458,8 +458,15 @@ const usageShares = [
 
 type UsageShareKey = (typeof usageShares)[number]["key"];
 
-/** Bar order puts the dominant cache reads first and output last. */
-const usageBarOrder: UsageShareKey[] = ["cacheRead", "cacheWrite", "input", "output"];
+/** Bar order follows the legend, reading input, output, cache read, cache write. */
+const tooltipOrder = [
+  "input_tokens",
+  "output_tokens",
+  "cache_read_tokens",
+  "cache_write_tokens",
+];
+
+const usageBarOrder: UsageShareKey[] = ["input", "output", "cacheRead", "cacheWrite"];
 
 function formatShare(value: number, total: number, locale: string): string {
   return new Intl.NumberFormat(locale, {
@@ -766,8 +773,16 @@ function TokenChart({
               />
               <ChartTooltip
                 cursor={false}
-                content={
+                content={({ active, payload, label }) => (
                   <ChartTooltipContent
+                    active={active}
+                    label={label}
+                    // List series in the legend's order rather than stack order.
+                    payload={[...(payload ?? [])].sort(
+                      (left, right) =>
+                        tooltipOrder.indexOf(String(left.dataKey)) -
+                        tooltipOrder.indexOf(String(right.dataKey)),
+                    )}
                     className="min-w-[13rem]"
                     formatter={(value, name, item) => (
                       <TokenTooltipRow
@@ -780,7 +795,7 @@ function TokenChart({
                       />
                     )}
                   />
-                }
+                )}
               />
               {/* Disjoint series stack to the daily total. */}
               <Area

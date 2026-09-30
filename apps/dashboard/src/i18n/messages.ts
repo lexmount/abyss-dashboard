@@ -35,7 +35,8 @@ export const messages = {
     "dashboard.agentDistribution.title": "智能体使用分布",
     "dashboard.chart.error": "趋势图查询失败",
     "dashboard.description": "查看固定数据所有者的使用量和会话。",
-    "dashboard.filters.description": "按时间、智能体、会话、服务商或模型查询使用量。",
+    "dashboard.filters.description":
+      "按时间、智能体、服务商、模型、会话或事件查询使用量。",
     "dashboard.filters.title": "筛选条件",
     "dashboard.metric.agents": "智能体",
     "dashboard.metric.cacheRead": "读缓存",
@@ -67,7 +68,7 @@ export const messages = {
     "dashboard.summaryError": "统计查询失败",
     "dashboard.title": "Agent 看板",
     "dashboard.tokenChart.description":
-      "选定时间范围内每日输入、输出、写缓存和读缓存 Token",
+      "选定时间范围内每日输入、输出、读缓存和写缓存 Token",
     "dashboard.tokenChart.empty": "当前筛选条件下没有使用量数据。",
     "dashboard.tokenChart.cacheReadTokens": "读缓存 Token",
     "dashboard.tokenChart.cacheWriteTokens": "写缓存 Token",
@@ -198,7 +199,7 @@ export const messages = {
     "sessions.search.noPreview": "该命中没有可显示的正文片段。",
     "sessions.search.openSession": "查看会话",
     "sessions.search.page": "第 {page} 页",
-    "sessions.search.placeholder": "搜索会话内容、命令或文件路径",
+    "sessions.search.placeholder": "搜索对话内容、命令或文件路径",
     "sessions.search.queryLabel": "搜索关键词",
     "sessions.search.resultCount": "找到 {count} 个相关会话",
     "sessions.search.resultsTitle": "搜索结果",
@@ -242,7 +243,7 @@ export const messages = {
     "dashboard.chart.error": "Chart query failed",
     "dashboard.description": "Usage and sessions for the configured data owner.",
     "dashboard.filters.description":
-      "Query usage by time, agent, session, provider, or model.",
+      "Query usage by time, agent, provider, model, session, or event.",
     "dashboard.filters.title": "Filters",
     "dashboard.metric.agents": "Agents",
     "dashboard.metric.cacheRead": "Cache read",
@@ -275,7 +276,7 @@ export const messages = {
     "dashboard.summaryError": "Summary query failed",
     "dashboard.title": "Dashboard",
     "dashboard.tokenChart.description":
-      "Daily input, output, cache write, and cache read tokens over the selected range",
+      "Daily input, output, cache read, and cache write tokens over the selected range",
     "dashboard.tokenChart.empty": "No usage data for the selected filters.",
     "dashboard.tokenChart.cacheReadTokens": "Cache read tokens",
     "dashboard.tokenChart.cacheWriteTokens": "Cache write tokens",
@@ -452,7 +453,7 @@ export const messages = {
     "dashboard.chart.error": "チャートの取得に失敗しました",
     "dashboard.description": "設定されたデータ所有者の使用量とセッション。",
     "dashboard.filters.description":
-      "時間、Agent、セッション、プロバイダー、モデルで使用量を検索します。",
+      "期間・Agent・プロバイダー・モデル・セッション・イベントで使用量を絞り込みます。",
     "dashboard.filters.title": "フィルター",
     "dashboard.metric.agents": "Agent",
     "dashboard.metric.cacheRead": "キャッシュ読",
@@ -485,7 +486,7 @@ export const messages = {
     "dashboard.summaryError": "集計の取得に失敗しました",
     "dashboard.title": "Agent ダッシュボード",
     "dashboard.tokenChart.description":
-      "選択した期間の日別入力・出力・キャッシュ書き込み・キャッシュ読み取り Token",
+      "選択した期間の日別入力・出力・キャッシュ読み取り・キャッシュ書き込み Token",
     "dashboard.tokenChart.empty": "選択した条件の使用量データはありません。",
     "dashboard.tokenChart.cacheReadTokens": "キャッシュ読み取り Token",
     "dashboard.tokenChart.cacheWriteTokens": "キャッシュ書き込み Token",
