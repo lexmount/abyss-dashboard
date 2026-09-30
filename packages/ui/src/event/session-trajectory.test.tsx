@@ -265,6 +265,51 @@ describe("SessionTrajectory search", () => {
     expect(mark.tagName).toBe("MARK");
   });
 
+  it("lets the reader browse turns without pulling the view back", async () => {
+    const onFocusTurn = vi.fn();
+    const view = renderTrajectory(vi.fn(), 1, onFocusTurn);
+    const shown = (focusedTurn: number | null) =>
+      view.rerender(
+        <SessionTrajectory
+          items={items}
+          selectedEventId={null}
+          onSelectEvent={vi.fn()}
+          focusedTurn={focusedTurn}
+          onFocusTurn={onFocusTurn}
+          formatTime={(value) => value}
+          formatNumber={(value) => value.toString()}
+          labels={labels}
+        />,
+      );
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search this session" }),
+      { target: { value: "readme" } },
+    );
+    expect(await screen.findByText("1 / 2")).toBeInTheDocument();
+    const turns = within(screen.getByRole("listbox", { name: "Turns" }));
+
+    // Picking a turn with matches moves to its first match.
+    fireEvent.click(turns.getByText("Turn 2"));
+    expect(onFocusTurn).toHaveBeenLastCalledWith(2);
+    expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    shown(2);
+
+    // Going back to turn 1 stays there instead of returning to turn 2.
+    onFocusTurn.mockClear();
+    fireEvent.click(turns.getByText("Turn 1"));
+    shown(1);
+    expect(onFocusTurn).toHaveBeenLastCalledWith(1);
+    expect(onFocusTurn).not.toHaveBeenCalledWith(2);
+    expect(screen.getByText("1 / 2")).toBeInTheDocument();
+
+    // Showing every turn stays there instead of returning to the match.
+    onFocusTurn.mockClear();
+    fireEvent.click(turns.getByText("All turns"));
+    shown(null);
+    expect(onFocusTurn.mock.calls).toEqual([[null]]);
+  });
+
   it("reports when nothing matches", async () => {
     renderTrajectory(vi.fn());
     fireEvent.change(

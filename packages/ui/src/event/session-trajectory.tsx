@@ -252,16 +252,39 @@ export function SessionTrajectory({
   const turnMatches = React.useMemo(() => matchesByTurn(matches), [matches]);
   const [activeMatch, setActiveMatch] = React.useState(0);
   const active = matches[activeMatch];
+  // The active match is brought into view only when the reader asks for it:
+  // a new query, stepping, or picking a turn that has matches. Browsing
+  // other turns while a search is open leaves the view where they put it.
+  const [revealRequest, setRevealRequest] = React.useState(0);
+  const revealPending = React.useRef(false);
+  const requestReveal = () => {
+    revealPending.current = true;
+    setRevealRequest((current) => current + 1);
+  };
   const step = (delta: number) => {
     if (matches.length > 0) {
       setActiveMatch(
         (current) => (current + delta + matches.length) % matches.length,
       );
+      requestReveal();
     }
   };
   React.useEffect(() => {
     setActiveMatch(0);
+    if (searchQuery) {
+      requestReveal();
+    }
   }, [searchQuery]);
+  const focusTurn = (turnIndex: number | null) => {
+    if (turnIndex !== null) {
+      const first = matches.findIndex((match) => match.turnIndex === turnIndex);
+      if (first !== -1) {
+        setActiveMatch(first);
+        requestReveal();
+      }
+    }
+    onFocusTurn(turnIndex);
+  };
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -285,7 +308,7 @@ export function SessionTrajectory({
   // Reveal the active match: switch to its turn when another turn is shown,
   // expand it when collapsed, and center it in the list.
   React.useEffect(() => {
-    if (!active) {
+    if (!active || !revealPending.current) {
       return;
     }
     if (focusedTurn !== null && active.turnIndex !== focusedTurn) {
@@ -303,13 +326,14 @@ export function SessionTrajectory({
     if (rowIndex === -1) {
       return;
     }
+    revealPending.current = false;
     virtualizer.scrollToIndex(rowIndex, { align: "center" });
     // Row heights settle after expansion; center again once measured.
     const frame = window.requestAnimationFrame(() =>
       virtualizer.scrollToIndex(rowIndex, { align: "center" }),
     );
     return () => window.cancelAnimationFrame(frame);
-  }, [active, focusedTurn, onFocusTurn, rows, virtualizer]);
+  }, [active, focusedTurn, onFocusTurn, revealRequest, rows, virtualizer]);
 
   return (
     <div
@@ -319,7 +343,18 @@ export function SessionTrajectory({
       )}
     >
       <TurnTimeline
-        search={
+        turns={turns}
+        turnMatches={searchQuery ? turnMatches : null}
+        focusedTurn={focusedTurn}
+        onFocusTurn={focusTurn}
+        formatTime={formatTime}
+        formatNumber={formatNumber}
+        labels={labels}
+      />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* The search spans the session, so it sits above the heading of
+            whichever turn is shown. */}
+        <div className="grid gap-2 border-b px-4 py-2.5">
           <TrajectorySearch
             query={query}
             onQueryChange={setQuery}
@@ -330,18 +365,7 @@ export function SessionTrajectory({
             formatNumber={formatNumber}
             labels={labels}
           />
-        }
-        turns={turns}
-        turnMatches={searchQuery ? turnMatches : null}
-        focusedTurn={focusedTurn}
-        onFocusTurn={onFocusTurn}
-        formatTime={formatTime}
-        formatNumber={formatNumber}
-        labels={labels}
-      />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex min-h-[53px] flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5">
-          <div className="min-w-0 flex-1 truncate text-sm">
+          <div className="min-w-0 truncate text-sm">
             <span className="font-medium">
               {focusedTurn === null
                 ? labels.allTurns
@@ -423,7 +447,6 @@ export function SessionTrajectory({
  * The first node shows the whole session.
  */
 function TurnTimeline({
-  search,
   turns,
   turnMatches,
   focusedTurn,
@@ -432,8 +455,6 @@ function TurnTimeline({
   formatNumber,
   labels,
 }: {
-  /** Session-wide search, shown above the turns it marks. */
-  search: React.ReactNode;
   turns: TrajectoryTurnSummary[];
   /** Search occurrences per turn while searching, else null. */
   turnMatches: Map<number, number> | null;
@@ -472,96 +493,89 @@ function TurnTimeline({
   };
 
   return (
-    <div className="bg-muted/30 flex min-h-0 shrink-0 flex-col max-md:max-h-72 max-md:border-b md:w-72 md:border-r">
-      <div className="flex min-h-[53px] items-center border-b px-2.5">
-        {search}
-      </div>
-      <div
-        role="listbox"
-        aria-label={labels.turnList}
-        tabIndex={0}
-        onKeyDown={onKeyDown}
-        className="focus-visible:ring-ring/40 min-h-0 flex-1 overflow-auto py-2 outline-none focus-visible:ring-2 focus-visible:ring-inset"
-      >
-        <ol className="relative">
-          <span
-            aria-hidden
-            className="bg-border absolute top-5 bottom-5 left-[1.3rem] z-[1] w-px"
-          />
-          {nodes.map((turnIndex) => {
-            const turn =
-              turnIndex === null
-                ? undefined
-                : turns.find((candidate) => candidate.turnIndex === turnIndex);
-            const selected = turnIndex === focusedTurn;
-            return (
-              <li key={turnIndex ?? "all"}>
-                <button
-                  ref={selected ? selectedRef : undefined}
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  onClick={() => onFocusTurn(turnIndex)}
+    <div
+      role="listbox"
+      aria-label={labels.turnList}
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+      className="bg-muted/30 focus-visible:ring-ring/40 min-h-0 shrink-0 overflow-auto py-2 outline-none focus-visible:ring-2 focus-visible:ring-inset max-md:max-h-56 max-md:border-b md:w-72 md:border-r"
+    >
+      <ol className="relative">
+        <span
+          aria-hidden
+          className="bg-border absolute top-5 bottom-5 left-[1.3rem] z-[1] w-px"
+        />
+        {nodes.map((turnIndex) => {
+          const turn =
+            turnIndex === null
+              ? undefined
+              : turns.find((candidate) => candidate.turnIndex === turnIndex);
+          const selected = turnIndex === focusedTurn;
+          return (
+            <li key={turnIndex ?? "all"}>
+              <button
+                ref={selected ? selectedRef : undefined}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={() => onFocusTurn(turnIndex)}
+                className={cn(
+                  "relative mx-1.5 flex w-[calc(100%-0.75rem)] gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
+                  selected ? "bg-ring/10" : "hover:bg-muted/70",
+                  // Turns without matches fade while searching.
+                  turn &&
+                    turnMatches &&
+                    !turnMatches.has(turn.turnIndex) &&
+                    "opacity-45",
+                )}
+              >
+                <span
+                  aria-hidden
                   className={cn(
-                    "relative mx-1.5 flex w-[calc(100%-0.75rem)] gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
-                    selected ? "bg-ring/10" : "hover:bg-muted/70",
-                    // Turns without matches fade while searching.
-                    turn &&
-                      turnMatches &&
-                      !turnMatches.has(turn.turnIndex) &&
-                      "opacity-45",
+                    "relative z-[2] mt-1 size-2.5 shrink-0 rounded-full border-2 transition-shadow",
+                    selected
+                      ? "border-ring bg-ring ring-ring/20 ring-4"
+                      : "border-muted-foreground/40 bg-card",
                   )}
-                >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "relative z-[2] mt-1 size-2.5 shrink-0 rounded-full border-2 transition-shadow",
-                      selected
-                        ? "border-ring bg-ring ring-ring/20 ring-4"
-                        : "border-muted-foreground/40 bg-card",
-                    )}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline gap-2 text-xs">
-                      <span
-                        className={cn("font-medium", selected && "text-ring")}
-                      >
-                        {turn ? labels.turn(turn.turnIndex) : labels.allTurns}
-                      </span>
-                      {turn ? (
-                        <span className="text-muted-foreground tabular-nums">
-                          {formatTime(turn.startedAt)}
-                        </span>
-                      ) : null}
-                      {turn && turnMatches ? (
-                        turnMatches.has(turn.turnIndex) ? (
-                          <span className="bg-ring/15 text-ring ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium tabular-nums">
-                            {labels.searchTurnMatches(
-                              formatNumber(
-                                turnMatches.get(turn.turnIndex) ?? 0,
-                              ),
-                            )}
-                          </span>
-                        ) : null
-                      ) : turn && turn.toolCalls > 0 ? (
-                        <span className="bg-muted text-muted-foreground ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] tabular-nums">
-                          {labels.toolCount(formatNumber(turn.toolCalls))}
-                        </span>
-                      ) : null}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline gap-2 text-xs">
+                    <span
+                      className={cn("font-medium", selected && "text-ring")}
+                    >
+                      {turn ? labels.turn(turn.turnIndex) : labels.allTurns}
                     </span>
                     {turn ? (
-                      <span className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
-                        {turn.summary ??
-                          labels.toolsOnly(turn.toolNames.join(", "))}
+                      <span className="text-muted-foreground tabular-nums">
+                        {formatTime(turn.startedAt)}
+                      </span>
+                    ) : null}
+                    {turn && turnMatches ? (
+                      turnMatches.has(turn.turnIndex) ? (
+                        <span className="bg-ring/15 text-ring ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium tabular-nums">
+                          {labels.searchTurnMatches(
+                            formatNumber(turnMatches.get(turn.turnIndex) ?? 0),
+                          )}
+                        </span>
+                      ) : null
+                    ) : turn && turn.toolCalls > 0 ? (
+                      <span className="bg-muted text-muted-foreground ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] tabular-nums">
+                        {labels.toolCount(formatNumber(turn.toolCalls))}
                       </span>
                     ) : null}
                   </span>
-                </button>
-              </li>
-            );
-          })}
-        </ol>
-      </div>
+                  {turn ? (
+                    <span className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
+                      {turn.summary ??
+                        labels.toolsOnly(turn.toolNames.join(", "))}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
@@ -906,7 +920,7 @@ function TrajectorySearch({
 }) {
   const hasQuery = query.trim().length > 0;
   return (
-    <div className="border-input focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 bg-card flex h-8 w-full items-center gap-1.5 rounded-md border pr-1 pl-2.5 shadow-xs transition-[color,box-shadow] focus-within:ring-[3px]">
+    <div className="border-input focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 flex h-8 w-full items-center gap-1.5 rounded-md border bg-transparent pr-1 pl-2.5 shadow-xs transition-[color,box-shadow] focus-within:ring-[3px]">
       <Search className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
       <input
         value={query}
