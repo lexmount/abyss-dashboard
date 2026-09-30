@@ -146,6 +146,53 @@ describe("SessionTrajectory", () => {
   });
 });
 
+describe("SessionTrajectory search", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("steps through matches, switching to their turns and marking the text", async () => {
+    const onFocusTurn = vi.fn();
+    renderTrajectory(vi.fn(), 2, onFocusTurn);
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search this session" }),
+      {
+        target: { value: "readme" },
+      },
+    );
+
+    // The tool result in turn 1 and the reply in turn 2 both mention README.
+    expect(await screen.findByText("1 / 2")).toBeInTheDocument();
+    expect(onFocusTurn).toHaveBeenLastCalledWith(1);
+    const turns = within(screen.getByRole("listbox", { name: "Turns" }));
+    expect(turns.getAllByText("1 hits")).toHaveLength(2);
+
+    fireEvent.keyDown(
+      screen.getByRole("textbox", { name: "Search this session" }),
+      {
+        key: "Enter",
+      },
+    );
+    expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    const mark = content().getByText("README");
+    expect(mark.tagName).toBe("MARK");
+  });
+
+  it("reports when nothing matches", async () => {
+    renderTrajectory(vi.fn());
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search this session" }),
+      {
+        target: { value: "nothing like this" },
+      },
+    );
+    expect(await screen.findByText("No matches")).toBeInTheDocument();
+  });
+});
+
 /** Queries scoped to the selected turn's content, excluding the timeline. */
 function content() {
   const region = document.querySelector<HTMLElement>(
@@ -233,4 +280,11 @@ const labels: SessionTrajectoryLabels = {
   turnList: "Turns",
   toolCount: (count) => `${count} tools`,
   toolsOnly: (names) => `Tools: ${names}`,
+  search: "Search this session",
+  searchPosition: (current, total) => `${current} / ${total}`,
+  searchNoMatches: "No matches",
+  searchPrevious: "Previous match",
+  searchNext: "Next match",
+  searchClear: "Clear search",
+  searchTurnMatches: (count) => `${count} hits`,
 };

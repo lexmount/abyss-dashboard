@@ -184,6 +184,14 @@ function trajectoryLabels(t: ReturnType<typeof useI18n>["t"]): SessionTrajectory
     turnList: t("sessions.trajectory.turnList"),
     toolCount: (count) => t("sessions.trajectory.toolCount", { count }),
     toolsOnly: (names) => t("sessions.trajectory.toolsOnly", { names }),
+    search: t("sessions.trajectory.search"),
+    searchPosition: (current, total) =>
+      t("sessions.trajectory.searchPosition", { current, total }),
+    searchNoMatches: t("sessions.trajectory.searchNoMatches"),
+    searchPrevious: t("sessions.trajectory.searchPrevious"),
+    searchNext: t("sessions.trajectory.searchNext"),
+    searchClear: t("sessions.trajectory.searchClear"),
+    searchTurnMatches: (count) => t("sessions.trajectory.searchTurnMatches", { count }),
   };
 }
 

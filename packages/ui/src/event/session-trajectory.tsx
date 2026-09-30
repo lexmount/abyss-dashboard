@@ -1,12 +1,18 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, Search, X } from "lucide-react";
 import * as React from "react";
 import { cn } from "../utils";
+import {
+  highlightSegments,
+  matchesByTurn,
+  searchTrajectory,
+} from "./session-trajectory-search";
 
 const ESTIMATED_ITEM_HEIGHT_PX = 72;
 const VIRTUAL_OVERSCAN_ITEMS = 8;
 const COLLAPSED_MAX_CHARACTERS = 600;
 const COLLAPSED_MAX_LINES = 8;
+const SEARCH_DEBOUNCE_MS = 150;
 
 export type SessionTrajectoryItemKind =
   "context" | "user" | "assistant" | "tool_call" | "tool_result";
@@ -48,6 +54,16 @@ export interface SessionTrajectoryLabels {
   turnList: string;
   toolCount: (count: string) => string;
   toolsOnly: (names: string) => string;
+  /** Placeholder and accessible name of the in-session search field. */
+  search: string;
+  /** Position among matching items, such as "3 / 17". */
+  searchPosition: (current: string, total: string) => string;
+  searchNoMatches: string;
+  searchPrevious: string;
+  searchNext: string;
+  searchClear: string;
+  /** Occurrences of the query in one turn, for the timeline. */
+  searchTurnMatches: (count: string) => string;
 }
 
 export interface SessionTrajectoryProps {
@@ -189,6 +205,26 @@ export function SessionTrajectory({
       return next;
     });
 
+  const [query, setQuery] = React.useState("");
+  const searchQuery = useDebounced(query.trim(), SEARCH_DEBOUNCE_MS);
+  const matches = React.useMemo(
+    () => searchTrajectory(items, searchQuery),
+    [items, searchQuery],
+  );
+  const turnMatches = React.useMemo(() => matchesByTurn(matches), [matches]);
+  const [activeMatch, setActiveMatch] = React.useState(0);
+  const active = matches[activeMatch];
+  const step = (delta: number) => {
+    if (matches.length > 0) {
+      setActiveMatch(
+        (current) => (current + delta + matches.length) % matches.length,
+      );
+    }
+  };
+  React.useEffect(() => {
+    setActiveMatch(0);
+  }, [searchQuery]);
+
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -208,6 +244,35 @@ export function SessionTrajectory({
     virtualizer.scrollToOffset(0);
   }, [focusedTurn, virtualizer]);
 
+  // Reveal the active match: switch to its turn when another turn is shown,
+  // expand it when collapsed, and center it in the list.
+  React.useEffect(() => {
+    if (!active) {
+      return;
+    }
+    if (focusedTurn !== null && active.turnIndex !== focusedTurn) {
+      onFocusTurn(active.turnIndex);
+      return;
+    }
+    setExpanded((current) =>
+      current.has(active.itemIndex)
+        ? current
+        : new Set(current).add(active.itemIndex),
+    );
+    const rowIndex = rows.findIndex(
+      (row) => row.kind === "item" && row.index === active.itemIndex,
+    );
+    if (rowIndex === -1) {
+      return;
+    }
+    virtualizer.scrollToIndex(rowIndex, { align: "center" });
+    // Row heights settle after expansion; center again once measured.
+    const frame = window.requestAnimationFrame(() =>
+      virtualizer.scrollToIndex(rowIndex, { align: "center" }),
+    );
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, focusedTurn, onFocusTurn, rows, virtualizer]);
+
   return (
     <div
       className={cn(
@@ -217,6 +282,7 @@ export function SessionTrajectory({
     >
       <TurnTimeline
         turns={turns}
+        turnMatches={searchQuery ? turnMatches : null}
         focusedTurn={focusedTurn}
         onFocusTurn={onFocusTurn}
         formatTime={formatTime}
@@ -238,6 +304,16 @@ export function SessionTrajectory({
               )}
             </span>
           </div>
+          <TrajectorySearch
+            query={query}
+            onQueryChange={setQuery}
+            position={active ? activeMatch + 1 : 0}
+            total={matches.length}
+            searching={query.trim() !== searchQuery}
+            onStep={step}
+            formatNumber={formatNumber}
+            labels={labels}
+          />
         </div>
         <div
           ref={scrollRef}
@@ -279,6 +355,8 @@ export function SessionTrajectory({
                     ) : (
                       <TrajectoryItemRow
                         item={row.item}
+                        query={searchQuery}
+                        activeMatch={active?.itemIndex === row.index}
                         expanded={expanded.has(row.index)}
                         selectedEventId={selectedEventId}
                         onToggle={() => toggle(row.index)}
@@ -306,6 +384,7 @@ export function SessionTrajectory({
  */
 function TurnTimeline({
   turns,
+  turnMatches,
   focusedTurn,
   onFocusTurn,
   formatTime,
@@ -313,6 +392,8 @@ function TurnTimeline({
   labels,
 }: {
   turns: TrajectoryTurnSummary[];
+  /** Search occurrences per turn while searching, else null. */
+  turnMatches: Map<number, number> | null;
   focusedTurn: number | null;
   onFocusTurn: (turnIndex: number | null) => void;
   formatTime: (value: string) => string;
@@ -377,6 +458,11 @@ function TurnTimeline({
                 className={cn(
                   "relative mx-1.5 flex w-[calc(100%-0.75rem)] gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
                   selected ? "bg-ring/10" : "hover:bg-muted/70",
+                  // Turns without matches fade while searching.
+                  turn &&
+                    turnMatches &&
+                    !turnMatches.has(turn.turnIndex) &&
+                    "opacity-45",
                 )}
               >
                 <span
@@ -400,7 +486,15 @@ function TurnTimeline({
                         {formatTime(turn.startedAt)}
                       </span>
                     ) : null}
-                    {turn && turn.toolCalls > 0 ? (
+                    {turn && turnMatches ? (
+                      turnMatches.has(turn.turnIndex) ? (
+                        <span className="bg-ring/15 text-ring ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium tabular-nums">
+                          {labels.searchTurnMatches(
+                            formatNumber(turnMatches.get(turn.turnIndex) ?? 0),
+                          )}
+                        </span>
+                      ) : null
+                    ) : turn && turn.toolCalls > 0 ? (
                       <span className="bg-muted text-muted-foreground ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] tabular-nums">
                         {labels.toolCount(formatNumber(turn.toolCalls))}
                       </span>
@@ -449,6 +543,8 @@ function isLong(text: string): boolean {
 
 function TrajectoryItemRow({
   item,
+  query,
+  activeMatch,
   expanded,
   selectedEventId,
   onToggle,
@@ -458,6 +554,10 @@ function TrajectoryItemRow({
   labels,
 }: {
   item: SessionTrajectoryItem;
+  /** Active search text to highlight, or empty. */
+  query: string;
+  /** Whether this item is the search match being viewed. */
+  activeMatch: boolean;
   expanded: boolean;
   selectedEventId: string | null;
   onToggle: () => void;
@@ -497,7 +597,9 @@ function TrajectoryItemRow({
       }
     },
   } as const;
-  const selectedRing = selected && "ring-ring/60 ring-2";
+  const selectedRing = activeMatch
+    ? "ring-ring ring-2"
+    : selected && "ring-ring/60 ring-2";
 
   const meta = (
     <>
@@ -543,10 +645,19 @@ function TrajectoryItemRow({
               {kindLabel(item.kind, labels)}
             </span>
             {item.name ? (
-              <span className="shrink-0 font-medium">{item.name}</span>
+              <span className="shrink-0 font-medium">
+                <Highlighted text={item.name} query={query} />
+              </span>
             ) : null}
             <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[11px]">
-              {tool ? oneLine(item.input ?? item.output ?? "") : ""}
+              {tool ? (
+                <Highlighted
+                  text={oneLine(item.input ?? item.output ?? "")}
+                  query={query}
+                />
+              ) : (
+                ""
+              )}
             </span>
             {meta}
           </div>
@@ -558,11 +669,16 @@ function TrajectoryItemRow({
               {tool ? (
                 <>
                   {item.input !== undefined ? (
-                    <ContentBlock label={labels.input} text={item.input} />
+                    <ContentBlock
+                      label={labels.input}
+                      text={item.input}
+                      query={query}
+                    />
                   ) : null}
                   <ContentBlock
                     label={labels.output}
                     text={item.output ?? labels.noOutput}
+                    query={query}
                     action={
                       resultEventPk !== null ? (
                         <button
@@ -578,7 +694,7 @@ function TrajectoryItemRow({
                 </>
               ) : (
                 <pre className="max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap">
-                  {text}
+                  <Highlighted text={text} query={query} />
                 </pre>
               )}
             </div>
@@ -596,7 +712,7 @@ function TrajectoryItemRow({
       )}
     >
       {item.continued ? "…" : ""}
-      {text}
+      <Highlighted text={text} query={query} />
     </div>
   );
   const more = collapsible ? (
@@ -661,10 +777,12 @@ function TrajectoryItemRow({
 function ContentBlock({
   label,
   text,
+  query,
   action,
 }: {
   label: string;
   text: string;
+  query: string;
   action?: React.ReactNode;
 }) {
   return (
@@ -674,7 +792,7 @@ function ContentBlock({
         {action}
       </div>
       <pre className="max-h-96 overflow-auto p-3 font-mono text-xs break-all whitespace-pre-wrap">
-        {text}
+        <Highlighted text={text} query={query} />
       </pre>
     </div>
   );
@@ -682,4 +800,143 @@ function ContentBlock({
 
 function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim().slice(0, 300);
+}
+
+/** Search field with the match position and previous / next controls. */
+function TrajectorySearch({
+  query,
+  onQueryChange,
+  position,
+  total,
+  searching,
+  onStep,
+  formatNumber,
+  labels,
+}: {
+  query: string;
+  onQueryChange: (query: string) => void;
+  position: number;
+  total: number;
+  searching: boolean;
+  onStep: (delta: number) => void;
+  formatNumber: (value: number) => string;
+  labels: SessionTrajectoryLabels;
+}) {
+  const hasQuery = query.trim().length > 0;
+  return (
+    <div className="border-input focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 flex h-8 w-full items-center gap-1.5 rounded-md border bg-transparent pr-1 pl-2.5 shadow-xs transition-[color,box-shadow] focus-within:ring-[3px] sm:w-72">
+      <Search className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
+      <input
+        value={query}
+        placeholder={labels.search}
+        aria-label={labels.search}
+        className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
+        onChange={(event) => onQueryChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            onStep(event.shiftKey ? -1 : 1);
+          } else if (event.key === "Escape" && hasQuery) {
+            event.preventDefault();
+            onQueryChange("");
+          }
+        }}
+      />
+      {hasQuery ? (
+        <>
+          <span
+            className={cn(
+              "text-muted-foreground shrink-0 text-xs tabular-nums",
+              searching && "opacity-50",
+            )}
+            aria-live="polite"
+          >
+            {total > 0
+              ? labels.searchPosition(
+                  formatNumber(position),
+                  formatNumber(total),
+                )
+              : labels.searchNoMatches}
+          </span>
+          <SearchIconButton
+            label={labels.searchPrevious}
+            disabled={total === 0}
+            onClick={() => onStep(-1)}
+          >
+            <ChevronUp className="size-3.5" />
+          </SearchIconButton>
+          <SearchIconButton
+            label={labels.searchNext}
+            disabled={total === 0}
+            onClick={() => onStep(1)}
+          >
+            <ChevronDown className="size-3.5" />
+          </SearchIconButton>
+          <SearchIconButton
+            label={labels.searchClear}
+            onClick={() => onQueryChange("")}
+          >
+            <X className="size-3.5" />
+          </SearchIconButton>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function SearchIconButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-6 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-40"
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Text with every occurrence of the query marked. */
+function Highlighted({ text, query }: { text: string; query: string }) {
+  if (!query) {
+    return <>{text}</>;
+  }
+  return (
+    <>
+      {highlightSegments(text, query).map((segment, index) =>
+        segment.match ? (
+          <mark
+            key={index}
+            className="bg-ring/25 text-foreground rounded-sm px-px"
+          >
+            {segment.text}
+          </mark>
+        ) : (
+          <React.Fragment key={index}>{segment.text}</React.Fragment>
+        ),
+      )}
+    </>
+  );
+}
+
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = React.useState(value);
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
 }
