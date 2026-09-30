@@ -144,6 +144,39 @@ describe("SessionTrajectory", () => {
     expect(row).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("raw event panel")).toBeInTheDocument();
   });
+
+  it("shows a compaction as one collapsed item with its prompt and summary", () => {
+    const onSelectEvent = vi.fn();
+    renderTrajectory(onSelectEvent, null, vi.fn(), null, null, [
+      item({
+        kind: "user",
+        stream: 0,
+        turn_index: 1,
+        text: "write the report",
+      }),
+      item({
+        kind: "compaction",
+        stream: 0,
+        turn_index: 1,
+        input: "You are performing a CONTEXT CHECKPOINT COMPACTION.",
+        output: "## Goal\nFinish the report.",
+        output_event_pk: "event-summary",
+      }),
+    ]);
+
+    expect(content().getByText("Context compaction")).toBeInTheDocument();
+    // The collapsed row previews the summary rather than the fixed prompt.
+    expect(
+      content().getByText("## Goal Finish the report."),
+    ).toBeInTheDocument();
+    expect(content().queryByText("Compaction prompt")).not.toBeInTheDocument();
+
+    fireEvent.click(content().getByRole("button", { name: "Show more" }));
+    expect(content().getByText("Compaction prompt")).toBeInTheDocument();
+    expect(content().getByText("Summary")).toBeInTheDocument();
+    fireEvent.click(content().getByRole("button", { name: "Open event" }));
+    expect(onSelectEvent).toHaveBeenLastCalledWith("event-summary");
+  });
 });
 
 describe("SessionTrajectory search", () => {
@@ -210,6 +243,7 @@ function renderTrajectory(
   onFocusTurn: (turnIndex: number | null) => void = vi.fn(),
   selectedEventId: string | null = null,
   inspector: React.ReactNode = null,
+  trajectoryItems: SessionTrajectoryItem[] = items,
 ) {
   // jsdom has no layout, so give the virtualized list a measurable viewport.
   vi.stubGlobal(
@@ -235,7 +269,7 @@ function renderTrajectory(
   vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(1200);
   return render(
     <SessionTrajectory
-      items={items}
+      items={trajectoryItems}
       selectedEventId={selectedEventId}
       onSelectEvent={onSelectEvent}
       inspector={inspector}
@@ -266,6 +300,9 @@ const labels: SessionTrajectoryLabels = {
   assistant: "Assistant",
   toolCall: "Tool call",
   toolResult: "Tool result",
+  compaction: "Context compaction",
+  compactionPrompt: "Compaction prompt",
+  compactionSummary: "Summary",
   input: "Input",
   output: "Output",
   noOutput: "No output",

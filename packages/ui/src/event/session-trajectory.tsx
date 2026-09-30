@@ -15,7 +15,7 @@ const COLLAPSED_MAX_LINES = 8;
 const SEARCH_DEBOUNCE_MS = 150;
 
 export type SessionTrajectoryItemKind =
-  "context" | "user" | "assistant" | "tool_call" | "tool_result";
+  "context" | "user" | "assistant" | "tool_call" | "tool_result" | "compaction";
 
 /** One piece of new content contributed by one event. */
 export interface SessionTrajectoryItem {
@@ -40,6 +40,10 @@ export interface SessionTrajectoryLabels {
   assistant: string;
   toolCall: string;
   toolResult: string;
+  /** Context compaction: its summary prompt as `input`, the summary as `output`. */
+  compaction: string;
+  compactionPrompt: string;
+  compactionSummary: string;
   input: string;
   output: string;
   noOutput: string;
@@ -531,6 +535,8 @@ function kindLabel(
       return labels.toolCall;
     case "tool_result":
       return labels.toolResult;
+    case "compaction":
+      return labels.compaction;
   }
 }
 
@@ -567,9 +573,12 @@ function TrajectoryItemRow({
   labels: SessionTrajectoryLabels;
 }) {
   const tool = item.kind === "tool_call" || item.kind === "tool_result";
+  const compaction = item.kind === "compaction";
+  // Tools and compactions both pair an input with an output.
+  const paired = tool || compaction;
   const text = item.text ?? "";
   // Context is the whole system prompt, so it starts collapsed like tools.
-  const compact = tool || item.kind === "context";
+  const compact = paired || item.kind === "context";
   const collapsible = compact || isLong(text);
   const Chevron = expanded ? ChevronDown : ChevronRight;
   // A tool result usually arrives in a later request than its call.
@@ -603,7 +612,7 @@ function TrajectoryItemRow({
 
   const meta = (
     <>
-      {tool ? (
+      {paired ? (
         <span className="text-muted-foreground shrink-0 tabular-nums">
           {item.output === undefined
             ? labels.noOutput
@@ -650,9 +659,14 @@ function TrajectoryItemRow({
               </span>
             ) : null}
             <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[11px]">
-              {tool ? (
+              {paired ? (
                 <Highlighted
-                  text={oneLine(item.input ?? item.output ?? "")}
+                  text={oneLine(
+                    (compaction ? item.output : item.input) ??
+                      item.input ??
+                      item.output ??
+                      "",
+                  )}
                   query={query}
                 />
               ) : (
@@ -666,17 +680,21 @@ function TrajectoryItemRow({
               className="cursor-auto space-y-2 border-t p-2.5"
               onClick={stop}
             >
-              {tool ? (
+              {paired ? (
                 <>
                   {item.input !== undefined ? (
                     <ContentBlock
-                      label={labels.input}
+                      label={
+                        compaction ? labels.compactionPrompt : labels.input
+                      }
                       text={item.input}
                       query={query}
                     />
                   ) : null}
                   <ContentBlock
-                    label={labels.output}
+                    label={
+                      compaction ? labels.compactionSummary : labels.output
+                    }
                     text={item.output ?? labels.noOutput}
                     query={query}
                     action={
