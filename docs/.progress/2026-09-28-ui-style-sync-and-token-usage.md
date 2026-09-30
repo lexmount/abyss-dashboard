@@ -1,20 +1,22 @@
-# Dashboard 界面、Token 口径与会话详情页改动总结
+# Dashboard 界面、Token 口径、会话列表与本地部署
 
-日期：2026-09-27 ～ 2026-09-28
-范围：`abyss-dashboard`（前端与 `@lexmount.com/abyss-ui`）、`abyss-backend`（合并与本地部署）
+日期：2026-09-27 ～ 2026-09-29
+范围：`abyss-dashboard`（前端与 `@lexmount.com/abyss-ui`）、`abyss-backend`、`abyss-rs`（合并与本地部署）
 
-本文只描述当前版本的最终状态；过程中被替换掉的方案不再记录。
+本文只描述当前版本的最终状态，过程中被替换掉的方案不再记录。相关文档：
+
+- `2026-09-28-session-trajectory.md`：会话详情页的合并视图、按需加载与事件检查面板
+- `2026-09-29-token-verification-providers-codex-text.md`：Token 计量验证、服务商列表、Codex 请求文本问题
 
 ## 状态
 
-| 内容                           | 位置                                           | 状态           |
-| ------------------------------ | ---------------------------------------------- | -------------- |
-| 主题、字体、深色主题、图表配色 | `abyss-dashboard` `main`                       | 已合并，未推送 |
-| 过滤器（时间范围、会话下拉）   | `abyss-dashboard` `main`                       | 已合并，未推送 |
-| Token 四类口径展示             | `abyss-dashboard` `main`                       | 已合并，未推送 |
-| 测试环境修复（Node 26）        | `abyss-dashboard` `main`                       | 已合并，未推送 |
-| 会话详情页重新设计             | `abyss-dashboard` `feat/session-detail-polish` | 未合并         |
-| token 口径后端与时间线后端合并 | `abyss-backend` `main`（`ea2b384`）            | 已合并，未推送 |
+所有改动都已合入各仓库本地的 `main`，没有未合并的功能分支，也都还未推送。
+
+| 仓库              | `main`    | 领先 `origin/main` | 其他分支 / worktree                                            |
+| ----------------- | --------- | ------------------ | -------------------------------------------------------------- |
+| `abyss-dashboard` | `c1f5e62` | 31 个提交          | 无                                                             |
+| `abyss-backend`   | `8b90475` | 5 个提交           | 无                                                             |
+| `abyss-rs`        | `29be8df` | 3 个提交           | `explore/history-import`（worktree `abyss-rs-history-import`） |
 
 ## 1. 主题与字体（`packages/ui/src/theme.css`）
 
@@ -28,17 +30,20 @@
 
 ### 深色
 
-中性偏冷的石墨灰（hue 285，色度 ≤ 0.012）。各层按亮度逐级变亮，紫色只用于焦点、选中状态和图表。
+与官网 abyss.lexmount.cn 的夜间模式一致：紫黑色调，色相固定为 298，只调亮度，各层逐级变亮。
 
-| 层级              | 颜色                                |
-| ----------------- | ----------------------------------- |
-| 侧边栏外框        | `#0c0c10`                           |
-| 内容区            | `#121217`                           |
-| 卡片              | `#19191e`                           |
-| 弹出层            | `#1d1d24`                           |
-| 边框 / 输入框     | `#2d2d34` / `#37373e`               |
-| 主文字 / 辅助文字 | `#f6f6f9` / `#a3a4ac`（对卡片 7:1） |
-| 焦点 `--ring`     | `#8b6cf0`                           |
+| 层级              | 颜色                                  |
+| ----------------- | ------------------------------------- |
+| 侧边栏外框        | `#08050f`（官网底色）                 |
+| 内容区            | `#0e0a16`                             |
+| 卡片              | `#15111e`                             |
+| 弹出层            | `#1b1724`                             |
+| 边框 / 输入框     | `#2b2735` / `#363140`                 |
+| 主文字 / 辅助文字 | `#f6f5fb` / `#a9a5b4`（对卡片 7.7:1） |
+| 焦点 `--ring`     | `#c4b5fd`（官网强调色）               |
+| 主按钮            | 白底 `#f6f5fb`、深紫字 `#0f0a18`      |
+
+内容区顶部有一层很淡的紫色光晕，呼应官网首屏（`packages/ui/src/styles.css`）。
 
 ### 字体
 
@@ -47,7 +52,7 @@
 
 ### 配色验证
 
-所有分类色都用 dataviz 技能的 `validate_palette.js` 验证过，检查项包括亮度范围、饱和度下限、相邻色的色弱和正常视力区分度、对卡片背景 3:1 的对比度，结果全部通过。
+分类色都用 dataviz 技能的 `validate_palette.js` 验证过，检查项包括：亮度范围、饱和度下限、相邻色的色弱区分度和正常视力区分度、对卡片背景 3:1 的对比度。深色主题更换后，又对新的卡片底色重新验证过一遍。
 
 通用图表色：
 
@@ -68,42 +73,29 @@ Token 用量专用色：
 | `--usage-input`       | `#2f7fe0` | `#3b8ef0` |
 | `--usage-output`      | `#0e9f8f` | `#12a594` |
 
-## 2. 过滤器（Dashboard 与 Sessions 页）
+## 2. Dashboard 首页
 
-### 时间范围
+### 过滤器
 
-- `src/lib/time-range.ts`：
-  - 预设：不限 / 最近 24 小时 / 7 天 / 30 天 / 自定义。
-  - 自定义范围精确到分钟。
-  - 后端的 `to` 按开区间处理。
-- `src/components/time-range-field.tsx`：一个预设下拉框。选中"自定义"后，右侧出现"开始时间 / 结束时间"两个独立的列。
-- `src/components/date-time-field.tsx`：自绘的日期时间输入，取代原生 `datetime-local`。
-  - 输入框可以直接输入 `YYYY-MM-DD HH:mm`。
-  - 弹出面板：月历只显示当月日期，选中日期为主色块，今天用紫色数字标出。
-  - 面板底部是 `HH : mm` 分段输入：输满两位小时自动跳到分钟，上下键微调，回车关闭；另有"现在"链接。
-- 布局：宽度 ≥ 88rem 时，自定义模式下给两个时间列各保留 11rem，其余列变窄，过滤器保持在一行（`packages/ui/src/styles.css`）。
-- Sessions 页 URL 使用 `range=` 和 `from=` / `to=` 参数，兼容旧的带时间的 `from` / `to` 链接。
+依次为：时间范围、智能体、服务商、模型、会话、事件。点"应用"后生效，"重置"按钮使用撤销图标。
 
-### 会话下拉（`src/components/session-picker.tsx`）
+- **时间范围**
+  - 逻辑在 `src/lib/time-range.ts`。预设：不限 / 最近 24 小时 / 7 天 / 30 天 / 自定义。自定义范围精确到分钟，后端的 `to` 按开区间处理。
+  - `src/components/time-range-field.tsx` 渲染预设下拉框，选中"自定义"后右侧出现"开始时间 / 结束时间"两列。
+  - `src/components/date-time-field.tsx` 是自绘的日期时间输入，取代原生 `datetime-local`：
+    - 可以直接输入 `YYYY-MM-DD HH:mm`；
+    - 弹出面板只显示当月月历；
+    - 面板底部是 `HH : mm` 分段输入，输满两位小时自动跳到分钟，上下键微调，回车关闭；另有"现在"链接。
+  - 宽度 ≥ 88rem 时，自定义模式下给两个时间列各保留 11rem，过滤器保持在一行（`packages/ui/src/styles.css`）。
+- **服务商、模型**：下拉选项来自汇总接口（`group_by=provider,model`），范围跟随时间和智能体筛选，按用量从大到小排列。选中服务商后，模型只保留该服务商用过的。选项逻辑在 `src/lib/usage-choices.ts`，首页的服务商部分由另一个会话完成（`c1f5e62`）。
+- **会话**：`src/components/session-picker.tsx`。
+  - 未输入关键词时，从最近 500 条事件中去重列出会话；
+  - 输入关键词时，在本地按子串过滤，同时调用全文搜索（防抖 250ms），两者结果合并；
+  - 支持上下键选择、回车确认、清除按钮，悬停显示完整 ID。
 
-- 未输入关键词时：从最近 500 条事件中去重，列出当前时间范围和 Agent 下的会话。
-- 输入关键词时：在本地按子串过滤，同时调用 `/v1/agent-usage/search`（防抖 250ms），结果合并显示。
-- 交互：上下键选择、回车确认、清除按钮、悬停显示完整 ID。
-- 共享触发按钮 `src/components/filter-trigger.tsx`，样式与 SelectTrigger 一致。
-- 限制：
-  - 后端没有列出会话的接口，更早的会话只能靠搜索找到。
-  - 全文索引按 `-` 切分，只输入 session id 的开头几个字符搜不到。
+### 总 Token 卡片与每日图表
 
-## 3. Token 四类口径（Dashboard）
-
-后端存储四类互不重合的计数，四者之和为总量：
-
-- 输入 `input_tokens`
-- 读缓存 `cache_read_tokens`
-- 写缓存 `cache_write_tokens`
-- 输出 `output_tokens`
-
-### 总 Token 卡片
+后端存储四类互不重合的计数，四者之和为总量：输入、读缓存、写缓存、输出。
 
 ```
 2,100,173,567
@@ -112,87 +104,109 @@ Token 用量专用色：
 ● 读缓存  20.4亿  ● 写缓存  5330万
 ```
 
-- 比例条和图例使用 `--usage-*` 色，与每日图表一致。
-- 图例两行对齐：第一行输入、输出，第二行读缓存、写缓存。
-- 数字使用 3 位有效数字的紧凑写法。
-- 悬停比例条的任一段或任一图例项，显示精确值和占总量的比例，例如 `读缓存 2,028,517,696 · 占总量 96.8%`。
-- 文案：
-  - 中文：输入 / 输出 / 读缓存 / 写缓存
-  - 英文：Input / Output / Cache read / Cache write
-  - 日文：入力 / 出力 / キャッシュ読 / キャッシュ書
-- 卡片宽度不足 300px 时，数值用 2xl 字号，避免挤出"实时"标签。
+- **卡片**
+  - 比例条和图例使用 `--usage-*` 色；图例第一行是输入、输出，第二行是读缓存、写缓存，上下对齐。
+  - 数字用 3 位有效数字的紧凑写法。悬停任一段或任一图例项，显示精确值和占总量的比例。
+  - 卡片宽度不足 300px 时，数值改用 2xl 字号。
+- **每日图表**
+  - 四类堆叠显示，Y 轴刻度用紧凑写法（`8亿` / `800M`）。
+  - 提示框每行显示精确值和当天占比。
 
-### 每日图表
+### 最近事件
 
-- 四类堆叠，堆叠高度即当日总量。
-- Y 轴刻度用紧凑写法（`8亿` / `800M`）。
-- 提示框每行显示精确值和当天占比。
-- 图表提示框的标签和数值之间留有间距（`packages/ui/src/components/chart.tsx`）。
+- **列顺序**：观测时间、会话、轮次、模型、智能体、Token、事件、平台 / 主机，全部左对齐。
+- **会话**：只显示 ID 的第一段，后面带外链图标，悬停显示完整 ID（`src/lib/session-id.ts`）。
+- **Token**：请求行在总量下面多一行"输入 / 缓存命中"，例如 `2 / 57.8万`。
+- **刷新**：刷新按钮和"更新于"时间在这张卡片的右上角。点击后重新拉取整页的用量数据，相对时间范围的终点移到当前时刻。
 
-## 4. 会话详情页 `/sessions/<id>`（`feat/session-detail-polish`）
+## 3. 会话列表页 `/sessions`
 
-### 头部（`apps/dashboard/src/app/sessions/detail-page.tsx`）
+### 前端
 
-- 顶部是"← Agent 看板"返回链接。
-- 标题区：紫色 Agent 图标块、Agent 名称、版本徽章；下一行是会话 ID 和复制按钮。
-- 右侧："详细信息"弹出层，列出全部原始字段和 metadata；以及"合并视图 / 原始事件"切换。
-- 摘要条：开始时间、持续时长、轮次、主要模型。多个模型时显示成 `名称 +N`，悬停可查看完整列表。
+- **默认列表**（`src/app/sessions/session-list.tsx`）
+  - 打开即列出全部观测到的会话，按最后活跃时间倒序，每页 20 条。
+  - 列为：最后活跃、会话、智能体、轮次、事件、Token、主机 / 平台。
+  - 点击整行进入会话详情。
+- **过滤器**：时间范围、智能体、服务商、模型，同时作用于列表和内容搜索。
+  - 服务商和模型的语义是"会话中用过这个服务商或模型"，选项来源与首页相同。
+  - "事件"对会话没有意义，已经删除。
+- **内容搜索**：输入关键词后切换为全文搜索结果，可以搜对话内容、命令和文件路径。
+- **URL 参数**：`q`、`range`、`from`、`to`、`agent_name`、`llm_provider`、`llm_model`、`page`。
 
-### 合并视图（`packages/ui/src/event/session-trajectory.tsx`）
+### 后端（`abyss-backend`）
 
-- 放在圆角卡片中。
-- 左侧轮次栏：淡底色；选中节点为带光圈的紫色圆点；工具次数显示为小胶囊。
-- 轮次之间用"第 N 轮 · 时间"加细线分隔。
-- 用户消息：淡紫色气泡，标注"用户"。
-- 助手回复：纯正文，时间在右侧，不带图标和标签。
-- 工具调用、工具结果、上下文：可展开的细卡片，只有展开箭头和文字标签。展开后输入和结果分为独立区块。
+新增 `GET /v1/agent-usage/sessions`（`usage/session_list.rs`），SQLite 与 PostgreSQL 各有一份实现（`storage/*/session_list.rs`）。
 
-### 原始事件（`packages/ui/src/event/session-ledger.tsx`）
+| 参数           | 含义                                                 |
+| -------------- | ---------------------------------------------------- |
+| `from`         | 最后活跃时间不早于此时刻                             |
+| `to`           | 会话开始时间早于此时刻                               |
+| `agent_name`   | 智能体，Claude 的几个别名按同一个处理                |
+| `llm_provider` | 会话中至少有一个事件来自该服务商（名称规范化后比较） |
+| `llm_model`    | 会话中至少有一个事件使用该模型（精确匹配）           |
+| `page`         | 从 1 开始                                            |
+| `page_size`    | 1–100，默认 20                                       |
 
-- 放在圆角卡片中。
-- "请求"用淡紫色标签，"响应"用淡青色标签（`EventTypeBadge`）。
-- 选中行用紫色底色和左侧紫色竖线标记。
+- 返回 `total_sessions`、`page`、`page_size`、`has_more` 和 `items`。
+- 每一项包含会话 ID、智能体、版本、主机、平台、开始 / 结束时间、最后活跃时间、轮次数、事件数、Token 总量。
+- 最后活跃时间取会话里最新事件的时间，没有事件时取开始时间。
+
+## 4. 会话详情页
+
+头部（身份区、摘要条、详细信息弹出层）和合并视图、原始事件的视觉样式由本次工作完成。之后的结构变化（事件检查面板、按需加载等）见 `2026-09-28-session-trajectory.md`。
 
 ## 5. 测试环境
 
-`apps/dashboard/src/test/setup.ts`：Node 25 及以上版本不加 `--localstorage-file` 时，自带的全局 `localStorage` 为 undefined，会遮住 jsdom 的 Storage。这里改为提供一个内存版 Storage。
+`apps/dashboard/src/test/setup.ts`：Node 25 及以上版本在不加 `--localstorage-file` 启动时，自带的全局 `localStorage` 为 undefined，会遮住 jsdom 的 Storage。这里改为提供一个内存版 Storage。
 
-## 6. 后端与本地部署
+## 6. 合并与本地部署
 
-- `abyss-backend` `main`：合并了 token 口径分支（`ea2b384`），同时具备四类计数、`token_usage` 新字段、历史数据 migration，以及会话大纲和轨迹接口。
-- 后端检查结果：fmt、两套 feature 的 clippy、SQLite feature 测试都通过。默认 feature 的测试因本机缺少 `libpq` 无法链接。
+### 合并
 
-当前运行的服务：
+- **`abyss-backend`**：`main` 包含 token 四类口径（含历史数据 migration）、会话大纲和轨迹接口、会话列表接口。
+- **`abyss-rs`**：`main` 包含三项修复：token 四类口径、Codex SSE 重复响应、macOS CA 信任检查。原来的 `fix/codex-sse-and-macos-ca` 和 `feat/token-usage-breakdown` 分支都已合并并删除。
+- **已删除的 worktree**：`abyss-dashboard-timeline`、`abyss-dashboard-token-usage`、`abyss-dashboard-providers`、`abyss-backend-timeline`、`abyss-backend-token-usage`、`abyss-rs-token-usage`。
 
-| 端口  | 服务                      | 来源                                                                                 |
-| ----- | ------------------------- | ------------------------------------------------------------------------------------ |
-| 53489 | 后端                      | `abyss-backend` `main` release（SQLite feature），日志 `local/logs/backend-main.log` |
-| 53502 | Dashboard 构建产物        | `abyss-dashboard/apps/dashboard/dist`，日志 `local/logs/dashboard-main.log`          |
-| 5173  | Dashboard vite 开发服务器 | `abyss-dashboard` 当前检出分支                                                       |
+### 当前运行的服务
 
+只保留一份：
+
+| 端口  | 服务                     | 来源                                                                                     |
+| ----- | ------------------------ | ---------------------------------------------------------------------------------------- |
+| 53489 | 后端                     | `abyss-backend` `main` release（SQLite feature），日志 `local/logs/backend-main.log`     |
+| 53502 | Dashboard                | `abyss-dashboard/apps/dashboard/dist`（`c1f5e62`），日志 `local/logs/dashboard-main.log` |
+| 57455 | broker + delivery-plugin | `abyss-rs` `main` release，通过 `abyss proxy start` 启动                                 |
+
+- 日志目录为 `~/Library/Application Support/Abyss/cli/local/logs`。
 - 后端连接本地真实库 `~/Library/Application Support/Abyss/cli/local/data/abyss.sqlite`。
-- 53489 和 53502 都是手动用 nohup 启动的，不要用 `abyss deploy-local stop/start` 管理。
-- `dist` 最近一次是在 `feat/session-detail-polish` 上构建的，所以 53502 当前显示的是包含会话详情页改动的版本。
-- 已删除的 worktree 和分支：`abyss-dashboard-timeline`、`abyss-dashboard-token-usage`、`abyss-backend-timeline`、`abyss-backend-token-usage`，以及对应的 `feat/*` 分支。
+- 53489 和 53502 是手动用 nohup 启动的。53502 直接读取仓库里的 `dist`，重新构建后它会跟着变化。
+- 本机的 Claude Code 和 Codex 通过 57455 代理访问网络，重启 broker 会让它们短暂断线。
+
+### deploy-local
+
+`abyss deploy-local start` 默认使用发布版（后端 1.0.0、dashboard npm 包 0.1.0），它们没有本次的改动。要改用本地构建，可以设置环境变量：
+
+```bash
+ABYSS_LOCAL_BACKEND_BIN=~/abyss/abyss-backend/target/release/abyss-backend \
+ABYSS_LOCAL_DASHBOARD_BIN=~/abyss/abyss-dashboard/apps/dashboard/bin/abyss-dashboard.mjs \
+~/abyss/abyss-rs/target/release/abyss deploy-local start
+```
+
+- dashboard 启动脚本需要有可执行权限，而仓库里的文件是 644。
+- `deploy-local stop` 会连代理一起停掉。
 
 ## 验证
 
-`abyss-dashboard` 的每个提交前都在仓库根目录运行：
-
-- `npm run format:check`
-- `npm run lint`
-- `npm run typecheck`
-- `npm test`（dashboard 38 个，仓库级 28 个）
-- `npm run build`
-
-结果全部通过。界面改动都用浏览器在浅色和深色、中英日三种语言、桌面和手机宽度下截图检查，并用 DOM 测量确认没有截断或溢出。
+- **`abyss-dashboard`**：每个提交前都在仓库根目录运行 `npm run format:check`、`npm run lint`、`npm run typecheck`、`npm test`（dashboard 40 个、UI 包 23 个）、`npm run build`，全部通过。
+- **`abyss-backend`**：`cargo +nightly fmt --check`、两套 feature 的 clippy 通过；SQLite feature 测试 38 个通过。默认 feature 的测试因本机缺少 `libpq` 无法链接，PostgreSQL 实现只经过编译和 clippy 检查。
+- **`abyss-rs`**：合并前 fmt、clippy、全部测试（约 480 个）通过。重启 broker 后，新的请求带着四类 token 计数写入了后端。
+- **界面**：界面改动都在 Ego 浏览器中实际操作和截图检查过，覆盖浅色与深色、中英日三种语言、桌面与手机宽度，并用 DOM 测量确认没有截断、溢出或错位。
 
 ## 待办
 
-- **会话详情页**：`feat/session-detail-polish` 待确认后合入 `main`。
-- **推送**：`abyss-dashboard` 和 `abyss-backend` 的 `main` 都未推送，以往 `main` 的提交都是通过 PR 合入的。
-- **abyss-frontend**：需要发布新版 `@lexmount.com/abyss-ui` 并在 `abyss-frontend` 中升级，改动才会生效。
-- **abyss-rs**：`abyss-rs-token-usage` worktree 的 token 口径改动尚未合入 `abyss-rs` 的 `main`，当前运行的 broker 使用该 worktree 的构建。
-- **会话列表接口**：后端补上后，会话下拉就不必再依赖事件去重和全文搜索。
-- **原始事件详情面板**：正文使用强制断行，单词会在中间断开，尚未处理。
-- **未提交的改动**：工作区里 `apps/dashboard/bin/abyss-dashboard.mjs` 的权限改动（644 → 755）早于本次工作，未提交。
+- **推送**：三个仓库的 `main` 都未推送；以往 `main` 的提交都是通过 PR 合入的。
+- **abyss-frontend**：需要发布新版 `@lexmount.com/abyss-ui`，并在 `abyss-frontend` 中升级依赖，主题等改动才会生效。
+- **会话下拉**：首页的会话下拉仍靠事件去重和全文搜索，可以改用新的会话列表接口。
+- **原始事件正文**：正文使用强制断行，单词会在中间断开。
+- **abyss-rs 未提交改动**：主目录有另一个会话未提交的改动（两个 README、两个 `docs` 目录、`runtime-policy.toml`）。其中 `runtime-policy.toml` 会作为默认配置编进 `abyss` 命令行，只在本地配置不存在时生效。
+- **Codex 请求文本**：见 `2026-09-29-token-verification-providers-codex-text.md`。
