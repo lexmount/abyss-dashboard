@@ -120,7 +120,9 @@ export function UsageDashboard() {
   const queryClient = useQueryClient();
   const query = React.useMemo<UsageQuery>(
     () => ({
-      ...resolveTimeRange(filters.time, now),
+      // Usage counts today as a day: "last 7 days" starts at midnight six
+      // days ago rather than exactly 168 hours back.
+      ...resolveTimeRange(filters.time, now, "calendar"),
       agentName: filters.agentName,
       sessionId: filters.sessionId,
       provider: filters.provider,
@@ -299,7 +301,10 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
     onDraftChange({ ...draft, [field]: value });
   };
   const sessionScope = React.useMemo(
-    () => ({ ...resolveTimeRange(draft.time), agentName: draft.agentName }),
+    () => ({
+      ...resolveTimeRange(draft.time, undefined, "calendar"),
+      agentName: draft.agentName,
+    }),
     [draft.time, draft.agentName],
   );
   // Session choices also follow the provider and model, so only sessions that

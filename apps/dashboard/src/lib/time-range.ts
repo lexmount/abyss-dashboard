@@ -21,6 +21,18 @@ const presetHours: Partial<Record<TimeRangePreset, number>> = {
   "30d": 24 * 30,
 };
 
+const presetDays: Partial<Record<TimeRangePreset, number>> = {
+  "7d": 7,
+  "30d": 30,
+};
+
+/**
+ * How day presets count: `rolling` goes back exactly 24 hours per day, while
+ * `calendar` counts today as the latest day, so "last 7 days" starts at local
+ * midnight six days ago and only spans full days once today is over.
+ */
+export type DayCounting = "rolling" | "calendar";
+
 export function isTimeRangePreset(value: string | null): value is TimeRangePreset {
   return timeRangePresets.includes(value as TimeRangePreset);
 }
@@ -45,7 +57,15 @@ export function createTimeRange(
 export function resolveTimeRange(
   range: TimeRange,
   now: Date = new Date(),
+  dayCounting: DayCounting = "rolling",
 ): ResolvedTimeRange {
+  const days = presetDays[range.preset];
+  if (dayCounting === "calendar" && days !== undefined) {
+    const to = new Date(now);
+    to.setSeconds(0, 0);
+    const from = new Date(to.getFullYear(), to.getMonth(), to.getDate() - (days - 1));
+    return { from: from.toISOString(), to: to.toISOString() };
+  }
   const hours = presetHours[range.preset];
   if (hours !== undefined) {
     const to = new Date(now);

@@ -15,6 +15,20 @@ describe("resolveTimeRange", () => {
     expect(from).toBe(new Date(2026, 8, 26, 21, 45).toISOString());
   });
 
+  it("counts calendar days back to local midnight, today included", () => {
+    const week = resolveTimeRange(createTimeRange("7d", now), now, "calendar");
+    expect(week).toEqual({
+      from: new Date(2026, 8, 21).toISOString(),
+      to: new Date(2026, 8, 27, 21, 45).toISOString(),
+    });
+    const month = resolveTimeRange(createTimeRange("30d", now), now, "calendar");
+    expect(month.from).toBe(new Date(2026, 7, 29).toISOString());
+    // Hour presets stay rolling.
+    expect(resolveTimeRange(createTimeRange("24h", now), now, "calendar").from).toBe(
+      new Date(2026, 8, 26, 21, 45).toISOString(),
+    );
+  });
+
   it("uses minute-precision local bounds for a custom range", () => {
     expect(
       resolveTimeRange(
