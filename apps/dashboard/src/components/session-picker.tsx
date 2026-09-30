@@ -10,6 +10,7 @@ import {
 } from "@/api/usage";
 import { apiErrorKind } from "@/api/http";
 import { FilterTrigger } from "@/components/filter-trigger";
+import { SessionPurposeBadge } from "@/components/session-purpose-badge";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 import { shortSessionId } from "@/lib/session-id";
@@ -25,6 +26,9 @@ interface SessionChoice {
   sessionId: string;
   agentName: string;
   lastActivityAt: string;
+  /** Name the Agent generated for the session, when one was captured. */
+  title?: string | null;
+  purpose?: string | null;
   turns?: number;
   totalTokens?: number;
 }
@@ -97,6 +101,7 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
         (choice) =>
           needle.length === 0 ||
           choice.sessionId.toLocaleLowerCase().includes(needle) ||
+          (choice.title?.toLocaleLowerCase().includes(needle) ?? false) ||
           agentDisplayName(choice.agentName).toLocaleLowerCase().includes(needle),
       );
     if (needle.length === 0) {
@@ -178,9 +183,11 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
           >
             {!value
               ? t("common.all")
-              : selectedChoice
-                ? `${agentDisplayName(selectedChoice.agentName)} · ${shortDateTime(selectedChoice.lastActivityAt, locale)}`
-                : shortSessionId(value)}
+              : selectedChoice?.title
+                ? selectedChoice.title
+                : selectedChoice
+                  ? `${agentDisplayName(selectedChoice.agentName)} · ${shortDateTime(selectedChoice.lastActivityAt, locale)}`
+                  : shortSessionId(value)}
           </FilterTrigger>
         </PopoverTrigger>
         {value ? (
@@ -231,14 +238,28 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
               onHover={setActiveIndex}
               onSelect={() => select(choice)}
             >
-              <span className="truncate text-sm">
-                <span className="font-medium">
+              {choice.title ? (
+                <span className="flex min-w-0 items-center gap-1.5 text-sm">
+                  <span className="truncate font-medium">{choice.title}</span>
+                  <SessionPurposeBadge purpose={choice.purpose ?? null} />
+                </span>
+              ) : null}
+              <span className={cn("truncate", choice.title ? "text-xs" : "text-sm")}>
+                <span
+                  className={cn(choice.title ? "text-muted-foreground" : "font-medium")}
+                >
                   {agentDisplayName(choice.agentName)}
                 </span>
                 <span className="text-muted-foreground">
                   {" · "}
                   {relativeTime(choice.lastActivityAt, locale)}
                 </span>
+                {choice.title || !choice.purpose ? null : (
+                  <>
+                    {" "}
+                    <SessionPurposeBadge purpose={choice.purpose} />
+                  </>
+                )}
               </span>
               <span className="text-muted-foreground truncate text-xs">
                 <span className="font-mono">{shortSessionId(choice.sessionId)}</span>
@@ -276,6 +297,8 @@ function choiceFromListItem(item: SessionListItem): SessionChoice {
     sessionId: item.session_id,
     agentName: item.agent_name,
     lastActivityAt: item.last_activity_at,
+    title: item.title,
+    purpose: item.purpose,
     turns: item.turns,
     totalTokens: item.total_tokens,
   };
