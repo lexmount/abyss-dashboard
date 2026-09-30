@@ -138,6 +138,17 @@ function DateTimePanel({
       <div className="flex h-8 items-center justify-between pl-1.5">
         <span className="text-sm font-semibold tracking-tight">{monthLabel}</span>
         <div className="flex items-center">
+          <button
+            type="button"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground mr-1 h-7 rounded-md px-2 text-xs font-medium transition-colors"
+            onClick={() => {
+              const now = roundedNow();
+              onChange(now);
+              setMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+            }}
+          >
+            {t("dateTime.now")}
+          </button>
           <NavButton label={t("dateTime.previousMonth")} onClick={() => shiftMonth(-1)}>
             <ChevronLeft className="size-4" />
           </NavButton>
@@ -183,7 +194,12 @@ function DateTimePanel({
         })}
       </div>
 
-      <div className="mt-3 flex items-center justify-between border-t pt-3">
+      {/* Changes apply as they are made, so the time row has no confirm
+          button; Enter or clicking outside closes the panel. */}
+      <div className="mt-3 flex items-center gap-3 border-t pt-3">
+        <span className="text-muted-foreground pl-1.5 text-xs">
+          {t("dateTime.time")}
+        </span>
         <TimeSegments
           hour={value.getHours()}
           minute={value.getMinutes()}
@@ -191,17 +207,6 @@ function DateTimePanel({
           onChange={(hour, minute) => onChange(withTime(hour, minute))}
           onDone={onDone}
         />
-        <button
-          type="button"
-          className="text-muted-foreground hover:text-foreground rounded-md px-1.5 py-1 text-xs font-medium transition-colors"
-          onClick={() => {
-            const now = roundedNow();
-            onChange(now);
-            setMonth(new Date(now.getFullYear(), now.getMonth(), 1));
-          }}
-        >
-          {t("dateTime.now")}
-        </button>
       </div>
     </div>
   );
@@ -229,8 +234,9 @@ function NavButton({
 }
 
 /**
- * Hour and minute typed as two segments. Typing two hour digits moves to the
- * minutes; arrow keys still step values for people who prefer them.
+ * Hour and minute as two segments inside one input-like field. Type the
+ * digits (two hour digits, ":" or → move to the minutes), step with the arrow
+ * keys, or scroll the mouse wheel over a segment.
  */
 function TimeSegments({
   hour,
@@ -245,29 +251,39 @@ function TimeSegments({
   onChange: (hour: number, minute: number) => void;
   onDone: () => void;
 }) {
+  const hourRef = React.useRef<HTMLInputElement>(null);
   const minuteRef = React.useRef<HTMLInputElement>(null);
 
   return (
     <div
       role="group"
       aria-label={label}
-      className="bg-muted/70 focus-within:ring-ring/40 flex h-8 items-center rounded-lg px-2 text-sm font-medium tabular-nums focus-within:ring-2"
+      className="border-input focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 flex h-9 flex-1 cursor-text items-center justify-center rounded-md border bg-transparent text-base font-medium tabular-nums shadow-xs transition-[color,box-shadow] focus-within:ring-[3px]"
+      onMouseDown={(event) => {
+        // Clicking the field's padding lands on the hours.
+        if (event.target === event.currentTarget) {
+          event.preventDefault();
+          hourRef.current?.focus();
+        }
+      }}
     >
       <Segment
+        ref={hourRef}
         value={hour}
         max={23}
         ariaLabel={`${label} HH`}
         onChange={(next) => onChange(next, minute)}
-        onFilled={() => minuteRef.current?.focus()}
+        onNext={() => minuteRef.current?.focus()}
         onEnter={onDone}
       />
-      <span className="text-muted-foreground px-0.5">:</span>
+      <span className="text-muted-foreground px-1">:</span>
       <Segment
         ref={minuteRef}
         value={minute}
         max={59}
         ariaLabel={`${label} mm`}
         onChange={(next) => onChange(hour, next)}
+        onPrevious={() => hourRef.current?.focus()}
         onEnter={onDone}
       />
     </div>
@@ -280,7 +296,8 @@ function Segment({
   max,
   ariaLabel,
   onChange,
-  onFilled,
+  onNext,
+  onPrevious,
   onEnter,
 }: {
   ref?: React.Ref<HTMLInputElement>;
@@ -288,11 +305,19 @@ function Segment({
   max: number;
   ariaLabel: string;
   onChange: (value: number) => void;
-  onFilled?: () => void;
+  /** Moves focus to the following segment. */
+  onNext?: () => void;
+  /** Moves focus to the preceding segment. */
+  onPrevious?: () => void;
   onEnter: () => void;
 }) {
   const [text, setText] = React.useState(pad2(value));
   const editing = React.useRef(false);
+  const step = (delta: number): void => {
+    const next = (value + delta + max + 1) % (max + 1);
+    setText(pad2(next));
+    onChange(next);
+  };
 
   // Mirror outside changes (day clicks, "now") without reformatting the
   // digits someone is typing.
@@ -309,7 +334,7 @@ function Segment({
       inputMode="numeric"
       maxLength={2}
       aria-label={ariaLabel}
-      className="w-[1.4rem] bg-transparent text-center outline-none"
+      className="hover:bg-accent focus:bg-accent w-8 rounded-sm bg-transparent py-0.5 text-center outline-none"
       onFocus={(event) => {
         editing.current = true;
         event.target.select();
@@ -321,7 +346,7 @@ function Segment({
         if (digits.length > 0 && next <= max) {
           onChange(next);
           if (digits.length === 2) {
-            onFilled?.();
+            onNext?.();
           }
         }
       }}
@@ -329,13 +354,30 @@ function Segment({
         editing.current = false;
         setText(pad2(value));
       }}
+      onWheel={(event) => {
+        if (event.deltaY !== 0) {
+          step(event.deltaY < 0 ? 1 : -1);
+        }
+      }}
       onKeyDown={(event) => {
         if (event.key === "ArrowUp" || event.key === "ArrowDown") {
           event.preventDefault();
-          const step = event.key === "ArrowUp" ? 1 : -1;
-          const next = (value + step + max + 1) % (max + 1);
-          setText(pad2(next));
-          onChange(next);
+          step(event.key === "ArrowUp" ? 1 : -1);
+        } else if (
+          onNext &&
+          (event.key === ":" || event.key === "ArrowRight" || event.key === "Tab") &&
+          !event.shiftKey
+        ) {
+          event.preventDefault();
+          onNext();
+        } else if (
+          onPrevious &&
+          (event.key === "ArrowLeft" ||
+            (event.key === "Backspace" && text.length === 0) ||
+            (event.key === "Tab" && event.shiftKey))
+        ) {
+          event.preventDefault();
+          onPrevious();
         } else if (event.key === "Enter") {
           event.preventDefault();
           onEnter();
