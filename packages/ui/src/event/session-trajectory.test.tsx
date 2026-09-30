@@ -82,6 +82,21 @@ describe("session trajectory model", () => {
 });
 
 describe("SessionTrajectory", () => {
+  it("shows unclassified request text without guessing a role or dropping paragraphs", () => {
+    const text = "system: instructions\n\nuser text\n\nuser text";
+    renderTrajectory(vi.fn(), null, vi.fn(), null, null, [
+      item({ kind: "request", stream: 0, turn_index: 1, text }),
+    ]);
+    expect(content().getByText("Request content")).toBeInTheDocument();
+    expect(content().queryByText("Context")).not.toBeInTheDocument();
+    expect(content().queryByText("User")).not.toBeInTheDocument();
+    fireEvent.click(content().getByRole("button", { name: "Show more" }));
+    expect(
+      content().getByText(/system: instructions.*user text.*user text/s)
+        .textContent,
+    ).toBe(text);
+  });
+
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
@@ -391,6 +406,7 @@ function item(
 }
 
 const labels: SessionTrajectoryLabels = {
+  request: "Request content",
   context: "Context",
   user: "User",
   assistant: "Assistant",

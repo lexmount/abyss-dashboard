@@ -165,6 +165,7 @@ export default function SessionDetailPage() {
 
 function trajectoryLabels(t: ReturnType<typeof useI18n>["t"]): SessionTrajectoryLabels {
   return {
+    request: t("sessions.trajectory.request"),
     context: t("sessions.trajectory.context"),
     user: t("sessions.trajectory.user"),
     assistant: t("sessions.trajectory.assistant"),

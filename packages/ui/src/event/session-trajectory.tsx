@@ -15,7 +15,13 @@ const COLLAPSED_MAX_LINES = 8;
 const SEARCH_DEBOUNCE_MS = 150;
 
 export type SessionTrajectoryItemKind =
-  "context" | "user" | "assistant" | "tool_call" | "tool_result" | "compaction";
+  | "request"
+  | "context"
+  | "user"
+  | "assistant"
+  | "tool_call"
+  | "tool_result"
+  | "compaction";
 
 /** One piece of new content contributed by one event. */
 export interface SessionTrajectoryItem {
@@ -35,6 +41,7 @@ export interface SessionTrajectoryItem {
 }
 
 export interface SessionTrajectoryLabels {
+  request: string;
   context: string;
   user: string;
   assistant: string;
@@ -589,6 +596,8 @@ function kindLabel(
   labels: SessionTrajectoryLabels,
 ): string {
   switch (kind) {
+    case "request":
+      return labels.request;
     case "context":
       return labels.context;
     case "user":
@@ -642,7 +651,7 @@ function TrajectoryItemRow({
   const paired = tool || compaction;
   const text = item.text ?? "";
   // Context is the whole system prompt, so it starts collapsed like tools.
-  const compact = paired || item.kind === "context";
+  const compact = paired || item.kind === "context" || item.kind === "request";
   const collapsible = compact || isLong(text);
   const Chevron = expanded ? ChevronDown : ChevronRight;
   // A tool result usually arrives in a later request than its call.
@@ -684,7 +693,7 @@ function TrajectoryItemRow({
             ? labels.noOutput
             : labels.characters(formatNumber(item.output.length))}
         </span>
-      ) : item.kind === "context" ? (
+      ) : item.kind === "context" || item.kind === "request" ? (
         <span className="text-muted-foreground shrink-0 tabular-nums">
           {labels.characters(formatNumber(text.length))}
         </span>
