@@ -3,9 +3,12 @@ import { ChevronDown, ChevronRight, ChevronUp, Search, X } from "lucide-react";
 import * as React from "react";
 import { cn } from "../utils";
 import {
+  fieldOccurrenceOffsets,
   highlightSegments,
   matchesByTurn,
+  occurrencesOf,
   searchTrajectory,
+  type SearchableField,
 } from "./session-trajectory-search";
 
 const ESTIMATED_ITEM_HEIGHT_PX = 72;
@@ -257,21 +260,33 @@ export function SessionTrajectory({
     [items, searchQuery],
   );
   const turnMatches = React.useMemo(() => matchesByTurn(matches), [matches]);
+  // Stepping moves through every occurrence, not every matching item, so a
+  // long system prompt with several hits is visited hit by hit.
+  const occurrences = React.useMemo(() => occurrencesOf(matches), [matches]);
   const [activeMatch, setActiveMatch] = React.useState(0);
-  const active = matches[activeMatch];
+  const active = occurrences[activeMatch];
   // The active match is brought into view only when the reader asks for it:
   // a new query, stepping, or picking a turn that has matches. Browsing
   // other turns while a search is open leaves the view where they put it.
   const [revealRequest, setRevealRequest] = React.useState(0);
+  const revealFrames = React.useRef<number[]>([]);
+  React.useEffect(
+    () => () =>
+      revealFrames.current.forEach((frame) =>
+        window.cancelAnimationFrame(frame),
+      ),
+    [],
+  );
   const revealPending = React.useRef(false);
   const requestReveal = () => {
     revealPending.current = true;
     setRevealRequest((current) => current + 1);
   };
   const step = (delta: number) => {
-    if (matches.length > 0) {
+    if (occurrences.length > 0) {
       setActiveMatch(
-        (current) => (current + delta + matches.length) % matches.length,
+        (current) =>
+          (current + delta + occurrences.length) % occurrences.length,
       );
       requestReveal();
     }
@@ -284,7 +299,9 @@ export function SessionTrajectory({
   }, [searchQuery]);
   const focusTurn = (turnIndex: number | null) => {
     if (turnIndex !== null) {
-      const first = matches.findIndex((match) => match.turnIndex === turnIndex);
+      const first = occurrences.findIndex(
+        (match) => match.turnIndex === turnIndex,
+      );
       if (first !== -1) {
         setActiveMatch(first);
         requestReveal();
@@ -335,11 +352,28 @@ export function SessionTrajectory({
     }
     revealPending.current = false;
     virtualizer.scrollToIndex(rowIndex, { align: "center" });
-    // Row heights settle after expansion; center again once measured.
-    const frame = window.requestAnimationFrame(() =>
-      virtualizer.scrollToIndex(rowIndex, { align: "center" }),
-    );
-    return () => window.cancelAnimationFrame(frame);
+    // Row heights settle after expansion; center again once measured, then
+    // bring the occurrence itself into view, inside its own scroll box too.
+    // The frames outlive this effect's reruns, which parents' inline
+    // callbacks can cause on any render.
+    revealFrames.current.forEach((frame) => window.cancelAnimationFrame(frame));
+    revealFrames.current = [
+      window.requestAnimationFrame(() => {
+        virtualizer.scrollToIndex(rowIndex, { align: "center" });
+        revealFrames.current.push(
+          window.requestAnimationFrame(() => {
+            const list = scrollRef.current;
+            const mark = list?.querySelector<HTMLElement>(
+              "[data-active-match]",
+            );
+            if (list && mark) {
+              centerWithin(mark.closest("pre"), mark);
+              centerWithin(list, mark);
+            }
+          }),
+        );
+      }),
+    ];
   }, [active, focusedTurn, onFocusTurn, revealRequest, rows, virtualizer]);
 
   return (
@@ -351,7 +385,7 @@ export function SessionTrajectory({
           query={query}
           onQueryChange={setQuery}
           position={active ? activeMatch + 1 : 0}
-          total={matches.length}
+          total={occurrences.length}
           searching={query.trim() !== searchQuery}
           onStep={step}
           formatNumber={formatNumber}
@@ -430,7 +464,11 @@ export function SessionTrajectory({
                         <TrajectoryItemRow
                           item={row.item}
                           query={searchQuery}
-                          activeMatch={active?.itemIndex === row.index}
+                          activeOccurrence={
+                            active?.itemIndex === row.index
+                              ? active.occurrence
+                              : null
+                          }
                           expanded={expanded.has(row.index)}
                           selectedEventId={selectedEventId}
                           onToggle={() => toggle(row.index)}
@@ -623,7 +661,7 @@ function isLong(text: string): boolean {
 function TrajectoryItemRow({
   item,
   query,
-  activeMatch,
+  activeOccurrence,
   expanded,
   selectedEventId,
   onToggle,
@@ -635,8 +673,8 @@ function TrajectoryItemRow({
   item: DisplayTrajectoryItem;
   /** Active search text to highlight, or empty. */
   query: string;
-  /** Whether this item is the search match being viewed. */
-  activeMatch: boolean;
+  /** Which of this item's occurrences is being viewed, if any. */
+  activeOccurrence: number | null;
   expanded: boolean;
   selectedEventId: string | null;
   onToggle: () => void;
@@ -681,6 +719,13 @@ function TrajectoryItemRow({
       }
     },
   } as const;
+  const activeMatch = activeOccurrence !== null;
+  // The active occurrence, relative to each field's own occurrences.
+  const offsets = activeMatch ? fieldOccurrenceOffsets(item, query) : null;
+  const activeIn = (field: SearchableField) =>
+    offsets && activeOccurrence !== null
+      ? activeOccurrence - offsets[field]
+      : undefined;
   const selectedRing = activeMatch
     ? "ring-ring ring-2"
     : selected && "ring-ring/60 ring-2";
@@ -730,7 +775,11 @@ function TrajectoryItemRow({
             </span>
             {item.name ? (
               <span className="shrink-0 font-medium">
-                <Highlighted text={item.name} query={query} />
+                <Highlighted
+                  text={item.name}
+                  query={query}
+                  active={activeIn("name")}
+                />
               </span>
             ) : null}
             <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[11px]">
@@ -764,6 +813,7 @@ function TrajectoryItemRow({
                       }
                       text={item.input}
                       query={query}
+                      active={activeIn("input")}
                     />
                   ) : null}
                   <ContentBlock
@@ -772,6 +822,9 @@ function TrajectoryItemRow({
                     }
                     text={item.output ?? labels.noOutput}
                     query={query}
+                    active={
+                      item.output === undefined ? undefined : activeIn("output")
+                    }
                     action={
                       resultEventPk !== null ? (
                         <button
@@ -788,7 +841,11 @@ function TrajectoryItemRow({
               ) : (
                 <>
                   <pre className="max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap">
-                    <Highlighted text={text} query={query} />
+                    <Highlighted
+                      text={text}
+                      query={query}
+                      active={activeIn("text")}
+                    />
                   </pre>
                   {item.contextEventIds && item.contextEventIds.length > 1 ? (
                     <div className="text-muted-foreground flex flex-wrap gap-3 text-xs">
@@ -821,7 +878,7 @@ function TrajectoryItemRow({
       )}
     >
       {item.continued ? "…" : ""}
-      <Highlighted text={text} query={query} />
+      <Highlighted text={text} query={query} active={activeIn("text")} />
     </div>
   );
   const more = collapsible ? (
@@ -887,11 +944,14 @@ function ContentBlock({
   label,
   text,
   query,
+  active,
   action,
 }: {
   label: string;
   text: string;
   query: string;
+  /** Index of the occurrence being viewed within this text, if any. */
+  active?: number;
   action?: React.ReactNode;
 }) {
   return (
@@ -901,7 +961,7 @@ function ContentBlock({
         {action}
       </div>
       <pre className="max-h-96 overflow-auto p-3 font-mono text-xs break-all whitespace-pre-wrap">
-        <Highlighted text={text} query={query} />
+        <Highlighted text={text} query={query} active={active} />
       </pre>
     </div>
   );
@@ -1018,27 +1078,57 @@ function SearchIconButton({
   );
 }
 
-/** Text with every occurrence of the query marked. */
-function Highlighted({ text, query }: { text: string; query: string }) {
+/**
+ * Text with every occurrence of the query marked; the occurrence being
+ * viewed is filled solid so it stands out among the others.
+ */
+function Highlighted({
+  text,
+  query,
+  active,
+}: {
+  text: string;
+  query: string;
+  /** Index of the occurrence being viewed within this text, if any. */
+  active?: number;
+}) {
   if (!query) {
     return <>{text}</>;
   }
-  return (
-    <>
-      {highlightSegments(text, query).map((segment, index) =>
-        segment.match ? (
-          <mark
-            key={index}
-            className="bg-ring/25 text-foreground rounded-sm px-px"
-          >
-            {segment.text}
-          </mark>
-        ) : (
-          <React.Fragment key={index}>{segment.text}</React.Fragment>
-        ),
-      )}
-    </>
-  );
+  const nodes: React.ReactNode[] = [];
+  let occurrence = 0;
+  for (const [index, segment] of highlightSegments(text, query).entries()) {
+    if (!segment.match) {
+      nodes.push(<React.Fragment key={index}>{segment.text}</React.Fragment>);
+      continue;
+    }
+    const current = occurrence === active;
+    occurrence += 1;
+    nodes.push(
+      <mark
+        key={index}
+        data-active-match={current ? "" : undefined}
+        className={cn(
+          "rounded-sm px-px",
+          current ? "bg-ring text-background" : "bg-ring/25 text-foreground",
+        )}
+      >
+        {segment.text}
+      </mark>,
+    );
+  }
+  return <>{nodes}</>;
+}
+
+/** Scrolls a box so the element sits in its middle, leaving other boxes. */
+function centerWithin(box: HTMLElement | null, element: HTMLElement) {
+  if (!box) {
+    return;
+  }
+  const boxRect = box.getBoundingClientRect();
+  const rect = element.getBoundingClientRect();
+  box.scrollTop +=
+    rect.top - boxRect.top - (box.clientHeight - rect.height) / 2;
 }
 
 function useDebounced<T>(value: T, delayMs: number): T {

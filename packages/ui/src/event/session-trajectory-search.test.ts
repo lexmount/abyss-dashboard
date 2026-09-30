@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { SessionTrajectoryItem } from "./session-trajectory";
 import {
+  fieldOccurrenceOffsets,
   highlightSegments,
   matchesByTurn,
+  occurrencesOf,
   searchTrajectory,
 } from "./session-trajectory-search";
 
@@ -51,6 +53,38 @@ describe("searchTrajectory", () => {
         [2, 2],
       ]),
     );
+  });
+});
+
+describe("occurrencesOf", () => {
+  it("lists every occurrence so stepping visits each hit", () => {
+    const items = [
+      item(1, { kind: "context", text: "hello … hello … Hello" }),
+      item(2, { kind: "tool_call", name: "hello", output: "say hello" }),
+    ];
+    const occurrences = occurrencesOf(searchTrajectory(items, "hello"));
+
+    expect(occurrences).toEqual([
+      { itemIndex: 0, turnIndex: 1, occurrence: 0 },
+      { itemIndex: 0, turnIndex: 1, occurrence: 1 },
+      { itemIndex: 0, turnIndex: 1, occurrence: 2 },
+      { itemIndex: 1, turnIndex: 2, occurrence: 0 },
+      { itemIndex: 1, turnIndex: 2, occurrence: 1 },
+    ]);
+  });
+
+  it("numbers occurrences across fields in reading order", () => {
+    expect(
+      fieldOccurrenceOffsets(
+        item(1, {
+          kind: "tool_call",
+          name: "grep",
+          input: "grep grep",
+          output: "grep",
+        }),
+        "grep",
+      ),
+    ).toEqual({ name: 0, text: 1, input: 1, output: 3 });
   });
 });
 

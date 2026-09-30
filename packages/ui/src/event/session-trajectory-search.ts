@@ -9,11 +9,59 @@ export interface TrajectoryMatch {
   occurrences: number;
 }
 
+/** Fields searched, in the order their occurrences are numbered. */
+export const searchableFields = ["name", "text", "input", "output"] as const;
+export type SearchableField = (typeof searchableFields)[number];
+
 /** Text an item shows or reveals when expanded, in reading order. */
 function searchableText(item: SessionTrajectoryItem): string[] {
-  return [item.name, item.text, item.input, item.output].filter(
-    (value): value is string => value !== undefined && value.length > 0,
+  return searchableFields
+    .map((field) => item[field])
+    .filter(
+      (value): value is string => value !== undefined && value.length > 0,
+    );
+}
+
+/** One occurrence of the query: the unit that stepping moves through. */
+export interface TrajectoryOccurrence {
+  itemIndex: number;
+  turnIndex: number;
+  /** Position among this item's occurrences, numbered across its fields. */
+  occurrence: number;
+}
+
+/** Every occurrence in session order. */
+export function occurrencesOf(
+  matches: readonly TrajectoryMatch[],
+): TrajectoryOccurrence[] {
+  return matches.flatMap((match) =>
+    Array.from({ length: match.occurrences }, (_, occurrence) => ({
+      itemIndex: match.itemIndex,
+      turnIndex: match.turnIndex,
+      occurrence,
+    })),
   );
+}
+
+/**
+ * Where each field's occurrences start in the item's numbering, so a field
+ * can tell which of its own occurrences is the active one.
+ */
+export function fieldOccurrenceOffsets(
+  item: SessionTrajectoryItem,
+  query: string,
+): Record<SearchableField, number> {
+  const needle = query.trim().toLocaleLowerCase();
+  const offsets = {} as Record<SearchableField, number>;
+  let total = 0;
+  for (const field of searchableFields) {
+    offsets[field] = total;
+    const value = item[field];
+    if (needle.length > 0 && value) {
+      total += countOccurrences(value.toLocaleLowerCase(), needle);
+    }
+  }
+  return offsets;
 }
 
 function countOccurrences(haystack: string, needle: string): number {
