@@ -8,6 +8,7 @@ import {
   Card,
   CardAction,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
 } from "@lexmount.com/abyss-ui";
@@ -78,12 +79,11 @@ export function SessionSearchForm({
 
   return (
     <Card>
-      <form onSubmit={submit}>
-        <CardHeader className="grid-rows-1 items-center">
-          <CardTitle className="text-base leading-6">
-            {t("sessions.search.title")}
-          </CardTitle>
-          <CardAction className="row-span-1 flex self-center gap-2">
+      <form onSubmit={submit} className="flex flex-col gap-6">
+        <CardHeader>
+          <CardTitle>{t("sessions.search.title")}</CardTitle>
+          <CardDescription>{t("sessions.search.description")}</CardDescription>
+          <CardAction className="flex gap-2">
             <Button type="button" variant="outline" size="sm" onClick={onReset}>
               <RotateCcw className="size-4" />
               {t("common.reset")}
@@ -118,7 +118,6 @@ export function SessionSearchForm({
           >
             <TimeRangeField
               value={draft.time}
-              labelClassName="leading-5"
               onChange={(time) => update("time", time)}
             />
             <Field label={t("common.agent")}>
@@ -197,7 +196,7 @@ export function SessionSearchForm({
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid min-w-0 gap-2">
-      <Label className="leading-5">{label}</Label>
+      <Label>{label}</Label>
       {children}
     </div>
   );

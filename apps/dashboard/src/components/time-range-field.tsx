@@ -30,7 +30,6 @@ interface TimeRangeFieldProps {
   onChange: (value: TimeRange) => void;
   /** Presets offered in the menu; defaults to every preset. */
   presets?: readonly TimeRangePreset[];
-  labelClassName?: string;
 }
 
 /**
@@ -43,7 +42,6 @@ export function TimeRangeField({
   value,
   onChange,
   presets = timeRangePresets,
-  labelClassName,
 }: TimeRangeFieldProps) {
   const { t } = useI18n();
   const selectId = React.useId();
@@ -53,9 +51,7 @@ export function TimeRangeField({
   return (
     <>
       <div className="grid min-w-0 gap-2">
-        <Label htmlFor={selectId} className={labelClassName}>
-          {t("timeRange.label")}
-        </Label>
+        <Label htmlFor={selectId}>{t("timeRange.label")}</Label>
         <Select
           value={value.preset}
           onValueChange={(preset) => {
@@ -79,9 +75,7 @@ export function TimeRangeField({
       {value.preset === "custom" ? (
         <>
           <div className="grid min-w-0 gap-2">
-            <Label htmlFor={fromId} className={labelClassName}>
-              {t("common.from")}
-            </Label>
+            <Label htmlFor={fromId}>{t("common.from")}</Label>
             <DateTimeField
               id={fromId}
               value={value.from}
@@ -89,9 +83,7 @@ export function TimeRangeField({
             />
           </div>
           <div className="grid min-w-0 gap-2">
-            <Label htmlFor={toId} className={labelClassName}>
-              {t("common.to")}
-            </Label>
+            <Label htmlFor={toId}>{t("common.to")}</Label>
             <DateTimeField
               id={toId}
               value={value.to}

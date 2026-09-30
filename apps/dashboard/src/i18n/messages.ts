@@ -202,7 +202,9 @@ export const messages = {
     "sessions.search.resultCount": "找到 {count} 个相关会话",
     "sessions.search.resultsTitle": "搜索结果",
     "sessions.search.submit": "搜索",
-    "sessions.search.title": "会话搜索",
+    "sessions.search.description":
+      "按时间、智能体、服务商或模型筛选会话；输入关键词可搜索对话内容。",
+    "sessions.search.title": "筛选条件",
     "sessions.title": "会话",
     "table.observed": "观测时间",
     "timeRange.any": "不限",
@@ -409,7 +411,9 @@ export const messages = {
     "sessions.search.resultCount": "{count} relevant session(s)",
     "sessions.search.resultsTitle": "Search results",
     "sessions.search.submit": "Search",
-    "sessions.search.title": "Session search",
+    "sessions.search.description":
+      "Filter sessions by time, agent, provider, or model; enter a keyword to search conversations.",
+    "sessions.search.title": "Filters",
     "sessions.title": "Sessions",
     "table.observed": "Observed",
     "timeRange.any": "Any time",
@@ -615,7 +619,9 @@ export const messages = {
     "sessions.search.resultCount": "関連セッション {count} 件",
     "sessions.search.resultsTitle": "検索結果",
     "sessions.search.submit": "検索",
-    "sessions.search.title": "セッション検索",
+    "sessions.search.description":
+      "期間・Agent・プロバイダー・モデルでセッションを絞り込みます。キーワードで会話内容を検索できます。",
+    "sessions.search.title": "絞り込み",
     "sessions.title": "セッション",
     "table.observed": "観測時刻",
     "timeRange.any": "指定なし",

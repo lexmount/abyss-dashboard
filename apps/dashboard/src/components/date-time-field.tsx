@@ -196,10 +196,7 @@ function DateTimePanel({
 
       {/* Changes apply as they are made, so the time row has no confirm
           button; Enter or clicking outside closes the panel. */}
-      <div className="mt-3 flex items-center gap-3 border-t pt-3">
-        <span className="text-muted-foreground pl-1.5 text-xs">
-          {t("dateTime.time")}
-        </span>
+      <div className="mt-3 flex border-t pt-3">
         <TimeSegments
           hour={value.getHours()}
           minute={value.getMinutes()}

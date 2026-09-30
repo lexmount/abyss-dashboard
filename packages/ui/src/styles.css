@@ -109,7 +109,7 @@ html {
    earlier crowds native date inputs and makes the filter card overflow. */
 @media (min-width: 80rem) {
   .dashboard-filter-grid {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .session-search-filter-grid {
@@ -135,7 +135,7 @@ html {
   .session-search-filter-grid[data-time-range="custom"] {
     grid-template-columns:
       minmax(0, 1fr) repeat(2, minmax(11rem, 1.4fr))
-      repeat(4, minmax(0, 1fr));
+      repeat(3, minmax(0, 1fr));
   }
 }
 
