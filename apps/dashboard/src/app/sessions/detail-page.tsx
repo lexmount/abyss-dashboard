@@ -267,6 +267,14 @@ function SessionIdentity({ session }: { session: SessionInfo | undefined }) {
               value={session.session_id}
               label={t("sessions.detail.copyId")}
             />
+            {session.parent_session_pk ? (
+              <Link
+                to={`/sessions/${session.parent_session_pk}`}
+                className="text-foreground hover:text-ring shrink-0 font-sans underline-offset-4 hover:underline"
+              >
+                {t("sessions.detail.parentSession")}
+              </Link>
+            ) : null}
           </div>
         ) : null}
       </div>

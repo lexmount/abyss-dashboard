@@ -112,6 +112,8 @@ export interface SessionInfo {
   title: string | null;
   /** Why the session exists when it is not ordinary work, e.g. "title_generation". */
   purpose: string | null;
+  /** For a naming session, the task session its title was matched to. */
+  parent_session_pk: string | null;
 }
 
 export interface TurnTimeline {
