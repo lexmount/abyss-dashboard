@@ -319,6 +319,18 @@ export function SessionTrajectory({
       )}
     >
       <TurnTimeline
+        search={
+          <TrajectorySearch
+            query={query}
+            onQueryChange={setQuery}
+            position={active ? activeMatch + 1 : 0}
+            total={matches.length}
+            searching={query.trim() !== searchQuery}
+            onStep={step}
+            formatNumber={formatNumber}
+            labels={labels}
+          />
+        }
         turns={turns}
         turnMatches={searchQuery ? turnMatches : null}
         focusedTurn={focusedTurn}
@@ -328,7 +340,7 @@ export function SessionTrajectory({
         labels={labels}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5">
+        <div className="flex min-h-[53px] flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5">
           <div className="min-w-0 flex-1 truncate text-sm">
             <span className="font-medium">
               {focusedTurn === null
@@ -342,16 +354,6 @@ export function SessionTrajectory({
               )}
             </span>
           </div>
-          <TrajectorySearch
-            query={query}
-            onQueryChange={setQuery}
-            position={active ? activeMatch + 1 : 0}
-            total={matches.length}
-            searching={query.trim() !== searchQuery}
-            onStep={step}
-            formatNumber={formatNumber}
-            labels={labels}
-          />
         </div>
         <div
           ref={scrollRef}
@@ -421,6 +423,7 @@ export function SessionTrajectory({
  * The first node shows the whole session.
  */
 function TurnTimeline({
+  search,
   turns,
   turnMatches,
   focusedTurn,
@@ -429,6 +432,8 @@ function TurnTimeline({
   formatNumber,
   labels,
 }: {
+  /** Session-wide search, shown above the turns it marks. */
+  search: React.ReactNode;
   turns: TrajectoryTurnSummary[];
   /** Search occurrences per turn while searching, else null. */
   turnMatches: Map<number, number> | null;
@@ -467,89 +472,96 @@ function TurnTimeline({
   };
 
   return (
-    <div
-      role="listbox"
-      aria-label={labels.turnList}
-      tabIndex={0}
-      onKeyDown={onKeyDown}
-      className="bg-muted/30 focus-visible:ring-ring/40 min-h-0 shrink-0 overflow-auto py-2 outline-none focus-visible:ring-2 focus-visible:ring-inset max-md:max-h-56 max-md:border-b md:w-72 md:border-r"
-    >
-      <ol className="relative">
-        <span
-          aria-hidden
-          className="bg-border absolute top-5 bottom-5 left-[1.3rem] z-[1] w-px"
-        />
-        {nodes.map((turnIndex) => {
-          const turn =
-            turnIndex === null
-              ? undefined
-              : turns.find((candidate) => candidate.turnIndex === turnIndex);
-          const selected = turnIndex === focusedTurn;
-          return (
-            <li key={turnIndex ?? "all"}>
-              <button
-                ref={selected ? selectedRef : undefined}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                onClick={() => onFocusTurn(turnIndex)}
-                className={cn(
-                  "relative mx-1.5 flex w-[calc(100%-0.75rem)] gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
-                  selected ? "bg-ring/10" : "hover:bg-muted/70",
-                  // Turns without matches fade while searching.
-                  turn &&
-                    turnMatches &&
-                    !turnMatches.has(turn.turnIndex) &&
-                    "opacity-45",
-                )}
-              >
-                <span
-                  aria-hidden
+    <div className="bg-muted/30 flex min-h-0 shrink-0 flex-col max-md:max-h-72 max-md:border-b md:w-72 md:border-r">
+      <div className="flex min-h-[53px] items-center border-b px-2.5">
+        {search}
+      </div>
+      <div
+        role="listbox"
+        aria-label={labels.turnList}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        className="focus-visible:ring-ring/40 min-h-0 flex-1 overflow-auto py-2 outline-none focus-visible:ring-2 focus-visible:ring-inset"
+      >
+        <ol className="relative">
+          <span
+            aria-hidden
+            className="bg-border absolute top-5 bottom-5 left-[1.3rem] z-[1] w-px"
+          />
+          {nodes.map((turnIndex) => {
+            const turn =
+              turnIndex === null
+                ? undefined
+                : turns.find((candidate) => candidate.turnIndex === turnIndex);
+            const selected = turnIndex === focusedTurn;
+            return (
+              <li key={turnIndex ?? "all"}>
+                <button
+                  ref={selected ? selectedRef : undefined}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => onFocusTurn(turnIndex)}
                   className={cn(
-                    "relative z-[2] mt-1 size-2.5 shrink-0 rounded-full border-2 transition-shadow",
-                    selected
-                      ? "border-ring bg-ring ring-ring/20 ring-4"
-                      : "border-muted-foreground/40 bg-card",
+                    "relative mx-1.5 flex w-[calc(100%-0.75rem)] gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
+                    selected ? "bg-ring/10" : "hover:bg-muted/70",
+                    // Turns without matches fade while searching.
+                    turn &&
+                      turnMatches &&
+                      !turnMatches.has(turn.turnIndex) &&
+                      "opacity-45",
                   )}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-baseline gap-2 text-xs">
-                    <span
-                      className={cn("font-medium", selected && "text-ring")}
-                    >
-                      {turn ? labels.turn(turn.turnIndex) : labels.allTurns}
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "relative z-[2] mt-1 size-2.5 shrink-0 rounded-full border-2 transition-shadow",
+                      selected
+                        ? "border-ring bg-ring ring-ring/20 ring-4"
+                        : "border-muted-foreground/40 bg-card",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline gap-2 text-xs">
+                      <span
+                        className={cn("font-medium", selected && "text-ring")}
+                      >
+                        {turn ? labels.turn(turn.turnIndex) : labels.allTurns}
+                      </span>
+                      {turn ? (
+                        <span className="text-muted-foreground tabular-nums">
+                          {formatTime(turn.startedAt)}
+                        </span>
+                      ) : null}
+                      {turn && turnMatches ? (
+                        turnMatches.has(turn.turnIndex) ? (
+                          <span className="bg-ring/15 text-ring ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium tabular-nums">
+                            {labels.searchTurnMatches(
+                              formatNumber(
+                                turnMatches.get(turn.turnIndex) ?? 0,
+                              ),
+                            )}
+                          </span>
+                        ) : null
+                      ) : turn && turn.toolCalls > 0 ? (
+                        <span className="bg-muted text-muted-foreground ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] tabular-nums">
+                          {labels.toolCount(formatNumber(turn.toolCalls))}
+                        </span>
+                      ) : null}
                     </span>
                     {turn ? (
-                      <span className="text-muted-foreground tabular-nums">
-                        {formatTime(turn.startedAt)}
-                      </span>
-                    ) : null}
-                    {turn && turnMatches ? (
-                      turnMatches.has(turn.turnIndex) ? (
-                        <span className="bg-ring/15 text-ring ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium tabular-nums">
-                          {labels.searchTurnMatches(
-                            formatNumber(turnMatches.get(turn.turnIndex) ?? 0),
-                          )}
-                        </span>
-                      ) : null
-                    ) : turn && turn.toolCalls > 0 ? (
-                      <span className="bg-muted text-muted-foreground ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] tabular-nums">
-                        {labels.toolCount(formatNumber(turn.toolCalls))}
+                      <span className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
+                        {turn.summary ??
+                          labels.toolsOnly(turn.toolNames.join(", "))}
                       </span>
                     ) : null}
                   </span>
-                  {turn ? (
-                    <span className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
-                      {turn.summary ??
-                        labels.toolsOnly(turn.toolNames.join(", "))}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
     </div>
   );
 }
@@ -894,7 +906,7 @@ function TrajectorySearch({
 }) {
   const hasQuery = query.trim().length > 0;
   return (
-    <div className="border-input focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 flex h-8 w-full items-center gap-1.5 rounded-md border bg-transparent pr-1 pl-2.5 shadow-xs transition-[color,box-shadow] focus-within:ring-[3px] sm:w-72">
+    <div className="border-input focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 bg-card flex h-8 w-full items-center gap-1.5 rounded-md border pr-1 pl-2.5 shadow-xs transition-[color,box-shadow] focus-within:ring-[3px]">
       <Search className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
       <input
         value={query}
