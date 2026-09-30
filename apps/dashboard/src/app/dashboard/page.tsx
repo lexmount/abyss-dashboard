@@ -31,6 +31,7 @@ import {
   type DailyTokenUsageRow,
   type SummaryRow,
   type UsageEvent,
+  type UsageDayWindow,
   type UsageQuery,
 } from "@/api/usage";
 import { BaseLayout } from "@/components/layouts/base-layout";
@@ -150,7 +151,7 @@ export function UsageDashboard() {
   });
   const chartSummaryQuery = useQuery({
     queryKey: ["usage-summary", "token-chart", chartQuery],
-    queryFn: () => fetchDailyTokenUsage(chartQuery),
+    queryFn: () => fetchDailyTokenUsage(chartQuery, tokenChartWindow.dayWindows),
   });
   // Recent events page through the backend, so every matching event is
   // reachable rather than only the newest hundred.
@@ -1254,9 +1255,9 @@ interface ChartRow {
 interface TokenChartWindow {
   from: string;
   to: string;
-  startDay: string;
-  endDay: string;
   days: number;
+  /** Each local day in the window, oldest first; today ends now. */
+  dayWindows: UsageDayWindow[];
 }
 
 function summarizeRows(rows: SummaryRow[]): UsageTotals {
@@ -1291,7 +1292,7 @@ export function chartRowsByDay(
   dateWindow: TokenChartWindow,
 ): ChartRow[] {
   const grouped = new Map<string, ChartRow>();
-  for (const day of utcDayRange(dateWindow.startDay, dateWindow.endDay)) {
+  for (const { day } of dateWindow.dayWindows) {
     grouped.set(day, {
       day,
       input_tokens: 0,
@@ -1326,17 +1327,28 @@ export function tokenChartDateWindow(
 ): TokenChartWindow {
   const days = tokenChartRangeDays(range);
   const end = new Date(now);
-  const start = new Date(
-    Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()),
-  );
-  start.setUTCDate(start.getUTCDate() - days + 1);
+  // Days follow the viewer's time zone; constructing each midnight from its
+  // calendar date keeps daylight-saving days at their real length.
+  const dayWindows = Array.from({ length: days }, (_, index) => {
+    const offset = index - days + 1;
+    const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() + offset);
+    const next = new Date(
+      end.getFullYear(),
+      end.getMonth(),
+      end.getDate() + offset + 1,
+    );
+    return {
+      day: formatLocalDay(start),
+      from: start.toISOString(),
+      to: (offset === 0 ? end : next).toISOString(),
+    };
+  });
 
   return {
-    from: start.toISOString(),
+    from: dayWindows[0].from,
     to: end.toISOString(),
-    startDay: formatUtcDay(start),
-    endDay: formatUtcDay(end),
     days,
+    dayWindows,
   };
 }
 
@@ -1351,30 +1363,10 @@ function isTokenChartRange(value: string): value is TokenChartRange {
   return tokenChartRangeOptions.some((option) => option.value === value);
 }
 
-function utcDayRange(startDay: string, endDay: string): string[] {
-  const days: string[] = [];
-  const current = parseUtcDay(startDay);
-  const end = parseUtcDay(endDay);
-
-  while (current <= end) {
-    days.push(formatUtcDay(current));
-    current.setUTCDate(current.getUTCDate() + 1);
-  }
-
-  return days;
-}
-
-function parseUtcDay(value: string): Date {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day));
-}
-
-function formatUtcDay(date: Date): string {
-  return [
-    date.getUTCFullYear(),
-    pad2(date.getUTCMonth() + 1),
-    pad2(date.getUTCDate()),
-  ].join("-");
+function formatLocalDay(date: Date): string {
+  return [date.getFullYear(), pad2(date.getMonth() + 1), pad2(date.getDate())].join(
+    "-",
+  );
 }
 
 function countAgentProducts(rows: SummaryRow[]): number {

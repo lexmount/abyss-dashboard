@@ -50,33 +50,51 @@ describe("usage API", () => {
     expect(url.searchParams.get("limit")).toBe("500");
   });
 
-  it("requests daily token usage with token-only summary fields", async () => {
+  it("sums each local day's usage from its own bounded summary", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       void input;
-      return Promise.resolve(
-        jsonResponse({
-          rows: [{ day: "2026-07-01", input_tokens: 12, total_tokens: 34 }],
-          next_page_token: null,
-        }),
-      );
+      const row = {
+        input_tokens: 1,
+        output_tokens: 2,
+        cache_read_tokens: 3,
+        cache_write_tokens: 4,
+        total_tokens: 10,
+      };
+      return Promise.resolve(jsonResponse({ rows: [row, row], next_page_token: null }));
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await fetchDailyTokenUsage({ agentName: "codex" });
+    const response = await fetchDailyTokenUsage({ agentName: "codex" }, [
+      { day: "2026-07-01", from: "2026-07-01T07:00:00Z", to: "2026-07-02T07:00:00Z" },
+      { day: "2026-07-02", from: "2026-07-02T07:00:00Z", to: "2026-07-02T16:00:00Z" },
+    ]);
 
-    const url = requestUrl(fetchMock.mock.calls[0]?.[0]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const url = requestUrl(fetchMock.mock.calls[1]?.[0]);
     expect(url.pathname).toBe("/api/v1/agent-usage/summary");
-    expect(url.searchParams.has("scope")).toBe(false);
-    expect(url.searchParams.get("group_by")).toBe("day");
+    expect(url.searchParams.get("group_by")).toBe("event_type");
     expect(url.searchParams.get("fields")).toBe("token_usage");
     expect(url.searchParams.get("agent_name")).toBe("codex");
-    expect(url.searchParams.has("user_filter")).toBe(false);
-    expect(url.searchParams.has("limit")).toBe(false);
-    expect(response.rows[0]).toEqual({
-      day: "2026-07-01",
-      input_tokens: 12,
-      total_tokens: 34,
-    });
+    expect(url.searchParams.get("from")).toBe("2026-07-02T07:00:00Z");
+    expect(url.searchParams.get("to")).toBe("2026-07-02T16:00:00Z");
+    expect(response.rows).toEqual([
+      {
+        day: "2026-07-01",
+        input_tokens: 2,
+        output_tokens: 4,
+        cache_read_tokens: 6,
+        cache_write_tokens: 8,
+        total_tokens: 20,
+      },
+      {
+        day: "2026-07-02",
+        input_tokens: 2,
+        output_tokens: 4,
+        cache_read_tokens: 6,
+        cache_write_tokens: 8,
+        total_tokens: 20,
+      },
+    ]);
   });
 
   it("requests raw events without product scope parameters", async () => {

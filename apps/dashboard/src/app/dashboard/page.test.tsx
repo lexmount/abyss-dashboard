@@ -109,7 +109,7 @@ describe("RawEventsTable", () => {
 
 describe("token chart rows", () => {
   it("fills missing days across the selected range", () => {
-    const dateWindow = tokenChartDateWindow("7d", new Date("2026-07-01T16:18:00.000Z"));
+    const dateWindow = tokenChartDateWindow("7d", new Date(2026, 6, 1, 9, 18));
     const rows = chartRowsByDay(
       [
         {
@@ -142,6 +142,31 @@ describe("token chart rows", () => {
       output_tokens: 170,
       total_tokens: 192_857,
     });
+  });
+});
+
+describe("tokenChartDateWindow", () => {
+  it("splits the range into local days, ending today at now", () => {
+    const now = new Date(2026, 6, 1, 9, 18);
+    const { dayWindows, from, to } = tokenChartDateWindow("7d", now);
+
+    expect(dayWindows.map((window) => window.day)).toEqual([
+      "2026-06-25",
+      "2026-06-26",
+      "2026-06-27",
+      "2026-06-28",
+      "2026-06-29",
+      "2026-06-30",
+      "2026-07-01",
+    ]);
+    expect(dayWindows[0]).toEqual({
+      day: "2026-06-25",
+      from: new Date(2026, 5, 25).toISOString(),
+      to: new Date(2026, 5, 26).toISOString(),
+    });
+    expect(dayWindows[6].to).toBe(now.toISOString());
+    expect(from).toBe(new Date(2026, 5, 25).toISOString());
+    expect(to).toBe(now.toISOString());
   });
 });
 
