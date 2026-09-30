@@ -212,9 +212,16 @@ export function fetchDailyTokenUsage(
   return fetchJson<DailyTokenUsageResponse>(`/api/v1/agent-usage/summary?${params}`);
 }
 
-export function fetchRawEvents(query: UsageQuery): Promise<RawEventsResponse> {
+/** One page of raw events, newest first; `offset` skips earlier pages. */
+export function fetchRawEvents(
+  query: UsageQuery,
+  page: { limit: number; offset: number } = { limit: rawEventsFetchLimit, offset: 0 },
+): Promise<RawEventsResponse> {
   const params = usageParams(query);
-  params.set("limit", rawEventsFetchLimit.toString());
+  params.set("limit", page.limit.toString());
+  if (page.offset > 0) {
+    params.set("offset", page.offset.toString());
+  }
   return fetchJson<RawEventsResponse>(`/api/v1/agent-usage/events?${params}`);
 }
 

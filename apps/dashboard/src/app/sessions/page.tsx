@@ -1,4 +1,10 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  type Query,
+  useIsFetching,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import * as React from "react";
 import { useSearchParams } from "react-router-dom";
 import { listSessions, searchSessions, type SessionSearchQuery } from "@/api/usage";
@@ -9,6 +15,7 @@ import {
 import { SessionList } from "@/app/sessions/session-list";
 import { SessionSearchResults } from "@/app/sessions/session-search-results";
 import { BaseLayout } from "@/components/layouts/base-layout";
+import { RefreshControl } from "@/components/refresh-control";
 import { Card, CardContent, CardHeader, CardTitle } from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import {
@@ -71,6 +78,19 @@ export default function SessionsPage() {
     setDraft(appliedFilters);
   }, [appliedFilters]);
 
+  // Refetching re-resolves relative time ranges, so the list reaches now.
+  const queryClient = useQueryClient();
+  const refreshing = useIsFetching({ predicate: isSessionsPageQuery }) > 0;
+  const refresh = (
+    <RefreshControl
+      refreshing={refreshing}
+      updatedAt={hasQuery ? searchQuery.dataUpdatedAt : listQuery.dataUpdatedAt}
+      onRefresh={() => {
+        void queryClient.invalidateQueries({ predicate: isSessionsPageQuery });
+      }}
+    />
+  );
+
   const applySearch = (): void => {
     setSearchParams(paramsFromFilters(draft, 1));
   };
@@ -109,6 +129,7 @@ export default function SessionsPage() {
               response={listQuery.data}
               loading={listQuery.isFetching}
               onPageChange={changePage}
+              action={refresh}
             />
           )
         ) : null}
@@ -124,7 +145,11 @@ export default function SessionsPage() {
           </Card>
         ) : null}
         {searchQuery.data ? (
-          <SessionSearchResults response={searchQuery.data} onPageChange={changePage} />
+          <SessionSearchResults
+            response={searchQuery.data}
+            onPageChange={changePage}
+            action={refresh}
+          />
         ) : null}
       </div>
     </BaseLayout>
@@ -210,4 +235,14 @@ function positiveInteger(value: string | null): number | undefined {
   }
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+const sessionsPageQueryRoots = new Set([
+  "session-list",
+  "session-search",
+  "usage-models",
+]);
+
+function isSessionsPageQuery(query: Query): boolean {
+  return sessionsPageQueryRoots.has(String(query.queryKey[0]));
 }

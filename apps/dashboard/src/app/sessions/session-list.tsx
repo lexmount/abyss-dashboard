@@ -5,6 +5,7 @@ import type { SessionListResponse } from "@/api/usage";
 import {
   Button,
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -24,10 +25,17 @@ interface SessionListProps {
   response: SessionListResponse | undefined;
   loading: boolean;
   onPageChange: (page: number) => void;
+  /** Controls shown at the top right of the card, such as refresh. */
+  action?: React.ReactNode;
 }
 
 /** Every observed session, most recently active first; a row opens its detail. */
-export function SessionList({ response, loading, onPageChange }: SessionListProps) {
+export function SessionList({
+  response,
+  loading,
+  onPageChange,
+  action,
+}: SessionListProps) {
   const { t, locale, formatNumber, formatDateTime } = useI18n();
   const navigate = useNavigate();
   const compactNumber = React.useMemo(
@@ -54,6 +62,7 @@ export function SessionList({ response, loading, onPageChange }: SessionListProp
               })
             : t("sessions.list.loading")}
         </CardDescription>
+        {action ? <CardAction>{action}</CardAction> : null}
       </CardHeader>
       <CardContent>
         <Table className="w-full min-w-[900px] table-fixed">

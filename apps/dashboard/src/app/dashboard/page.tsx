@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  keepPreviousData,
   type Query,
   useIsFetching,
   useQuery,
@@ -18,7 +19,6 @@ import {
   Database,
   ExternalLink,
   MessageSquare,
-  RefreshCw,
   RotateCcw,
   Search,
 } from "lucide-react";
@@ -69,12 +69,12 @@ import {
 } from "@lexmount.com/abyss-ui";
 import { ToggleGroup, ToggleGroupItem } from "@lexmount.com/abyss-ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@lexmount.com/abyss-ui";
+import { RefreshControl } from "@/components/refresh-control";
 import { SessionPicker } from "@/components/session-picker";
 import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
 import { shortSessionId } from "@/lib/session-id";
 import { modelChoices, providerChoices } from "@/lib/usage-choices";
-import { cn } from "@/lib/utils";
 import { createTimeRange, resolveTimeRange, type TimeRange } from "@/lib/time-range";
 import { agentDisplayName, agentFilterOptions, agentProductKey } from "@/lib/agents";
 
@@ -149,9 +149,23 @@ export function UsageDashboard() {
     queryKey: ["usage-summary", "token-chart", chartQuery],
     queryFn: () => fetchDailyTokenUsage(chartQuery),
   });
+  // Recent events page through the backend, so every matching event is
+  // reachable rather than only the newest hundred.
+  const [eventsPage, setEventsPage] = React.useState(0);
+  const [eventsPageSize, setEventsPageSize] = React.useState<number>(
+    pageSizeOptions[0],
+  );
+  React.useEffect(() => {
+    setEventsPage(0);
+  }, [query]);
   const eventsQuery = useQuery({
-    queryKey: ["usage-events", query],
-    queryFn: () => fetchRawEvents(query),
+    queryKey: ["usage-events", query, eventsPage, eventsPageSize],
+    queryFn: () =>
+      fetchRawEvents(query, {
+        limit: eventsPageSize,
+        offset: eventsPage * eventsPageSize,
+      }),
+    placeholderData: keepPreviousData,
   });
 
   const rows = React.useMemo(
@@ -227,6 +241,18 @@ export function UsageDashboard() {
           events={events}
           loading={eventsQuery.isLoading}
           error={eventsQuery.error}
+          pagination={{
+            pageIndex: eventsPage,
+            pageSize: eventsPageSize,
+            // Every event is a request or a response in the same filter scope.
+            total: summaryQuery.data ? totals.requests + totals.responses : undefined,
+            hasNext: eventsQuery.data?.next_page_token != null,
+            onPageChange: setEventsPage,
+            onPageSizeChange: (pageSize) => {
+              setEventsPageSize(pageSize);
+              setEventsPage(0);
+            },
+          }}
           action={
             <RefreshControl
               refreshing={refreshing}
@@ -252,35 +278,6 @@ const usageQueryRoots = new Set([
 
 function isUsageQuery(query: Query): boolean {
   return usageQueryRoots.has(String(query.queryKey[0]));
-}
-
-function RefreshControl({
-  refreshing,
-  updatedAt,
-  onRefresh,
-}: {
-  refreshing: boolean;
-  updatedAt: number;
-  onRefresh: () => void;
-}) {
-  const { t, locale } = useI18n();
-  return (
-    <div className="flex items-center gap-3">
-      {updatedAt > 0 ? (
-        <span className="text-muted-foreground text-xs tabular-nums">
-          {t("dashboard.updatedAt", {
-            time: new Intl.DateTimeFormat(locale, { timeStyle: "medium" }).format(
-              updatedAt,
-            ),
-          })}
-        </span>
-      ) : null}
-      <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
-        <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
-        {t("dashboard.refresh")}
-      </Button>
-    </div>
-  );
 }
 
 interface UsageFiltersProps {
@@ -825,20 +822,37 @@ function TokenChart({
   );
 }
 
+/** Page state for a table whose rows are paged by the backend. */
+export interface ServerPagination {
+  pageIndex: number;
+  pageSize: number;
+  /** Matching rows across all pages, when known. */
+  total: number | undefined;
+  hasNext: boolean;
+  onPageChange: (pageIndex: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+}
+
 export function RawEventsTable({
   events,
   loading,
   error,
   action,
+  pagination: serverPagination,
 }: {
   events: UsageEvent[];
   loading: boolean;
   error: Error | null;
   /** Controls shown at the top right of the card, such as refresh. */
   action?: React.ReactNode;
+  /** Backend paging; without it the given events are paged locally. */
+  pagination?: ServerPagination;
 }) {
   const { t, locale, formatNumber, formatDateTime } = useI18n();
-  const pagination = useTablePagination(events);
+  const localPagination = useTablePagination(events);
+  const pagination = serverPagination
+    ? serverTablePagination(events, serverPagination)
+    : localPagination;
   const compactNumber = React.useMemo(
     () =>
       new Intl.NumberFormat(locale, {
@@ -1006,7 +1020,18 @@ export function RawEventsTable({
           </Table>
         )}
       </CardContent>
-      {!loading && error === null ? <TablePagination pagination={pagination} /> : null}
+      {!loading && error === null ? (
+        <TablePagination
+          pagination={pagination}
+          summary={
+            serverPagination?.total !== undefined
+              ? t("pagination.totalEvents", {
+                  count: formatNumber(serverPagination.total),
+                })
+              : undefined
+          }
+        />
+      ) : null}
     </Card>
   );
 }
@@ -1019,6 +1044,25 @@ interface TablePaginationState<T> {
   totalRows: number;
   setPageIndex: (pageIndex: number) => void;
   setPageSize: (pageSize: number) => void;
+}
+
+function serverTablePagination<T>(
+  rows: T[],
+  pagination: ServerPagination,
+): TablePaginationState<T> {
+  const pageCount =
+    pagination.total !== undefined
+      ? Math.max(1, Math.ceil(pagination.total / pagination.pageSize))
+      : pagination.pageIndex + (pagination.hasNext ? 2 : 1);
+  return {
+    pageRows: rows,
+    pageIndex: pagination.pageIndex,
+    pageSize: pagination.pageSize,
+    pageCount,
+    totalRows: pagination.total ?? rows.length,
+    setPageIndex: pagination.onPageChange,
+    setPageSize: pagination.onPageSizeChange,
+  };
 }
 
 function useTablePagination<T>(rows: T[]): TablePaginationState<T> {
@@ -1055,7 +1099,14 @@ function useTablePagination<T>(rows: T[]): TablePaginationState<T> {
   };
 }
 
-function TablePagination<T>({ pagination }: { pagination: TablePaginationState<T> }) {
+function TablePagination<T>({
+  pagination,
+  summary,
+}: {
+  pagination: TablePaginationState<T>;
+  /** Replaces the default "rows returned" text. */
+  summary?: string;
+}) {
   const { t, formatNumber } = useI18n();
   const canGoBack = pagination.pageIndex > 0;
   const canGoForward = pagination.pageIndex < pagination.pageCount - 1;
@@ -1063,9 +1114,10 @@ function TablePagination<T>({ pagination }: { pagination: TablePaginationState<T
   return (
     <CardFooter className="flex-col gap-4 border-t pt-4 sm:flex-row sm:justify-between">
       <div className="text-muted-foreground text-sm">
-        {t("pagination.rowsReturned", {
-          count: formatNumber(pagination.totalRows),
-        })}
+        {summary ??
+          t("pagination.rowsReturned", {
+            count: formatNumber(pagination.totalRows),
+          })}
       </div>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <div className="flex items-center gap-2">

@@ -1,3 +1,4 @@
+import * as React from "react";
 import { ArrowRight, Clock, Monitor, Search } from "lucide-react";
 import { Link } from "react-router-dom";
 import type {
@@ -20,11 +21,14 @@ import { agentDisplayName } from "@/lib/agents";
 interface SessionSearchResultsProps {
   response: SessionSearchResponse;
   onPageChange: (page: number) => void;
+  /** Controls shown beside the result count, such as refresh. */
+  action?: React.ReactNode;
 }
 
 export function SessionSearchResults({
   response,
   onPageChange,
+  action,
 }: SessionSearchResultsProps) {
   const { t, formatNumber } = useI18n();
   if (response.items.length === 0) {
@@ -61,8 +65,11 @@ export function SessionSearchResults({
             })}
           </p>
         </div>
-        <div className="text-muted-foreground text-sm">
-          {t("sessions.search.page", { page: formatNumber(response.page) })}
+        <div className="flex items-center gap-4">
+          <div className="text-muted-foreground text-sm">
+            {t("sessions.search.page", { page: formatNumber(response.page) })}
+          </div>
+          {action}
         </div>
       </div>
 

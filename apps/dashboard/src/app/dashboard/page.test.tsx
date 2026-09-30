@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -169,6 +170,53 @@ describe("UsageDashboard", () => {
     fetchUsageSummaryMock.mockReset();
     fetchDailyTokenUsageMock.mockReset();
     fetchRawEventsMock.mockReset();
+  });
+
+  it("pages recent events through the backend", async () => {
+    fetchUsageSummaryMock.mockResolvedValue({
+      from: null,
+      to: null,
+      group_by: [],
+      rows: [{ ...baseSummaryRow, requests: 13, responses: 12 }],
+      next_page_token: null,
+    });
+    fetchRawEventsMock.mockImplementation(
+      (_query: unknown, page: { limit: number; offset: number }) =>
+        Promise.resolve({
+          events: [{ ...baseUsageEvent, id: `event-${page.offset}` }],
+          next_page_token: String(page.offset + page.limit),
+        }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <I18nProvider>
+            <UsageDashboard />
+          </I18nProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // 13 requests and 12 responses make 25 events, three pages of ten.
+    expect(await screen.findByText("25 events in total.")).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
+    expect(fetchRawEventsMock).toHaveBeenLastCalledWith(expect.any(Object), {
+      limit: 10,
+      offset: 0,
+    });
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Go to next page" }));
+
+    expect(await screen.findByText("Page 2 of 3")).toBeInTheDocument();
+    expect(fetchRawEventsMock).toHaveBeenLastCalledWith(expect.any(Object), {
+      limit: 10,
+      offset: 10,
+    });
   });
 
   it("uses the compact filter grid without distribution or summary sections", async () => {
