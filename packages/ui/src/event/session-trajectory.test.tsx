@@ -325,6 +325,39 @@ describe("SessionTrajectory search", () => {
     expect(onFocusTurn.mock.calls).toEqual([[null]]);
   });
 
+  it("opens every item with a hit so scrolling shows them", async () => {
+    renderTrajectory(vi.fn(), null, vi.fn(), null, null, [
+      item({ kind: "user", stream: 0, turn_index: 1, text: "look around" }),
+      item({
+        kind: "tool_call",
+        stream: 0,
+        turn_index: 1,
+        name: "exec",
+        input: "cat a.txt",
+        output: "first needle",
+      }),
+      item({
+        kind: "tool_call",
+        stream: 0,
+        turn_index: 1,
+        name: "exec",
+        input: "cat b.txt",
+        output: "second needle",
+      }),
+    ]);
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search this session" }),
+      { target: { value: "needle" } },
+    );
+
+    expect(await screen.findByText("1 / 2")).toBeInTheDocument();
+    // Both tool calls are open, not only the one being viewed.
+    const marks = content().getAllByText("needle");
+    expect(marks.map((mark) => mark.tagName)).toEqual(["MARK", "MARK"]);
+    expect(marks[0]).toHaveAttribute("data-active-match");
+    expect(marks[1]).not.toHaveAttribute("data-active-match");
+  });
+
   it("reports when nothing matches", async () => {
     renderTrajectory(vi.fn());
     fireEvent.change(

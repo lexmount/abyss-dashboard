@@ -244,14 +244,6 @@ export function SessionTrajectory({
   const [expanded, setExpanded] = React.useState<ReadonlySet<number>>(
     () => new Set(),
   );
-  const toggle = (index: number) =>
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (!next.delete(index)) {
-        next.add(index);
-      }
-      return next;
-    });
 
   const [query, setQuery] = React.useState("");
   const searchQuery = useDebounced(query.trim(), SEARCH_DEBOUNCE_MS);
@@ -260,6 +252,26 @@ export function SessionTrajectory({
     [items, searchQuery],
   );
   const turnMatches = React.useMemo(() => matchesByTurn(matches), [matches]);
+  // While searching, every item with a hit opens, so scrolling through the
+  // conversation shows the hits rather than collapsed one-line headers. The
+  // reader can still close any of them.
+  const hitItems = React.useMemo(
+    () => new Set(matches.map((match) => match.itemIndex)),
+    [matches],
+  );
+  const [closedHits, setClosedHits] = React.useState<ReadonlySet<number>>(
+    () => new Set(),
+  );
+  const isExpanded = (index: number) =>
+    hitItems.has(index) ? !closedHits.has(index) : expanded.has(index);
+  const toggle = (index: number) =>
+    (hitItems.has(index) ? setClosedHits : setExpanded)((current) => {
+      const next = new Set(current);
+      if (!next.delete(index)) {
+        next.add(index);
+      }
+      return next;
+    });
   // Stepping moves through every occurrence, not every matching item, so a
   // long system prompt with several hits is visited hit by hit.
   const occurrences = React.useMemo(() => occurrencesOf(matches), [matches]);
@@ -293,6 +305,7 @@ export function SessionTrajectory({
   };
   React.useEffect(() => {
     setActiveMatch(0);
+    setClosedHits(new Set());
     if (searchQuery) {
       requestReveal();
     }
@@ -339,11 +352,14 @@ export function SessionTrajectory({
       onFocusTurn(active.turnIndex);
       return;
     }
-    setExpanded((current) =>
-      current.has(active.itemIndex)
-        ? current
-        : new Set(current).add(active.itemIndex),
-    );
+    setClosedHits((current) => {
+      if (!current.has(active.itemIndex)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(active.itemIndex);
+      return next;
+    });
     const rowIndex = rows.findIndex(
       (row) => row.kind === "item" && row.index === active.itemIndex,
     );
@@ -469,7 +485,7 @@ export function SessionTrajectory({
                               ? active.occurrence
                               : null
                           }
-                          expanded={expanded.has(row.index)}
+                          expanded={isExpanded(row.index)}
                           selectedEventId={selectedEventId}
                           onToggle={() => toggle(row.index)}
                           onSelectEvent={onSelectEvent}
@@ -840,13 +856,17 @@ function TrajectoryItemRow({
                 </>
               ) : (
                 <>
-                  <pre className="max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap">
+                  <SearchScrollBox
+                    className="max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap"
+                    query={query}
+                    active={activeIn("text")}
+                  >
                     <Highlighted
                       text={text}
                       query={query}
                       active={activeIn("text")}
                     />
-                  </pre>
+                  </SearchScrollBox>
                   {item.contextEventIds && item.contextEventIds.length > 1 ? (
                     <div className="text-muted-foreground flex flex-wrap gap-3 text-xs">
                       {item.contextEventIds.map((id, index) => (
@@ -960,9 +980,13 @@ function ContentBlock({
         <span>{label}</span>
         {action}
       </div>
-      <pre className="max-h-96 overflow-auto p-3 font-mono text-xs break-all whitespace-pre-wrap">
+      <SearchScrollBox
+        className="max-h-96 overflow-auto p-3 font-mono text-xs break-all whitespace-pre-wrap"
+        query={query}
+        active={active}
+      >
         <Highlighted text={text} query={query} active={active} />
-      </pre>
+      </SearchScrollBox>
     </div>
   );
 }
@@ -1118,6 +1142,41 @@ function Highlighted({
     );
   }
   return <>{nodes}</>;
+}
+
+/**
+ * A scrolling text box that, while searching, opens on the hit being viewed
+ * or else on its first hit, so hits deep in long text are not out of sight.
+ */
+function SearchScrollBox({
+  className,
+  query,
+  active,
+  children,
+}: {
+  className: string;
+  query: string;
+  active?: number;
+  children: React.ReactNode;
+}) {
+  const ref = React.useRef<HTMLPreElement>(null);
+  React.useLayoutEffect(() => {
+    const box = ref.current;
+    if (!box || !query) {
+      return;
+    }
+    const target =
+      box.querySelector<HTMLElement>("[data-active-match]") ??
+      box.querySelector<HTMLElement>("mark");
+    if (target) {
+      centerWithin(box, target);
+    }
+  }, [query, active]);
+  return (
+    <pre ref={ref} className={className}>
+      {children}
+    </pre>
+  );
 }
 
 /** Scrolls a box so the element sits in its middle, leaving other boxes. */
