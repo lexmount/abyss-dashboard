@@ -8,6 +8,7 @@ import {
   type SessionListItem,
   type SessionListQuery,
 } from "@/api/usage";
+import { apiErrorKind } from "@/api/http";
 import { FilterTrigger } from "@/components/filter-trigger";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
@@ -149,6 +150,7 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
     keyword.trim().length > 0 &&
     (keyword.trim() !== debouncedKeyword || searchQuery.isFetching);
   const loading = listQuery.isLoading || searching;
+  const pickerError = listQuery.error ?? searchQuery.error;
   const selectedChoice =
     chosen?.sessionId === value
       ? chosen
@@ -253,14 +255,13 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
             <div className="text-muted-foreground px-2 py-3 text-center text-xs">
               {t("sessionPicker.loading")}
             </div>
+          ) : pickerError ? (
+            <div className="text-muted-foreground px-2 py-3 text-center text-xs">
+              {t(`error.${apiErrorKind(pickerError)}.title`)}
+            </div>
           ) : options.length === 0 ? (
             <div className="text-muted-foreground px-2 py-3 text-center text-xs">
               {keyword.trim() ? t("sessionPicker.noMatches") : t("sessionPicker.empty")}
-            </div>
-          ) : null}
-          {listQuery.isError || searchQuery.isError ? (
-            <div className="text-destructive px-2 py-2 text-center text-xs">
-              {(listQuery.error ?? searchQuery.error)?.message}
             </div>
           ) : null}
         </div>

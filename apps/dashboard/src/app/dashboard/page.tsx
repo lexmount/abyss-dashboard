@@ -69,6 +69,7 @@ import {
 } from "@lexmount.com/abyss-ui";
 import { ToggleGroup, ToggleGroupItem } from "@lexmount.com/abyss-ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@lexmount.com/abyss-ui";
+import { QueryErrorBanner } from "@/components/query-error";
 import { RefreshControl } from "@/components/refresh-control";
 import { SessionPicker } from "@/components/session-picker";
 import { TimeRangeField } from "@/components/time-range-field";
@@ -188,6 +189,7 @@ export function UsageDashboard() {
   );
 
   const refreshing = useIsFetching({ predicate: isUsageQuery }) > 0;
+  const usageError = summaryQuery.error ?? chartSummaryQuery.error ?? eventsQuery.error;
   const updatedAt = Math.max(
     summaryQuery.dataUpdatedAt,
     chartSummaryQuery.dataUpdatedAt,
@@ -212,27 +214,28 @@ export function UsageDashboard() {
           }}
         />
 
-        {summaryQuery.isError ? (
-          <StatusCard
-            title={t("dashboard.summaryError")}
-            detail={summaryQuery.error.message}
-          />
-        ) : null}
-        {chartSummaryQuery.isError ? (
-          <StatusCard
-            title={t("dashboard.chart.error")}
-            detail={chartSummaryQuery.error.message}
+        {/* One explanation for the page; failed sections below only say
+            they have nothing to show, rather than repeating the error. */}
+        {usageError ? (
+          <QueryErrorBanner
+            error={usageError}
+            retrying={refreshing}
+            onRetry={() => {
+              void queryClient.invalidateQueries({ predicate: isUsageQuery });
+            }}
           />
         ) : null}
         <MetricCards
           totals={totals}
           agentCount={agentCount}
           loading={summaryQuery.isLoading}
+          unavailable={summaryQuery.isError}
         />
 
         <TokenChart
           rows={chartRows}
           loading={chartSummaryQuery.isLoading}
+          unavailable={chartSummaryQuery.isError}
           range={tokenChartRange}
           onRangeChange={setTokenChartRange}
         />
@@ -590,10 +593,13 @@ function MetricCards({
   totals,
   agentCount,
   loading,
+  unavailable,
 }: {
   totals: UsageTotals;
   agentCount: number;
   loading: boolean;
+  /** The summary failed, so there are no numbers to show. */
+  unavailable: boolean;
 }) {
   const { t, formatNumber } = useI18n();
   const cards = [
@@ -634,7 +640,7 @@ function MetricCards({
           <CardHeader>
             <CardDescription>{card.label}</CardDescription>
             <CardTitle className="text-2xl font-semibold tabular-nums @[300px]/card:text-3xl">
-              {loading ? "..." : formatNumber(card.value)}
+              {unavailable ? "—" : loading ? "..." : formatNumber(card.value)}
             </CardTitle>
             <CardAction>
               <Badge variant="outline">
@@ -644,7 +650,7 @@ function MetricCards({
             </CardAction>
           </CardHeader>
           <CardContent className="text-muted-foreground text-sm">
-            {card.detail}
+            {unavailable ? t("dashboard.sectionUnavailable") : card.detail}
           </CardContent>
         </Card>
       ))}
@@ -655,11 +661,13 @@ function MetricCards({
 function TokenChart({
   rows,
   loading,
+  unavailable,
   range,
   onRangeChange,
 }: {
   rows: ChartRow[];
   loading: boolean;
+  unavailable: boolean;
   range: TokenChartRange;
   onRangeChange: (range: TokenChartRange) => void;
 }) {
@@ -729,7 +737,11 @@ function TokenChart({
         </CardAction>
       </CardHeader>
       <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-        {loading ? (
+        {unavailable ? (
+          <div className="text-muted-foreground flex h-[250px] items-center justify-center text-sm">
+            {t("dashboard.sectionUnavailable")}
+          </div>
+        ) : loading ? (
           <div className="text-muted-foreground flex h-[250px] items-center justify-center text-sm">
             {t("dashboard.tokenChart.loading")}
           </div>
@@ -885,8 +897,8 @@ export function RawEventsTable({
       </CardHeader>
       <CardContent>
         {error ? (
-          <div className="text-destructive py-10 text-center text-sm">
-            {error.message}
+          <div className="text-muted-foreground py-10 text-center text-sm">
+            {t("dashboard.sectionUnavailable")}
           </div>
         ) : loading ? (
           <div className="text-muted-foreground py-10 text-center text-sm">
@@ -1209,17 +1221,6 @@ function TablePagination<T>({
         </div>
       </div>
     </CardFooter>
-  );
-}
-
-function StatusCard({ title, detail }: { title: string; detail: string }) {
-  return (
-    <Card className="border-destructive/40">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{detail}</CardDescription>
-      </CardHeader>
-    </Card>
   );
 }
 

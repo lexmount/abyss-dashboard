@@ -15,17 +15,13 @@ import {
   usageAttachmentUrl,
   type SessionInfo,
 } from "@/api/usage";
+import { apiErrorKind } from "@/api/http";
 import { BaseLayout } from "@/components/layouts/base-layout";
+import { QueryErrorCard } from "@/components/query-error";
 import { SessionPurposeBadge } from "@/components/session-purpose-badge";
 import { Badge, Button } from "@lexmount.com/abyss-ui";
 import { Popover, PopoverContent, PopoverTrigger } from "@lexmount.com/abyss-ui";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@lexmount.com/abyss-ui";
+import { Card, CardContent } from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 import { cn } from "@/lib/utils";
@@ -81,7 +77,7 @@ export default function SessionDetailPage() {
   );
 
   const detail: SessionEventDetailState = eventQuery.isError
-    ? { status: "error", message: eventQuery.error.message }
+    ? { status: "error", message: t(`error.${apiErrorKind(eventQuery.error)}.title`) }
     : eventQuery.data
       ? { status: "ready", event: eventQuery.data }
       : { status: "loading" };
@@ -114,12 +110,16 @@ export default function SessionDetailPage() {
         </div>
 
         {trajectoryQuery.isError ? (
-          <Card className="border-destructive/40">
-            <CardHeader>
-              <CardTitle>{t("sessions.detail.unavailable")}</CardTitle>
-              <CardDescription>{trajectoryQuery.error.message}</CardDescription>
-            </CardHeader>
-          </Card>
+          <QueryErrorCard
+            error={trajectoryQuery.error}
+            title={
+              apiErrorKind(trajectoryQuery.error) === "notFound"
+                ? t("sessions.detail.notFound")
+                : undefined
+            }
+            retrying={trajectoryQuery.isFetching}
+            onRetry={() => void trajectoryQuery.refetch()}
+          />
         ) : null}
 
         {trajectoryQuery.isLoading ? (

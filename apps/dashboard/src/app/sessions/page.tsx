@@ -15,8 +15,9 @@ import {
 import { SessionList } from "@/app/sessions/session-list";
 import { SessionSearchResults } from "@/app/sessions/session-search-results";
 import { BaseLayout } from "@/components/layouts/base-layout";
+import { QueryErrorCard } from "@/components/query-error";
 import { RefreshControl } from "@/components/refresh-control";
-import { Card, CardContent, CardHeader, CardTitle } from "@lexmount.com/abyss-ui";
+import { Card, CardContent } from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import {
   createTimeRange,
@@ -116,14 +117,11 @@ export default function SessionsPage() {
 
         {!hasQuery ? (
           listQuery.isError ? (
-            <Card className="border-destructive/40">
-              <CardHeader>
-                <CardTitle>{t("sessions.list.errorTitle")}</CardTitle>
-              </CardHeader>
-              <CardContent className="text-muted-foreground text-sm">
-                {listQuery.error.message}
-              </CardContent>
-            </Card>
+            <QueryErrorCard
+              error={listQuery.error}
+              retrying={listQuery.isFetching}
+              onRetry={() => void listQuery.refetch()}
+            />
           ) : (
             <SessionList
               response={listQuery.data}
@@ -135,14 +133,11 @@ export default function SessionsPage() {
         ) : null}
         {hasQuery && searchQuery.isLoading ? <SearchLoading /> : null}
         {searchQuery.isError ? (
-          <Card className="border-destructive/40">
-            <CardHeader>
-              <CardTitle>{t("sessions.search.errorTitle")}</CardTitle>
-            </CardHeader>
-            <CardContent className="text-muted-foreground text-sm">
-              {searchQuery.error.message}
-            </CardContent>
-          </Card>
+          <QueryErrorCard
+            error={searchQuery.error}
+            retrying={searchQuery.isFetching}
+            onRetry={() => void searchQuery.refetch()}
+          />
         ) : null}
         {searchQuery.data ? (
           <SessionSearchResults

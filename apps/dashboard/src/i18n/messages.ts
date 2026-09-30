@@ -33,7 +33,6 @@ export const messages = {
     "dashboard.agentDistribution.empty": "当前筛选条件下没有智能体使用量。",
     "dashboard.agentDistribution.loading": "正在加载智能体分布...",
     "dashboard.agentDistribution.title": "智能体使用分布",
-    "dashboard.chart.error": "趋势图查询失败",
     "dashboard.description": "查看固定数据所有者的使用量和会话。",
     "dashboard.filters.description":
       "按时间、智能体、服务商、模型、会话或事件查询使用量。",
@@ -65,7 +64,6 @@ export const messages = {
     "dashboard.summary.loading": "正在加载汇总...",
     "dashboard.summary.title": "汇总",
     "dashboard.refresh": "刷新",
-    "dashboard.summaryError": "统计查询失败",
     "dashboard.title": "Agent 看板",
     "dashboard.tokenChart.description":
       "选定时间范围内每日输入、输出、读缓存和写缓存 Token",
@@ -107,7 +105,17 @@ export const messages = {
     "sessionPicker.placeholder": "搜索会话 ID、智能体或对话内容",
     "sessionPicker.tokens": "{count} Token",
     "sessionPicker.turns": "{count} 轮",
+    "dashboard.sectionUnavailable": "数据暂不可用",
     "dashboard.updatedAt": "更新于 {time}",
+    "error.notFound.description": "请求的数据不存在，可能已被删除，或链接有误。",
+    "error.notFound.title": "没有找到",
+    "error.retry": "重试",
+    "error.server.description": "后端没能完成这次请求，稍后再试一次。",
+    "error.server.title": "后端出错了",
+    "error.unauthorized.description": "后端拒绝了访问，请检查仪表盘配置的访问令牌。",
+    "error.unauthorized.title": "没有访问权限",
+    "error.unreachable.description": "Abyss 后端没有响应。确认它正在运行后再重试。",
+    "error.unreachable.title": "连接不上后端服务",
     "sessions.back": "Agent 看板",
     "sessions.description":
       "浏览观测到的全部会话；输入关键词可按对话内容、命令或文件路径搜索。",
@@ -145,7 +153,7 @@ export const messages = {
     "sessions.detail.title": "会话详情",
     "sessions.detail.turn": "第 {index} 轮",
     "sessions.detail.turns": "这个会话有 {count} 个轮次。",
-    "sessions.detail.unavailable": "会话不可用",
+    "sessions.detail.notFound": "找不到这个会话",
     "sessions.detail.version": "版本",
     "sessions.trajectory.context": "上下文",
     "sessions.trajectory.user": "用户",
@@ -186,7 +194,6 @@ export const messages = {
     "sessions.list.description":
       "共 {count} 个会话，按最后活跃时间排序。点击任意一行查看会话详情。",
     "sessions.list.empty": "当前筛选条件下没有会话。",
-    "sessions.list.errorTitle": "会话列表加载失败",
     "sessions.list.events": "事件",
     "sessions.list.host": "主机 / 平台",
     "sessions.list.lastActivity": "最后活跃",
@@ -198,7 +205,6 @@ export const messages = {
     "sessions.list.turns": "轮次",
     "sessions.search.emptyDescription": "尝试更换关键词、扩大时间范围或清除筛选条件。",
     "sessions.search.emptyTitle": "没有找到相关会话",
-    "sessions.search.errorTitle": "会话搜索暂时不可用",
     "sessions.search.introductionDescription":
       "输入关键词查找部署所绑定数据所有者的历史会话。",
     "sessions.search.introductionTitle": "搜索会话上下文",
@@ -248,7 +254,6 @@ export const messages = {
     "dashboard.agentDistribution.empty": "No agent usage for the selected filters.",
     "dashboard.agentDistribution.loading": "Loading agent distribution...",
     "dashboard.agentDistribution.title": "Agent Distribution",
-    "dashboard.chart.error": "Chart query failed",
     "dashboard.description": "Usage and sessions for the configured data owner.",
     "dashboard.filters.description":
       "Query usage by time, agent, provider, model, session, or event.",
@@ -281,7 +286,6 @@ export const messages = {
     "dashboard.summary.loading": "Loading summary...",
     "dashboard.summary.title": "Summary",
     "dashboard.refresh": "Refresh",
-    "dashboard.summaryError": "Summary query failed",
     "dashboard.title": "Dashboard",
     "dashboard.tokenChart.description":
       "Daily input, output, cache read, and cache write tokens over the selected range",
@@ -324,7 +328,21 @@ export const messages = {
     "sessionPicker.placeholder": "Search session ID, agent, or conversation",
     "sessionPicker.tokens": "{count} tokens",
     "sessionPicker.turns": "{count} turns",
+    "dashboard.sectionUnavailable": "No data available",
     "dashboard.updatedAt": "Updated {time}",
+    "error.notFound.description":
+      "The requested data does not exist. It may have been deleted, or the link is wrong.",
+    "error.notFound.title": "Not found",
+    "error.retry": "Retry",
+    "error.server.description":
+      "The backend could not complete this request. Try again shortly.",
+    "error.server.title": "The backend ran into an error",
+    "error.unauthorized.description":
+      "The backend refused access. Check the access token the dashboard is configured with.",
+    "error.unauthorized.title": "Access denied",
+    "error.unreachable.description":
+      "The Abyss backend is not responding. Make sure it is running, then retry.",
+    "error.unreachable.title": "Can't reach the backend",
     "sessions.back": "Dashboard",
     "sessions.description":
       "Browse every observed session, or enter a keyword to search conversations, commands, and file paths.",
@@ -362,7 +380,7 @@ export const messages = {
     "sessions.detail.title": "Session Detail",
     "sessions.detail.turn": "Turn {index}",
     "sessions.detail.turns": "{count} turn(s) in this session.",
-    "sessions.detail.unavailable": "Session unavailable",
+    "sessions.detail.notFound": "Session not found",
     "sessions.detail.version": "Version",
     "sessions.trajectory.context": "Context",
     "sessions.trajectory.user": "User",
@@ -403,7 +421,6 @@ export const messages = {
     "sessions.list.description":
       "{count} sessions, most recently active first. Select a row to open the session.",
     "sessions.list.empty": "No sessions match the current filters.",
-    "sessions.list.errorTitle": "Session list failed to load",
     "sessions.list.events": "Events",
     "sessions.list.host": "Host / Platform",
     "sessions.list.lastActivity": "Last active",
@@ -416,7 +433,6 @@ export const messages = {
     "sessions.search.emptyDescription":
       "Try another keyword, widen the time range, or clear some filters.",
     "sessions.search.emptyTitle": "No matching sessions",
-    "sessions.search.errorTitle": "Session search is temporarily unavailable",
     "sessions.search.introductionDescription":
       "Enter a keyword to find previous conversations for the configured data owner.",
     "sessions.search.introductionTitle": "Search session context",
@@ -466,7 +482,6 @@ export const messages = {
     "dashboard.agentDistribution.empty": "選択した条件の Agent 使用量はありません。",
     "dashboard.agentDistribution.loading": "Agent 分布を読み込み中...",
     "dashboard.agentDistribution.title": "Agent 使用分布",
-    "dashboard.chart.error": "チャートの取得に失敗しました",
     "dashboard.description": "設定されたデータ所有者の使用量とセッション。",
     "dashboard.filters.description":
       "期間・Agent・プロバイダー・モデル・セッション・イベントで使用量を絞り込みます。",
@@ -499,7 +514,6 @@ export const messages = {
     "dashboard.summary.loading": "集計を読み込み中...",
     "dashboard.summary.title": "集計",
     "dashboard.refresh": "更新",
-    "dashboard.summaryError": "集計の取得に失敗しました",
     "dashboard.title": "Agent ダッシュボード",
     "dashboard.tokenChart.description":
       "選択した期間の日別入力・出力・キャッシュ読み取り・キャッシュ書き込み Token",
@@ -541,7 +555,21 @@ export const messages = {
     "sessionPicker.placeholder": "セッション ID・Agent・会話内容を検索",
     "sessionPicker.tokens": "{count} Token",
     "sessionPicker.turns": "{count} ターン",
+    "dashboard.sectionUnavailable": "データを表示できません",
     "dashboard.updatedAt": "{time} に更新",
+    "error.notFound.description":
+      "要求されたデータは存在しません。削除されたか、リンクが誤っている可能性があります。",
+    "error.notFound.title": "見つかりません",
+    "error.retry": "再試行",
+    "error.server.description":
+      "バックエンドがこのリクエストを完了できませんでした。少し待ってから再試行してください。",
+    "error.server.title": "バックエンドでエラーが発生しました",
+    "error.unauthorized.description":
+      "バックエンドがアクセスを拒否しました。ダッシュボードのアクセストークンを確認してください。",
+    "error.unauthorized.title": "アクセス権がありません",
+    "error.unreachable.description":
+      "Abyss バックエンドが応答していません。起動していることを確認してから再試行してください。",
+    "error.unreachable.title": "バックエンドに接続できません",
     "sessions.back": "Agent ダッシュボード",
     "sessions.description":
       "観測したすべてのセッションを一覧表示します。キーワードを入力すると会話・コマンド・ファイルパスを検索できます。",
@@ -579,7 +607,7 @@ export const messages = {
     "sessions.detail.title": "セッション詳細",
     "sessions.detail.turn": "ターン {index}",
     "sessions.detail.turns": "このセッションには {count} ターンがあります。",
-    "sessions.detail.unavailable": "セッションを利用できません",
+    "sessions.detail.notFound": "このセッションは見つかりません",
     "sessions.detail.version": "バージョン",
     "sessions.trajectory.context": "コンテキスト",
     "sessions.trajectory.user": "ユーザー",
@@ -620,7 +648,6 @@ export const messages = {
     "sessions.list.description":
       "全 {count} セッション（最終アクティビティ順）。行を選択すると詳細を開きます。",
     "sessions.list.empty": "現在の条件に一致するセッションはありません。",
-    "sessions.list.errorTitle": "セッション一覧を読み込めませんでした",
     "sessions.list.events": "イベント",
     "sessions.list.host": "ホスト / プラットフォーム",
     "sessions.list.lastActivity": "最終アクティビティ",
@@ -633,7 +660,6 @@ export const messages = {
     "sessions.search.emptyDescription":
       "別のキーワード、より広い期間、または少ないフィルターでお試しください。",
     "sessions.search.emptyTitle": "一致するセッションがありません",
-    "sessions.search.errorTitle": "セッション検索を一時的に利用できません",
     "sessions.search.introductionDescription":
       "キーワードを入力して、設定されたデータ所有者の過去の会話を検索します。",
     "sessions.search.introductionTitle": "セッションコンテキストを検索",
