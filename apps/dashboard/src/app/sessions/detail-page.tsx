@@ -16,6 +16,7 @@ import {
   type SessionInfo,
 } from "@/api/usage";
 import { BaseLayout } from "@/components/layouts/base-layout";
+import { SessionPurposeBadge } from "@/components/session-purpose-badge";
 import { Badge, Button } from "@lexmount.com/abyss-ui";
 import { Popover, PopoverContent, PopoverTrigger } from "@lexmount.com/abyss-ui";
 import {
@@ -226,19 +227,29 @@ function SessionIdentity({ session }: { session: SessionInfo | undefined }) {
       </div>
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <h1 className="truncate text-xl font-semibold tracking-tight">
+          <h1
+            className="truncate text-xl font-semibold tracking-tight"
+            title={session?.title ?? undefined}
+          >
             {session
-              ? agentDisplayName(session.agent_name)
+              ? (session.title ?? agentDisplayName(session.agent_name))
               : t("sessions.detail.title")}
           </h1>
-          {session?.agent_version ? (
+          {session?.agent_version && !session.title ? (
             <Badge variant="outline" className="font-mono text-[11px]">
               v{session.agent_version}
             </Badge>
           ) : null}
+          <SessionPurposeBadge purpose={session?.purpose ?? null} />
         </div>
         {session ? (
           <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1 font-mono text-xs">
+            {session.title ? (
+              <span className="shrink-0 font-sans">
+                {agentDisplayName(session.agent_name)}
+                {session.agent_version ? ` v${session.agent_version}` : ""} ·
+              </span>
+            ) : null}
             <span className="truncate">{session.session_id}</span>
             <CopyButton
               value={session.session_id}

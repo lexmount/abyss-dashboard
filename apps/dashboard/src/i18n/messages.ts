@@ -108,6 +108,7 @@ export const messages = {
     "sessions.description":
       "浏览观测到的全部会话；输入关键词可按对话内容、命令或文件路径搜索。",
     "sessions.detail.copyId": "复制会话 ID",
+    "sessions.purpose.title_generation": "标题生成",
     "sessions.detail.copied": "已复制",
     "sessions.detail.details": "详细信息",
     "sessions.detail.duration": "持续时长",
@@ -312,6 +313,7 @@ export const messages = {
     "sessions.description":
       "Browse every observed session, or enter a keyword to search conversations, commands, and file paths.",
     "sessions.detail.copyId": "Copy session ID",
+    "sessions.purpose.title_generation": "Title generation",
     "sessions.detail.copied": "Copied",
     "sessions.detail.details": "Details",
     "sessions.detail.duration": "Duration",
@@ -516,6 +518,7 @@ export const messages = {
     "sessions.description":
       "観測したすべてのセッションを一覧表示します。キーワードを入力すると会話・コマンド・ファイルパスを検索できます。",
     "sessions.detail.copyId": "セッション ID をコピー",
+    "sessions.purpose.title_generation": "タイトル生成",
     "sessions.detail.copied": "コピーしました",
     "sessions.detail.details": "詳細",
     "sessions.detail.duration": "所要時間",

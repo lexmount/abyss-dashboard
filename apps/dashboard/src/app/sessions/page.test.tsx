@@ -50,6 +50,8 @@ describe("SessionsPage", () => {
     const table = within(screen.getByRole("table"));
     expect(table.getByText("Codex")).toBeInTheDocument();
     expect(table.getByText("alice-mbp")).toBeInTheDocument();
+    expect(table.getByText("Draw a pelican")).toBeInTheDocument();
+    expect(table.getByText("Title generation")).toBeInTheDocument();
     expect(listSessionsMock).toHaveBeenCalledWith(
       expect.objectContaining({ page: 1, pageSize: 20 }),
     );
@@ -236,6 +238,8 @@ function listResponse() {
         turns: 3,
         events: 12,
         total_tokens: 45000,
+        title: "Draw a pelican",
+        purpose: "title_generation",
       },
     ],
   };
