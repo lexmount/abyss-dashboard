@@ -3,43 +3,72 @@ import { Check, Search, X } from "lucide-react";
 import * as React from "react";
 import { Input, Popover, PopoverContent, PopoverTrigger } from "@lexmount.com/abyss-ui";
 import {
-  fetchRecentSessions,
+  listSessions,
   searchSessions,
-  type SessionOption,
-  type UsageQuery,
+  type SessionListItem,
+  type SessionListQuery,
 } from "@/api/usage";
 import { FilterTrigger } from "@/components/filter-trigger";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
+import { shortSessionId } from "@/lib/session-id";
 import { cn } from "@/lib/utils";
 
 const searchDebounceMs = 250;
 const searchPageSize = 20;
-const maxVisibleRecentSessions = 50;
+const listPageSize = 50;
+
+/** What the picker knows about a session; search hits carry fewer details. */
+interface SessionChoice {
+  sessionPk: string;
+  sessionId: string;
+  agentName: string;
+  lastActivityAt: string;
+  turns?: number;
+  totalTokens?: number;
+}
 
 interface SessionPickerProps {
   value: string;
   onChange: (sessionId: string) => void;
-  /** Time and Agent scope the options are drawn from. */
-  scope: Pick<UsageQuery, "from" | "to" | "agentName">;
+  /** Filters the choices follow, so they match the rest of the dashboard. */
+  scope: Pick<SessionListQuery, "from" | "to" | "agentName" | "provider" | "model">;
 }
 
 /**
- * Session filter combobox. With no keyword it lists recently active sessions;
- * a keyword filters those locally and also runs the backend session search,
- * which matches session ID segments as well as captured conversation content.
+ * Session filter combobox. Sessions read as "Agent · when" with their short ID,
+ * turns, and tokens, most recently active first. A keyword filters them
+ * locally and also runs the backend content search.
  */
 export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
-  const { t, formatDateTime } = useI18n();
+  const { t, locale, formatNumber } = useI18n();
   const [open, setOpen] = React.useState(false);
   const [keyword, setKeyword] = React.useState("");
   const [activeIndex, setActiveIndex] = React.useState(0);
+  // Remembers the chosen session so the closed trigger can stay readable.
+  const [chosen, setChosen] = React.useState<SessionChoice | null>(null);
   const debouncedKeyword = useDebouncedValue(keyword.trim(), searchDebounceMs);
   const listRef = React.useRef<HTMLDivElement>(null);
+  const compactNumber = React.useMemo(
+    () =>
+      new Intl.NumberFormat(locale, {
+        notation: "compact",
+        maximumSignificantDigits: 3,
+      }),
+    [locale],
+  );
 
-  const recentQuery = useQuery({
-    queryKey: ["session-options", "recent", scope],
-    queryFn: () => fetchRecentSessions(scope),
+  const listQuery = useQuery({
+    queryKey: ["session-options", "list", scope],
+    queryFn: () =>
+      listSessions({
+        from: scope.from,
+        to: scope.to,
+        agentName: scope.agentName || undefined,
+        provider: scope.provider || undefined,
+        model: scope.model || undefined,
+        pageSize: listPageSize,
+      }),
     enabled: open,
     staleTime: 30_000,
   });
@@ -51,6 +80,8 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
         from: scope.from,
         to: scope.to,
         agentName: scope.agentName || undefined,
+        provider: scope.provider || undefined,
+        model: scope.model || undefined,
         pageSize: searchPageSize,
       }),
     enabled: open && debouncedKeyword.length > 0,
@@ -59,29 +90,28 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
 
   const options = React.useMemo(() => {
     const needle = keyword.trim().toLocaleLowerCase();
-    const recent = (recentQuery.data ?? []).filter(
-      (option) =>
-        needle.length === 0 ||
-        option.sessionId.toLocaleLowerCase().includes(needle) ||
-        agentDisplayName(option.agentName).toLocaleLowerCase().includes(needle),
-    );
-    const seen = new Set(recent.map((option) => option.sessionPk));
-    const searched: SessionOption[] = [];
-    if (needle.length > 0) {
-      for (const item of searchQuery.data?.items ?? []) {
-        if (!seen.has(item.session_pk)) {
-          seen.add(item.session_pk);
-          searched.push({
-            sessionPk: item.session_pk,
-            sessionId: item.session_id,
-            agentName: item.agent_name,
-            lastSeenAt: item.ended_at ?? item.started_at,
-          });
-        }
-      }
+    const listed = (listQuery.data?.items ?? [])
+      .map(choiceFromListItem)
+      .filter(
+        (choice) =>
+          needle.length === 0 ||
+          choice.sessionId.toLocaleLowerCase().includes(needle) ||
+          agentDisplayName(choice.agentName).toLocaleLowerCase().includes(needle),
+      );
+    if (needle.length === 0) {
+      return listed;
     }
-    return [...recent.slice(0, maxVisibleRecentSessions), ...searched];
-  }, [keyword, recentQuery.data, searchQuery.data]);
+    const seen = new Set(listed.map((choice) => choice.sessionPk));
+    const searched = (searchQuery.data?.items ?? [])
+      .filter((item) => !seen.has(item.session_pk))
+      .map<SessionChoice>((item) => ({
+        sessionPk: item.session_pk,
+        sessionId: item.session_id,
+        agentName: item.agent_name,
+        lastActivityAt: item.ended_at ?? item.started_at,
+      }));
+    return [...listed, ...searched];
+  }, [keyword, listQuery.data, searchQuery.data]);
 
   // Index 0 is the "all sessions" entry; options follow it.
   const entryCount = options.length + 1;
@@ -96,8 +126,9 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
       ?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
 
-  const select = (sessionId: string): void => {
-    onChange(sessionId);
+  const select = (choice: SessionChoice | null): void => {
+    setChosen(choice);
+    onChange(choice?.sessionId ?? "");
     setOpen(false);
   };
 
@@ -110,14 +141,18 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
       setActiveIndex((index) => (index - 1 + entryCount) % entryCount);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      select(activeIndex === 0 ? "" : (options[activeIndex - 1]?.sessionId ?? ""));
+      select(activeIndex === 0 ? null : (options[activeIndex - 1] ?? null));
     }
   };
 
   const searching =
     keyword.trim().length > 0 &&
     (keyword.trim() !== debouncedKeyword || searchQuery.isFetching);
-  const loading = recentQuery.isLoading || searching;
+  const loading = listQuery.isLoading || searching;
+  const selectedChoice =
+    chosen?.sessionId === value
+      ? chosen
+      : options.find((choice) => choice.sessionId === value);
 
   return (
     <Popover
@@ -137,9 +172,13 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
             aria-label={t("common.session")}
             title={value || undefined}
             hideChevron={Boolean(value)}
-            className={cn(value && "pr-8 font-mono text-xs")}
+            className={cn(value && "pr-8")}
           >
-            {value || t("common.all")}
+            {!value
+              ? t("common.all")
+              : selectedChoice
+                ? `${agentDisplayName(selectedChoice.agentName)} · ${shortDateTime(selectedChoice.lastActivityAt, locale)}`
+                : shortSessionId(value)}
           </FilterTrigger>
         </PopoverTrigger>
         {value ? (
@@ -147,7 +186,7 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
             type="button"
             className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2.5 -translate-y-1/2 rounded-sm p-0.5"
             aria-label={t("sessionPicker.clear")}
-            onClick={() => onChange("")}
+            onClick={() => select(null)}
           >
             <X className="size-3.5" />
           </button>
@@ -170,29 +209,43 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
             onKeyDown={onKeyDown}
           />
         </div>
-        <div ref={listRef} role="listbox" className="max-h-72 overflow-y-auto p-1">
+        <div ref={listRef} role="listbox" className="max-h-80 overflow-y-auto p-1">
           <PickerItem
             index={0}
             active={activeIndex === 0}
             selected={value === ""}
             onHover={setActiveIndex}
-            onSelect={() => select("")}
+            onSelect={() => select(null)}
           >
             <span className="text-sm">{t("sessionPicker.all")}</span>
           </PickerItem>
-          {options.map((option, offset) => (
+          {options.map((choice, offset) => (
             <PickerItem
-              key={option.sessionPk}
+              key={choice.sessionPk}
               index={offset + 1}
               active={activeIndex === offset + 1}
-              selected={value === option.sessionId}
+              selected={value === choice.sessionId}
+              title={choice.sessionId}
               onHover={setActiveIndex}
-              onSelect={() => select(option.sessionId)}
+              onSelect={() => select(choice)}
             >
-              <span className="truncate font-mono text-xs">{option.sessionId}</span>
+              <span className="truncate text-sm">
+                <span className="font-medium">
+                  {agentDisplayName(choice.agentName)}
+                </span>
+                <span className="text-muted-foreground">
+                  {" · "}
+                  {relativeTime(choice.lastActivityAt, locale)}
+                </span>
+              </span>
               <span className="text-muted-foreground truncate text-xs">
-                {agentDisplayName(option.agentName)} ·{" "}
-                {formatDateTime(option.lastSeenAt)}
+                <span className="font-mono">{shortSessionId(choice.sessionId)}</span>
+                {choice.turns !== undefined
+                  ? ` · ${t("sessionPicker.turns", { count: formatNumber(choice.turns) })}`
+                  : ""}
+                {choice.totalTokens !== undefined
+                  ? ` · ${t("sessionPicker.tokens", { count: compactNumber.format(choice.totalTokens) })}`
+                  : ""}
               </span>
             </PickerItem>
           ))}
@@ -205,9 +258,9 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
               {keyword.trim() ? t("sessionPicker.noMatches") : t("sessionPicker.empty")}
             </div>
           ) : null}
-          {recentQuery.isError || searchQuery.isError ? (
+          {listQuery.isError || searchQuery.isError ? (
             <div className="text-destructive px-2 py-2 text-center text-xs">
-              {(recentQuery.error ?? searchQuery.error)?.message}
+              {(listQuery.error ?? searchQuery.error)?.message}
             </div>
           ) : null}
         </div>
@@ -216,10 +269,55 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
   );
 }
 
+function choiceFromListItem(item: SessionListItem): SessionChoice {
+  return {
+    sessionPk: item.session_pk,
+    sessionId: item.session_id,
+    agentName: item.agent_name,
+    lastActivityAt: item.last_activity_at,
+    turns: item.turns,
+    totalTokens: item.total_tokens,
+  };
+}
+
+const relativeUnits: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["minute", 60],
+  ["hour", 24],
+  ["day", 7],
+];
+
+/** "3 分钟前" style for the past week, a short date and time before that. */
+export function relativeTime(value: string, locale: string, now = Date.now()): string {
+  let amount = (new Date(value).getTime() - now) / 60_000;
+  if (Math.abs(amount) < 1) {
+    return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(0, "second");
+  }
+  for (const [unit, size] of relativeUnits) {
+    if (Math.abs(amount) < size) {
+      return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(
+        Math.round(amount),
+        unit,
+      );
+    }
+    amount /= size;
+  }
+  return shortDateTime(value, locale);
+}
+
+function shortDateTime(value: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 function PickerItem({
   index,
   active,
   selected,
+  title,
   onHover,
   onSelect,
   children,
@@ -227,6 +325,7 @@ function PickerItem({
   index: number;
   active: boolean;
   selected: boolean;
+  title?: string;
   onHover: (index: number) => void;
   onSelect: () => void;
   children: React.ReactNode;
@@ -236,6 +335,7 @@ function PickerItem({
       role="option"
       aria-selected={selected}
       data-index={index}
+      title={title}
       className={cn(
         "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5",
         active && "bg-accent text-accent-foreground",

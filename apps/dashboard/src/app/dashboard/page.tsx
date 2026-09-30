@@ -302,6 +302,12 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
     () => ({ ...resolveTimeRange(draft.time), agentName: draft.agentName }),
     [draft.time, draft.agentName],
   );
+  // Session choices also follow the provider and model, so only sessions that
+  // used them are offered.
+  const pickerScope = React.useMemo(
+    () => ({ ...sessionScope, provider: draft.provider, model: draft.model }),
+    [sessionScope, draft.provider, draft.model],
+  );
   // Provider and model choices come from the data in the time and Agent
   // scope, so custom gateways are listed; picking a provider narrows the
   // models to the ones it served. Neither choice hides its own alternatives.
@@ -407,7 +413,7 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
         <Field label={t("common.session")}>
           <SessionPicker
             value={draft.sessionId}
-            scope={sessionScope}
+            scope={pickerScope}
             onChange={(sessionId) => update("sessionId", sessionId)}
           />
         </Field>

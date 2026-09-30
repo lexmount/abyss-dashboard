@@ -102,7 +102,9 @@ export const messages = {
     "sessionPicker.empty": "当前时间范围内没有会话",
     "sessionPicker.loading": "正在加载会话...",
     "sessionPicker.noMatches": "没有匹配的会话",
-    "sessionPicker.placeholder": "搜索会话 ID 或对话内容",
+    "sessionPicker.placeholder": "搜索会话 ID、智能体或对话内容",
+    "sessionPicker.tokens": "{count} Token",
+    "sessionPicker.turns": "{count} 轮",
     "dashboard.updatedAt": "更新于 {time}",
     "sessions.back": "Agent 看板",
     "sessions.description":
@@ -306,7 +308,9 @@ export const messages = {
     "sessionPicker.empty": "No sessions in this time range",
     "sessionPicker.loading": "Loading sessions...",
     "sessionPicker.noMatches": "No matching sessions",
-    "sessionPicker.placeholder": "Search session ID or conversation",
+    "sessionPicker.placeholder": "Search session ID, agent, or conversation",
+    "sessionPicker.tokens": "{count} tokens",
+    "sessionPicker.turns": "{count} turns",
     "dashboard.updatedAt": "Updated {time}",
     "sessions.back": "Dashboard",
     "sessions.description":
@@ -510,7 +514,9 @@ export const messages = {
     "sessionPicker.empty": "この期間にセッションはありません",
     "sessionPicker.loading": "セッションを読み込み中...",
     "sessionPicker.noMatches": "一致するセッションはありません",
-    "sessionPicker.placeholder": "セッション ID または会話内容を検索",
+    "sessionPicker.placeholder": "セッション ID・Agent・会話内容を検索",
+    "sessionPicker.tokens": "{count} Token",
+    "sessionPicker.turns": "{count} ターン",
     "dashboard.updatedAt": "{time} に更新",
     "sessions.back": "Agent ダッシュボード",
     "sessions.description":
