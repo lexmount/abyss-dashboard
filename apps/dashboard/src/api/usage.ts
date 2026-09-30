@@ -108,6 +108,10 @@ export interface SessionInfo {
   started_at: string;
   ended_at: string | null;
   metadata: unknown;
+  /** Name the Agent generated for the session, when one was captured. */
+  title: string | null;
+  /** Why the session exists when it is not ordinary work, e.g. "title_generation". */
+  purpose: string | null;
 }
 
 export interface TurnTimeline {
@@ -283,6 +287,10 @@ export interface SessionListItem {
   turns: number;
   events: number;
   total_tokens: number;
+  /** Name the Agent generated for the session, when one was captured. */
+  title: string | null;
+  /** Why the session exists when it is not ordinary work, e.g. "title_generation". */
+  purpose: string | null;
 }
 
 /** Lists observed sessions, most recently active first. */

@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@lexmount.com/abyss-ui";
+import { SessionPurposeBadge } from "@/components/session-purpose-badge";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 import { shortSessionId } from "@/lib/session-id";
@@ -67,13 +68,13 @@ export function SessionList({
       <CardContent>
         <Table className="w-full min-w-[900px] table-fixed">
           <colgroup>
-            <col className="w-[16%]" />
-            <col className="w-[12%]" />
-            <col className="w-[15%]" />
+            <col className="w-[14%]" />
+            <col className="w-[26%]" />
+            <col className="w-[13%]" />
+            <col className="w-[8%]" />
+            <col className="w-[8%]" />
             <col className="w-[9%]" />
-            <col className="w-[9%]" />
-            <col className="w-[11%]" />
-            <col className="w-[28%]" />
+            <col className="w-[22%]" />
           </colgroup>
           <TableHeader>
             <TableRow>
@@ -111,6 +112,19 @@ export function SessionList({
                       </span>
                     </TableCell>
                     <TableCell className="overflow-hidden">
+                      {session.title || session.purpose ? (
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          {session.title ? (
+                            <span
+                              className="truncate font-medium"
+                              title={session.title}
+                            >
+                              {session.title}
+                            </span>
+                          ) : null}
+                          <SessionPurposeBadge purpose={session.purpose} />
+                        </div>
+                      ) : null}
                       <Link
                         to={detailUrl}
                         title={session.session_id}
