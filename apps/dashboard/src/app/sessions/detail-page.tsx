@@ -6,7 +6,7 @@ import {
   type SessionEventInspectorLabels,
   type SessionTrajectoryLabels,
 } from "@lexmount.com/abyss-ui";
-import { ArrowLeft, Check, Copy, Info } from "lucide-react";
+import { ArrowLeft, Bot, Check, Copy, Info } from "lucide-react";
 import * as React from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -89,24 +89,23 @@ export default function SessionDetailPage() {
 
   return (
     <BaseLayout>
-      <div className="space-y-3 px-4 lg:px-6">
-        {/* One row of session facts: they are read once, while the
-            trajectory below is where the reading happens. */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="space-y-5 px-4 lg:px-6">
+        <div className="grid gap-4">
           <Link
             to="/dashboard"
-            aria-label={t("sessions.back")}
-            title={t("sessions.back")}
-            className="text-muted-foreground hover:text-foreground hover:bg-accent -ms-1.5 shrink-0 rounded-md p-1.5 transition-colors"
+            className="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1.5 text-sm transition-colors"
           >
-            <ArrowLeft className="size-4" />
+            <ArrowLeft className="size-3.5" />
+            {t("sessions.back")}
           </Link>
-          <SessionIdentity session={session} />
-          {session ? (
-            <div className="ms-auto flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-              <SessionStats session={session} turnCount={turnCount} models={models} />
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <SessionIdentity session={session} />
+            {session ? (
               <SessionDetails session={session} formatDateTime={formatDateTime} />
-            </div>
+            ) : null}
+          </div>
+          {session ? (
+            <SessionStats session={session} turnCount={turnCount} models={models} />
           ) : null}
         </div>
 
@@ -133,7 +132,7 @@ export default function SessionDetailPage() {
 
         {trajectory ? (
           <SessionTrajectory
-            className="h-[calc(100svh-9.25rem)] min-h-[28rem]"
+            className="h-[calc(100svh-18rem)] min-h-[28rem]"
             items={trajectory.items}
             selectedEventId={selectedEventId}
             onSelectEvent={(eventPk) => updateParam(eventSearchParam, eventPk)}
@@ -233,11 +232,14 @@ function inspectorLabels(
 function SessionIdentity({ session }: { session: SessionInfo | undefined }) {
   const { t } = useI18n();
   return (
-    <div className="flex min-w-0 items-center gap-3">
-      <div className="flex min-w-0 items-baseline gap-x-3">
+    <div className="flex min-w-0 items-center gap-3.5">
+      <div className="bg-ring/10 text-ring ring-ring/20 flex size-11 shrink-0 items-center justify-center rounded-xl ring-1">
+        <Bot className="size-5" />
+      </div>
+      <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <h1
-            className="truncate text-lg font-semibold tracking-tight"
+            className="truncate text-xl font-semibold tracking-tight"
             title={session?.title ?? undefined}
           >
             {session
@@ -252,7 +254,7 @@ function SessionIdentity({ session }: { session: SessionInfo | undefined }) {
           <SessionPurposeBadge purpose={session?.purpose ?? null} />
         </div>
         {session ? (
-          <div className="text-muted-foreground flex min-w-0 items-center gap-1 font-mono text-xs">
+          <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1 font-mono text-xs">
             {session.title ? (
               <span className="shrink-0 font-sans">
                 {agentDisplayName(session.agent_name)}
@@ -300,7 +302,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
-/** Headline facts about the session, inline beside its name. */
+/** Headline facts about the session in one strip. */
 function SessionStats({
   session,
   turnCount,
@@ -339,13 +341,21 @@ function SessionStats({
     },
   ];
   return (
-    <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-sm">
-      {stats.map((stat) => (
-        <div key={stat.label} className="flex min-w-0 items-baseline gap-1.5">
-          <dt className="text-muted-foreground shrink-0 text-xs">{stat.label}</dt>
+    <dl className="bg-card grid grid-cols-2 overflow-hidden rounded-xl border shadow-xs md:grid-cols-4">
+      {stats.map((stat, index) => (
+        <div
+          key={stat.label}
+          className={cn(
+            "min-w-0 px-4 py-3",
+            index % 2 === 1 && "border-l",
+            index >= 2 && "max-md:border-t",
+            index === 2 && "md:border-l",
+          )}
+        >
+          <dt className="text-muted-foreground text-xs">{stat.label}</dt>
           <dd
             className={cn(
-              "truncate font-medium tabular-nums",
+              "mt-1 truncate text-sm font-medium tabular-nums",
               stat.mono && "font-mono text-[13px]",
             )}
             title={stat.title}
