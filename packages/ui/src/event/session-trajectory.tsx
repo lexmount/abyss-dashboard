@@ -89,7 +89,40 @@ export interface SessionTrajectoryProps {
 
 type TrajectoryRow =
   | { kind: "turn"; turnIndex: number; startedAt: string }
-  | { kind: "item"; item: SessionTrajectoryItem; index: number };
+  | { kind: "item"; item: DisplayTrajectoryItem; index: number };
+
+interface DisplayTrajectoryItem extends SessionTrajectoryItem {
+  contextEventIds?: string[];
+}
+
+/** Group neighboring context messages while retaining their source events. */
+function groupContexts(
+  items: readonly SessionTrajectoryItem[],
+): DisplayTrajectoryItem[] {
+  const grouped: DisplayTrajectoryItem[] = [];
+  for (const item of items) {
+    const previous = grouped.at(-1);
+    if (
+      item.kind === "context" &&
+      previous?.kind === "context" &&
+      item.turn_index === previous.turn_index &&
+      item.stream === previous.stream
+    ) {
+      previous.text = [previous.text, item.text]
+        .filter((text) => text !== undefined && text !== "")
+        .join("\n\n");
+      previous.contextEventIds = [
+        ...new Set([
+          ...(previous.contextEventIds ?? [previous.event_pk]),
+          item.event_pk,
+        ]),
+      ];
+    } else {
+      grouped.push({ ...item });
+    }
+  }
+  return grouped;
+}
 
 /** One node of the turn timeline. */
 export interface TrajectoryTurnSummary {
@@ -168,7 +201,7 @@ export function trajectoryRows(
  * content, so the conversation reads once from start to end.
  */
 export function SessionTrajectory({
-  items,
+  items: sourceItems,
   selectedEventId,
   onSelectEvent,
   inspector,
@@ -179,6 +212,7 @@ export function SessionTrajectory({
   labels,
   className,
 }: SessionTrajectoryProps) {
+  const items = React.useMemo(() => groupContexts(sourceItems), [sourceItems]);
   const turns = React.useMemo(() => trajectoryTurnSummaries(items), [items]);
   const rows = React.useMemo(
     () => trajectoryRows(items, focusedTurn),
@@ -559,7 +593,7 @@ function TrajectoryItemRow({
   formatNumber,
   labels,
 }: {
-  item: SessionTrajectoryItem;
+  item: DisplayTrajectoryItem;
   /** Active search text to highlight, or empty. */
   query: string;
   /** Whether this item is the search match being viewed. */
@@ -588,6 +622,8 @@ function TrajectoryItemRow({
       : null;
   const selected =
     item.event_pk === selectedEventId ||
+    (selectedEventId !== null &&
+      item.contextEventIds?.includes(selectedEventId)) ||
     (resultEventPk !== null && resultEventPk === selectedEventId);
   // The item selects its raw event; controls inside it act on their own.
   const stop = (event: React.SyntheticEvent) => event.stopPropagation();
@@ -711,9 +747,25 @@ function TrajectoryItemRow({
                   />
                 </>
               ) : (
-                <pre className="max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap">
-                  <Highlighted text={text} query={query} />
-                </pre>
+                <>
+                  <pre className="max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap">
+                    <Highlighted text={text} query={query} />
+                  </pre>
+                  {item.contextEventIds && item.contextEventIds.length > 1 ? (
+                    <div className="text-muted-foreground flex flex-wrap gap-3 text-xs">
+                      {item.contextEventIds.map((id, index) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => onSelectEvent(id)}
+                          className="hover:text-foreground hover:underline"
+                        >
+                          {labels.openEvent} {formatNumber(index + 1)}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </>
               )}
             </div>
           ) : null}

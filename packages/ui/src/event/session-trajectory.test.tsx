@@ -88,6 +88,57 @@ describe("SessionTrajectory", () => {
     vi.unstubAllGlobals();
   });
 
+  it("groups consecutive context into one searchable block and preserves event access", async () => {
+    const onSelectEvent = vi.fn();
+    const prompts = [
+      item({
+        kind: "context",
+        stream: 0,
+        turn_index: 1,
+        text: "system instructions",
+      }),
+      item({
+        kind: "context",
+        stream: 0,
+        turn_index: 1,
+        text: "developer guidance",
+      }),
+      item({ kind: "user", stream: 0, turn_index: 1, text: "hello" }),
+      item({
+        kind: "context",
+        stream: 0,
+        turn_index: 1,
+        text: "later context",
+      }),
+      item({ kind: "context", stream: 1, turn_index: 1, text: "side context" }),
+      item({
+        kind: "context",
+        stream: 1,
+        turn_index: 2,
+        text: "next turn context",
+      }),
+    ];
+    const original = structuredClone(prompts);
+    renderTrajectory(onSelectEvent, null, vi.fn(), null, null, prompts);
+    expect(content().getAllByText("Context")).toHaveLength(4);
+    expect(content().queryByText("developer guidance")).not.toBeInTheDocument();
+    fireEvent.click(
+      content().getAllByRole("button", { name: "Show more" })[0]!,
+    );
+    expect(
+      content().getByText(/system instructions.*developer guidance/s)
+        .textContent,
+    ).toBe("system instructions\n\ndeveloper guidance");
+    fireEvent.click(content().getByRole("button", { name: "Open event 2" }));
+    expect(onSelectEvent).toHaveBeenLastCalledWith(prompts[1]!.event_pk);
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search this session" }),
+      { target: { value: "guidance" } },
+    );
+    expect(await screen.findByText("1 / 1")).toBeInTheDocument();
+    expect(prompts).toEqual(original);
+  });
+
   it("threads every turn on a timeline and selects one", () => {
     const onFocusTurn = vi.fn();
     renderTrajectory(vi.fn(), null, onFocusTurn);
