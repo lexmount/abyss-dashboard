@@ -132,7 +132,7 @@ export default function SessionDetailPage() {
 
         {trajectory ? (
           <SessionTrajectory
-            className="h-[calc(100svh-3rem)] min-h-[28rem]"
+            className="h-[calc(100svh-5.75rem)] min-h-[28rem]"
             items={trajectory.items}
             selectedEventId={selectedEventId}
             onSelectEvent={(eventPk) => updateParam(eventSearchParam, eventPk)}

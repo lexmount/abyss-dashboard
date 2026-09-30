@@ -336,108 +336,112 @@ export function SessionTrajectory({
   }, [active, focusedTurn, onFocusTurn, revealRequest, rows, virtualizer]);
 
   return (
-    <div
-      className={cn(
-        "bg-card relative flex min-h-0 overflow-hidden rounded-xl border shadow-xs max-md:flex-col",
-        className,
-      )}
-    >
-      <TurnTimeline
-        turns={turns}
-        turnMatches={searchQuery ? turnMatches : null}
-        focusedTurn={focusedTurn}
-        onFocusTurn={focusTurn}
-        formatTime={formatTime}
-        formatNumber={formatNumber}
-        labels={labels}
-      />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* The search spans the session, so it sits above the heading of
-            whichever turn is shown. */}
-        <div className="grid gap-2 border-b px-4 py-2.5">
-          <TrajectorySearch
-            query={query}
-            onQueryChange={setQuery}
-            position={active ? activeMatch + 1 : 0}
-            total={matches.length}
-            searching={query.trim() !== searchQuery}
-            onStep={step}
-            formatNumber={formatNumber}
-            labels={labels}
-          />
-          <div className="min-w-0 truncate text-sm">
-            <span className="font-medium">
-              {focusedTurn === null
-                ? labels.allTurns
-                : labels.turn(focusedTurn)}
-            </span>
-            <span className="text-muted-foreground ml-2 text-xs">
-              {labels.summary(
-                formatNumber(counts.items),
-                formatNumber(counts.toolCalls),
-              )}
-            </span>
+    <div className="flex flex-col">
+      {/* The search spans the whole session, so it sits above the turns and
+          their details, and stays in view while the page scrolls. */}
+      <div className="bg-background sticky top-0 z-20 pb-3">
+        <TrajectorySearch
+          query={query}
+          onQueryChange={setQuery}
+          position={active ? activeMatch + 1 : 0}
+          total={matches.length}
+          searching={query.trim() !== searchQuery}
+          onStep={step}
+          formatNumber={formatNumber}
+          labels={labels}
+        />
+      </div>
+      <div
+        className={cn(
+          "bg-card relative flex min-h-0 overflow-hidden rounded-xl border shadow-xs max-md:flex-col",
+          className,
+        )}
+      >
+        <TurnTimeline
+          turns={turns}
+          turnMatches={searchQuery ? turnMatches : null}
+          focusedTurn={focusedTurn}
+          onFocusTurn={focusTurn}
+          formatTime={formatTime}
+          formatNumber={formatNumber}
+          labels={labels}
+        />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="border-b px-4 py-2.5">
+            <div className="min-w-0 truncate text-sm">
+              <span className="font-medium">
+                {focusedTurn === null
+                  ? labels.allTurns
+                  : labels.turn(focusedTurn)}
+              </span>
+              <span className="text-muted-foreground ml-2 text-xs">
+                {labels.summary(
+                  formatNumber(counts.items),
+                  formatNumber(counts.toolCalls),
+                )}
+              </span>
+            </div>
+          </div>
+          <div
+            ref={scrollRef}
+            data-trajectory-content=""
+            className="min-h-0 flex-1 overflow-auto"
+          >
+            {rows.length === 0 ? (
+              <div className="text-muted-foreground py-10 text-center text-sm">
+                {labels.empty}
+              </div>
+            ) : (
+              <div
+                className="relative w-full"
+                style={{ height: virtualizer.getTotalSize() }}
+              >
+                {virtualizer.getVirtualItems().map((virtual) => {
+                  const row = rows[virtual.index];
+                  if (!row) {
+                    return null;
+                  }
+                  return (
+                    <div
+                      key={virtual.key}
+                      data-index={virtual.index}
+                      ref={virtualizer.measureElement}
+                      className="absolute top-0 left-0 w-full"
+                      style={{ transform: `translateY(${virtual.start}px)` }}
+                    >
+                      {row.kind === "turn" ? (
+                        <div className="flex items-center gap-3 px-4 pt-5 pb-1.5 text-xs">
+                          <span className="font-semibold">
+                            {labels.turn(row.turnIndex)}
+                          </span>
+                          <span className="text-muted-foreground tabular-nums">
+                            {formatTime(row.startedAt)}
+                          </span>
+                          <span aria-hidden className="bg-border h-px flex-1" />
+                        </div>
+                      ) : (
+                        <TrajectoryItemRow
+                          item={row.item}
+                          query={searchQuery}
+                          activeMatch={active?.itemIndex === row.index}
+                          expanded={expanded.has(row.index)}
+                          selectedEventId={selectedEventId}
+                          onToggle={() => toggle(row.index)}
+                          onSelectEvent={onSelectEvent}
+                          formatTime={formatTime}
+                          formatNumber={formatNumber}
+                          labels={labels}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
-        <div
-          ref={scrollRef}
-          data-trajectory-content=""
-          className="min-h-0 flex-1 overflow-auto"
-        >
-          {rows.length === 0 ? (
-            <div className="text-muted-foreground py-10 text-center text-sm">
-              {labels.empty}
-            </div>
-          ) : (
-            <div
-              className="relative w-full"
-              style={{ height: virtualizer.getTotalSize() }}
-            >
-              {virtualizer.getVirtualItems().map((virtual) => {
-                const row = rows[virtual.index];
-                if (!row) {
-                  return null;
-                }
-                return (
-                  <div
-                    key={virtual.key}
-                    data-index={virtual.index}
-                    ref={virtualizer.measureElement}
-                    className="absolute top-0 left-0 w-full"
-                    style={{ transform: `translateY(${virtual.start}px)` }}
-                  >
-                    {row.kind === "turn" ? (
-                      <div className="flex items-center gap-3 px-4 pt-5 pb-1.5 text-xs">
-                        <span className="font-semibold">
-                          {labels.turn(row.turnIndex)}
-                        </span>
-                        <span className="text-muted-foreground tabular-nums">
-                          {formatTime(row.startedAt)}
-                        </span>
-                        <span aria-hidden className="bg-border h-px flex-1" />
-                      </div>
-                    ) : (
-                      <TrajectoryItemRow
-                        item={row.item}
-                        query={searchQuery}
-                        activeMatch={active?.itemIndex === row.index}
-                        expanded={expanded.has(row.index)}
-                        selectedEventId={selectedEventId}
-                        onToggle={() => toggle(row.index)}
-                        onSelectEvent={onSelectEvent}
-                        formatTime={formatTime}
-                        formatNumber={formatNumber}
-                        labels={labels}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        {inspector}
       </div>
-      {inspector}
     </div>
   );
 }
@@ -920,7 +924,7 @@ function TrajectorySearch({
 }) {
   const hasQuery = query.trim().length > 0;
   return (
-    <div className="border-input focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 flex h-8 w-full items-center gap-1.5 rounded-md border bg-transparent pr-1 pl-2.5 shadow-xs transition-[color,box-shadow] focus-within:ring-[3px]">
+    <div className="border-input focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 bg-card flex h-8 w-full items-center gap-1.5 rounded-md border pr-1 pl-2.5 shadow-xs transition-[color,box-shadow] focus-within:ring-[3px]">
       <Search className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
       <input
         value={query}
