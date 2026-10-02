@@ -7,7 +7,12 @@ import {
 } from "@tanstack/react-query";
 import * as React from "react";
 import { useSearchParams } from "react-router-dom";
-import { listSessions, searchSessions, type SessionSearchQuery } from "@/api/usage";
+import {
+  filterValueList,
+  listSessions,
+  searchSessions,
+  type SessionSearchQuery,
+} from "@/api/usage";
 import {
   SessionSearchForm,
   type SessionSearchFilters,
@@ -31,9 +36,9 @@ const sessionListPageSize = 20;
 const defaultFilters: SessionSearchFilters = {
   q: "",
   time: createTimeRange("any"),
-  agentName: "",
-  provider: "",
-  model: "",
+  agentNames: [],
+  providers: [],
+  models: [],
 };
 
 export default function SessionsPage() {
@@ -57,17 +62,17 @@ export default function SessionsPage() {
     queryKey: [
       "session-list",
       appliedFilters.time,
-      appliedFilters.agentName,
-      appliedFilters.provider,
-      appliedFilters.model,
+      appliedFilters.agentNames,
+      appliedFilters.providers,
+      appliedFilters.models,
       page,
     ],
     queryFn: () =>
       listSessions({
         ...resolveTimeRange(appliedFilters.time),
-        agentName: appliedFilters.agentName || undefined,
-        provider: appliedFilters.provider || undefined,
-        model: appliedFilters.model || undefined,
+        agentName: appliedFilters.agentNames,
+        provider: appliedFilters.providers,
+        model: appliedFilters.models,
         page,
         pageSize: sessionListPageSize,
       }),
@@ -166,9 +171,9 @@ export function filtersFromParams(params: URLSearchParams): SessionSearchFilters
   return {
     q: params.get("q") ?? "",
     time: timeRangeFromParams(params),
-    agentName: params.get("agent_name") ?? "",
-    provider: params.get("llm_provider") ?? "",
-    model: params.get("llm_model") ?? "",
+    agentNames: params.getAll("agent_name"),
+    providers: params.getAll("llm_provider"),
+    models: params.getAll("llm_model"),
   };
 }
 
@@ -185,9 +190,16 @@ export function paramsFromFilters(
     appendParam(params, "from", filters.time.from);
     appendParam(params, "to", filters.time.to);
   }
-  appendParam(params, "agent_name", filters.agentName);
-  appendParam(params, "llm_provider", filters.provider);
-  appendParam(params, "llm_model", filters.model);
+  // Each chosen value repeats its key, matching the backend API.
+  for (const agentName of filterValueList(filters.agentNames)) {
+    params.append("agent_name", agentName);
+  }
+  for (const provider of filterValueList(filters.providers)) {
+    params.append("llm_provider", provider);
+  }
+  for (const model of filterValueList(filters.models)) {
+    params.append("llm_model", model);
+  }
   if (page > 1) {
     params.set("page", page.toString());
   }
@@ -198,9 +210,9 @@ function apiQuery(filters: SessionSearchFilters, page: number): SessionSearchQue
   return {
     q: filters.q,
     ...resolveTimeRange(filters.time),
-    agentName: filters.agentName || undefined,
-    provider: filters.provider || undefined,
-    model: filters.model || undefined,
+    agentName: filters.agentNames,
+    provider: filters.providers,
+    model: filters.models,
     page,
     pageSize: 20,
   };
