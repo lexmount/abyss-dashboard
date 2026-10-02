@@ -103,6 +103,27 @@ describe("usage API", () => {
     expect(url.searchParams.get("limit")).toBe("100");
   });
 
+  it("repeats a filter key for each chosen value and skips blank ones", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      void input;
+      return Promise.resolve(jsonResponse({ events: [], next_page_token: null }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchRawEvents({
+      agentName: ["claude-code", "codex"],
+      sessionId: ["session-1", " "],
+      provider: [],
+      model: ["gpt-5", "claude-opus"],
+    });
+
+    const url = requestUrl(fetchMock.mock.calls[0]?.[0]);
+    expect(url.searchParams.getAll("agent_name")).toEqual(["claude-code", "codex"]);
+    expect(url.searchParams.getAll("session_id")).toEqual(["session-1"]);
+    expect(url.searchParams.has("llm_provider")).toBe(false);
+    expect(url.searchParams.getAll("llm_model")).toEqual(["gpt-5", "claude-opus"]);
+  });
+
   it("requests a session timeline by session primary key", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       void input;

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Check, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import * as React from "react";
 import { Input, Popover, PopoverContent, PopoverTrigger } from "@lexmount.com/abyss-ui";
 import {
@@ -10,6 +10,7 @@ import {
 } from "@/api/usage";
 import { apiErrorKind } from "@/api/http";
 import { FilterTrigger } from "@/components/filter-trigger";
+import { FilterCheckbox, FilterSummary } from "@/components/multi-select-filter";
 import { SessionPurposeBadge } from "@/components/session-purpose-badge";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
@@ -34,24 +35,29 @@ interface SessionChoice {
 }
 
 interface SessionPickerProps {
-  value: string;
-  onChange: (sessionId: string) => void;
+  /** Chosen session IDs; empty means every session. */
+  value: readonly string[];
+  onChange: (sessionIds: string[]) => void;
   /** Filters the choices follow, so they match the rest of the dashboard. */
   scope: Pick<SessionListQuery, "from" | "to" | "agentName" | "provider" | "model">;
 }
 
 /**
- * Session filter combobox. Sessions read as "Agent · when" with their short ID,
- * turns, and tokens, most recently active first. A keyword filters them
- * locally and also runs the backend content search.
+ * Session filter combobox where any number of sessions can be chosen. Sessions
+ * read as "Agent · when" with their short ID, turns, and tokens, most recently
+ * active first. A keyword filters them locally and also runs the backend
+ * content search. The list stays open while sessions are toggled.
  */
 export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
   const { t, locale, formatNumber } = useI18n();
   const [open, setOpen] = React.useState(false);
   const [keyword, setKeyword] = React.useState("");
   const [activeIndex, setActiveIndex] = React.useState(0);
-  // Remembers the chosen session so the closed trigger can stay readable.
-  const [chosen, setChosen] = React.useState<SessionChoice | null>(null);
+  // Remembers chosen sessions so the closed trigger stays readable after
+  // they leave the listed options.
+  const [chosen, setChosen] = React.useState<ReadonlyMap<string, SessionChoice>>(
+    () => new Map(),
+  );
   const debouncedKeyword = useDebouncedValue(keyword.trim(), searchDebounceMs);
   const listRef = React.useRef<HTMLDivElement>(null);
   const compactNumber = React.useMemo(
@@ -69,9 +75,9 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
       listSessions({
         from: scope.from,
         to: scope.to,
-        agentName: scope.agentName || undefined,
-        provider: scope.provider || undefined,
-        model: scope.model || undefined,
+        agentName: scope.agentName,
+        provider: scope.provider,
+        model: scope.model,
         pageSize: listPageSize,
       }),
     enabled: open,
@@ -84,9 +90,9 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
         q: debouncedKeyword,
         from: scope.from,
         to: scope.to,
-        agentName: scope.agentName || undefined,
-        provider: scope.provider || undefined,
-        model: scope.model || undefined,
+        agentName: scope.agentName,
+        provider: scope.provider,
+        model: scope.model,
         pageSize: searchPageSize,
       }),
     enabled: open && debouncedKeyword.length > 0,
@@ -132,10 +138,28 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
       ?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
 
-  const select = (choice: SessionChoice | null): void => {
-    setChosen(choice);
-    onChange(choice?.sessionId ?? "");
-    setOpen(false);
+  const clear = (): void => {
+    onChange([]);
+  };
+
+  const toggle = (choice: SessionChoice): void => {
+    if (value.includes(choice.sessionId)) {
+      onChange(value.filter((sessionId) => sessionId !== choice.sessionId));
+      return;
+    }
+    setChosen((current) => new Map(current).set(choice.sessionId, choice));
+    onChange([...value, choice.sessionId]);
+  };
+
+  const choose = (index: number): void => {
+    if (index === 0) {
+      clear();
+      return;
+    }
+    const choice = options[index - 1];
+    if (choice) {
+      toggle(choice);
+    }
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
@@ -147,7 +171,7 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
       setActiveIndex((index) => (index - 1 + entryCount) % entryCount);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      select(activeIndex === 0 ? null : (options[activeIndex - 1] ?? null));
+      choose(activeIndex);
     }
   };
 
@@ -156,11 +180,16 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
     (keyword.trim() !== debouncedKeyword || searchQuery.isFetching);
   const loading = listQuery.isLoading || searching;
   const pickerError = listQuery.error ?? searchQuery.error;
-  const selectedChoice =
-    chosen?.sessionId === value
-      ? chosen
-      : options.find((choice) => choice.sessionId === value);
-
+  const describe = (sessionId: string): string => {
+    const choice =
+      chosen.get(sessionId) ?? options.find((option) => option.sessionId === sessionId);
+    if (choice?.title) {
+      return choice.title;
+    }
+    return choice
+      ? `${agentDisplayName(choice.agentName)} · ${shortDateTimeFormat(locale).format(new Date(choice.lastActivityAt))}`
+      : shortSessionId(sessionId);
+  };
   return (
     <Popover
       open={open}
@@ -177,25 +206,19 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
             role="combobox"
             aria-expanded={open}
             aria-label={t("common.session")}
-            title={value || undefined}
-            hideChevron={Boolean(value)}
-            className={cn(value && "pr-8")}
+            title={value.length > 0 ? value.join("\n") : undefined}
+            hideChevron={value.length > 0}
+            className={cn(value.length > 0 && "pr-8")}
           >
-            {!value
-              ? t("common.all")
-              : selectedChoice?.title
-                ? selectedChoice.title
-                : selectedChoice
-                  ? `${agentDisplayName(selectedChoice.agentName)} · ${shortDateTimeFormat(locale).format(new Date(selectedChoice.lastActivityAt))}`
-                  : shortSessionId(value)}
+            <FilterSummary labels={value.map(describe)} />
           </FilterTrigger>
         </PopoverTrigger>
-        {value ? (
+        {value.length > 0 ? (
           <button
             type="button"
             className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2.5 -translate-y-1/2 rounded-sm p-0.5"
             aria-label={t("sessionPicker.clear")}
-            onClick={() => select(null)}
+            onClick={clear}
           >
             <X className="size-3.5" />
           </button>
@@ -218,13 +241,18 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
             onKeyDown={onKeyDown}
           />
         </div>
-        <div ref={listRef} role="listbox" className="max-h-80 overflow-y-auto p-1">
+        <div
+          ref={listRef}
+          role="listbox"
+          aria-multiselectable="true"
+          className="max-h-80 overflow-y-auto p-1"
+        >
           <PickerItem
             index={0}
             active={activeIndex === 0}
-            selected={value === ""}
+            selected={value.length === 0}
             onHover={setActiveIndex}
-            onSelect={() => select(null)}
+            onSelect={clear}
           >
             <span className="text-sm">{t("sessionPicker.all")}</span>
           </PickerItem>
@@ -233,10 +261,10 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
               key={choice.sessionPk}
               index={offset + 1}
               active={activeIndex === offset + 1}
-              selected={value === choice.sessionId}
+              selected={value.includes(choice.sessionId)}
               title={choice.sessionId}
               onHover={setActiveIndex}
-              onSelect={() => select(choice)}
+              onSelect={() => toggle(choice)}
             >
               {choice.title ? (
                 <span className="flex min-w-0 items-center gap-1.5 text-sm">
@@ -384,10 +412,8 @@ function PickerItem({
       onMouseDown={(event) => event.preventDefault()}
       onClick={onSelect}
     >
+      <FilterCheckbox checked={selected} />
       <div className="grid min-w-0 flex-1 gap-0.5">{children}</div>
-      <Check
-        className={cn("size-4 shrink-0", selected ? "opacity-100" : "opacity-0")}
-      />
     </div>
   );
 }
