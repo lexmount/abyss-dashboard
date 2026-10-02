@@ -4,7 +4,9 @@ import * as React from "react";
 import {
   keepPreviousData,
   type Query,
+  replaceEqualDeep,
   useIsFetching,
+  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -25,7 +27,7 @@ import {
 import { Link } from "react-router-dom";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import {
-  fetchDailyTokenUsage,
+  fetchDayTokenUsage,
   fetchRawEvents,
   fetchUsageSummary,
   type DailyTokenUsageRow,
@@ -77,6 +79,7 @@ import { SessionPicker } from "@/components/session-picker";
 import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
 import { shortSessionId } from "@/lib/session-id";
+import { cn } from "@/lib/utils";
 import { modelChoices, providerChoices } from "@/lib/usage-choices";
 import { createTimeRange, resolveTimeRange, type TimeRange } from "@/lib/time-range";
 import { agentDisplayName, agentFilterOptions, agentProductKey } from "@/lib/agents";
@@ -126,11 +129,7 @@ export function UsageDashboard() {
       // Usage counts today as a day: "last 7 days" starts at midnight six
       // days ago rather than exactly 168 hours back.
       ...resolveTimeRange(filters.time, now, "calendar"),
-      agentName: filters.agentNames,
-      sessionId: filters.sessionIds,
-      provider: filters.providers,
-      model: filters.models,
-      eventType: filters.eventType === "all" ? "" : filters.eventType,
+      ...nonTimeScope(filters),
     }),
     [filters, now],
   );
@@ -138,22 +137,37 @@ export function UsageDashboard() {
     () => tokenChartDateWindow(tokenChartRange, now),
     [tokenChartRange, now],
   );
-  const chartQuery = React.useMemo<UsageQuery>(
-    () => ({
-      ...query,
-      from: tokenChartWindow.from,
-      to: tokenChartWindow.to,
-    }),
-    [query, tokenChartWindow],
-  );
+  // The chart has its own days, so only the non-time filters scope it; keeping
+  // `now` out of its keys lets a refresh leave finished days alone.
+  const chartScope = React.useMemo(() => nonTimeScope(filters), [filters]);
 
   const summaryQuery = useQuery({
     queryKey: ["usage-summary", "table", query],
     queryFn: () => fetchUsageSummary(query),
+    // A refresh moves the range's end, which is a new query; keep the shown
+    // numbers until it lands rather than blanking the cards.
+    placeholderData: keepPreviousData,
   });
-  const chartSummaryQuery = useQuery({
-    queryKey: ["usage-summary", "token-chart", chartQuery],
-    queryFn: () => fetchDailyTokenUsage(chartQuery, tokenChartWindow.dayWindows),
+  const tokenDays = useQueries({
+    queries: tokenChartWindow.dayWindows.map((dayWindow, index) => {
+      // Today is still filling, so its key leaves out the moving end and each
+      // fetch reads up to that moment; finished days never change.
+      const today = index === tokenChartWindow.dayWindows.length - 1;
+      return {
+        queryKey: [
+          tokenDayQueryRoot,
+          chartScope,
+          dayWindow.from,
+          today ? openDayEnd : dayWindow.to,
+        ],
+        queryFn: () =>
+          fetchDayTokenUsage(
+            chartScope,
+            today ? { ...dayWindow, to: new Date().toISOString() } : dayWindow,
+          ),
+        staleTime: today ? undefined : Infinity,
+      };
+    }),
   });
   // Recent events page through the backend, so every matching event is
   // reachable rather than only the newest hundred.
@@ -161,9 +175,6 @@ export function UsageDashboard() {
   const [eventsPageSize, setEventsPageSize] = React.useState<number>(
     pageSizeOptions[0],
   );
-  React.useEffect(() => {
-    setEventsPage(0);
-  }, [query]);
   const eventsQuery = useQuery({
     queryKey: ["usage-events", query, eventsPage, eventsPageSize],
     queryFn: () =>
@@ -178,28 +189,84 @@ export function UsageDashboard() {
     () => summaryQuery.data?.rows ?? [],
     [summaryQuery.data?.rows],
   );
-  const chartSummaryRows = React.useMemo(
-    () => chartSummaryQuery.data?.rows ?? [],
-    [chartSummaryQuery.data?.rows],
-  );
   const events = React.useMemo(
     () => eventsQuery.data?.events ?? [],
     [eventsQuery.data?.events],
   );
   const totals = React.useMemo(() => summarizeRows(rows), [rows]);
   const agentCount = React.useMemo(() => countAgentProducts(rows), [rows]);
-  const chartRows = React.useMemo(
-    () => chartRowsByDay(chartSummaryRows, tokenChartWindow),
-    [chartSummaryRows, tokenChartWindow],
-  );
+
+  // The chart redraws only once every day of its range has arrived, and only
+  // when the numbers changed, so a refresh or a new range does not blank it.
+  const dayRows = tokenDays.map((day) => day.data);
+  const loadedDayRows = dayRows.every((row) => row !== undefined)
+    ? (dayRows as DailyTokenUsageRow[])
+    : null;
+  const [chartRows, setChartRows] = React.useState<ChartRow[] | null>(null);
+  if (loadedDayRows !== null) {
+    const nextChartRows = replaceEqualDeep(
+      chartRows,
+      chartRowsByDay(loadedDayRows, tokenChartWindow),
+    );
+    if (nextChartRows !== chartRows) {
+      setChartRows(nextChartRows);
+    }
+  }
+  const chartError = tokenDays.find((day) => day.isError)?.error ?? null;
 
   const refreshing = useIsFetching({ predicate: isUsageQuery }) > 0;
-  const usageError = summaryQuery.error ?? chartSummaryQuery.error ?? eventsQuery.error;
+  const usageError = summaryQuery.error ?? chartError ?? eventsQuery.error;
   const updatedAt = Math.max(
     summaryQuery.dataUpdatedAt,
-    chartSummaryQuery.dataUpdatedAt,
     eventsQuery.dataUpdatedAt,
+    ...tokenDays.map((day) => day.dataUpdatedAt),
   );
+
+  // Queries whose key moved with `now` start on their own; the rest (open
+  // ranges, today's chart point, filter choices) refetch here. Requests already
+  // under way are reused rather than sent twice.
+  const [refreshRequest, setRefreshRequest] = React.useState(0);
+  React.useEffect(() => {
+    if (refreshRequest > 0) {
+      void queryClient.invalidateQueries(
+        { predicate: isRefreshedOnRequest },
+        { cancelRefetch: false },
+      );
+    }
+  }, [queryClient, refreshRequest]);
+  const refresh = React.useCallback(() => {
+    setNow(new Date());
+    setRefreshRequest((current) => current + 1);
+  }, []);
+  const applyFilters = (nextFilters: FilterDraft): void => {
+    setFilters(nextFilters);
+    setEventsPage(0);
+    refresh();
+  };
+
+  // Live: while the page is in view and nothing failed, the same refresh runs
+  // on a timer. It keeps the events page and leaves unapplied filters alone; a
+  // failure pauses it until the reader retries.
+  const pageVisible = usePageVisible();
+  const live = pageVisible && usageError === null;
+  const latestUpdate = React.useRef(updatedAt);
+  React.useEffect(() => {
+    latestUpdate.current = updatedAt;
+  }, [updatedAt]);
+  React.useEffect(() => {
+    if (!live) {
+      return;
+    }
+    // Coming back to the page catches up at once when the data is stale.
+    if (
+      latestUpdate.current > 0 &&
+      Date.now() - latestUpdate.current >= autoRefreshIntervalMs
+    ) {
+      refresh();
+    }
+    const timer = window.setInterval(refresh, autoRefreshIntervalMs);
+    return () => window.clearInterval(timer);
+  }, [live, refresh]);
 
   return (
     <BaseLayout title={t("dashboard.title")} description={t("dashboard.description")}>
@@ -207,15 +274,13 @@ export function UsageDashboard() {
         <UsageFilters
           draft={draft}
           onDraftChange={setDraft}
-          onApply={() => {
-            setNow(new Date());
-            setFilters(draft);
-          }}
+          applied={filters}
+          appliedRows={summaryQuery.data?.rows}
+          onApply={() => applyFilters(draft)}
           onReset={() => {
             const nextFilters = createDefaultFilters();
-            setNow(new Date());
             setDraft(nextFilters);
-            setFilters(nextFilters);
+            applyFilters(nextFilters);
           }}
         />
 
@@ -226,21 +291,27 @@ export function UsageDashboard() {
             error={usageError}
             retrying={refreshing}
             onRetry={() => {
-              void queryClient.invalidateQueries({ predicate: isUsageQuery });
+              void queryClient.invalidateQueries({
+                predicate: (query) =>
+                  isRefreshedOnRequest(query) ||
+                  (isUsageQuery(query) && query.state.status === "error"),
+              });
             }}
           />
         ) : null}
         <MetricCards
           totals={totals}
           agentCount={agentCount}
+          live={live}
           loading={summaryQuery.isLoading}
           unavailable={summaryQuery.isError}
         />
 
         <TokenChart
-          rows={chartRows}
-          loading={chartSummaryQuery.isLoading}
-          unavailable={chartSummaryQuery.isError}
+          rows={chartRows ?? emptyChartRows}
+          loading={chartRows === null && chartError === null}
+          unavailable={chartRows === null && chartError !== null}
+          updating={chartRows !== null && loadedDayRows === null}
           range={tokenChartRange}
           onRangeChange={setTokenChartRange}
         />
@@ -265,10 +336,7 @@ export function UsageDashboard() {
             <RefreshControl
               refreshing={refreshing}
               updatedAt={updatedAt}
-              onRefresh={() => {
-                setNow(new Date());
-                void queryClient.invalidateQueries({ predicate: isUsageQuery });
-              }}
+              onRefresh={() => applyFilters(filters)}
             />
           }
         />
@@ -277,25 +345,76 @@ export function UsageDashboard() {
   );
 }
 
+const autoRefreshIntervalMs = 30_000;
+
+function subscribeToVisibility(onChange: () => void): () => void {
+  document.addEventListener("visibilitychange", onChange);
+  return () => document.removeEventListener("visibilitychange", onChange);
+}
+
+/** Whether the page is in view, so background tabs stop polling. */
+function usePageVisible(): boolean {
+  return React.useSyncExternalStore(
+    subscribeToVisibility,
+    () => document.visibilityState === "visible",
+    () => true,
+  );
+}
+
+const tokenDayQueryRoot = "usage-token-day";
+/** Key part standing in for the end of today, which moves with every fetch. */
+const openDayEnd = "now";
+const emptyChartRows: ChartRow[] = [];
+
 const usageQueryRoots = new Set([
   "usage-summary",
   "usage-events",
   "usage-models",
   "session-options",
+  tokenDayQueryRoot,
 ]);
 
 function isUsageQuery(query: Query): boolean {
   return usageQueryRoots.has(String(query.queryKey[0]));
 }
 
+/** Everything a refresh reloads: all usage data except finished chart days. */
+function isRefreshedOnRequest(query: Query): boolean {
+  return (
+    isUsageQuery(query) &&
+    (query.queryKey[0] !== tokenDayQueryRoot || query.queryKey[3] === openDayEnd)
+  );
+}
+
+function nonTimeScope(filters: FilterDraft): Omit<UsageQuery, "from" | "to"> {
+  return {
+    agentName: filters.agentNames,
+    sessionId: filters.sessionIds,
+    provider: filters.providers,
+    model: filters.models,
+    eventType: filters.eventType === "all" ? "" : filters.eventType,
+  };
+}
+
 interface UsageFiltersProps {
   draft: FilterDraft;
+  /** Filters behind the shown summary. */
+  applied: FilterDraft;
+  /** Summary rows of the applied filters, once loaded. */
+  appliedRows: SummaryRow[] | undefined;
   onDraftChange: (draft: FilterDraft) => void;
   onApply: () => void;
   onReset: () => void;
 }
 
-function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersProps) {
+function UsageFilters({
+  draft,
+  applied,
+  appliedRows,
+  onDraftChange,
+  onApply,
+  onReset,
+}: UsageFiltersProps) {
   const { t } = useI18n();
   const update = <Field extends keyof FilterDraft>(
     field: Field,
@@ -319,15 +438,24 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
   // Provider and model choices come from the data in the time and Agent
   // scope, so custom gateways are listed; picking providers narrows the models
   // to the ones they served. Neither choice hides its own alternatives.
+  // The summary behind the cards already groups by provider and model; when
+  // it covers the same time and Agents with no narrower filter, its rows are
+  // the choices and the extra summary is skipped.
+  const summaryCoversChoices =
+    sameTimeRange(draft.time, applied.time) &&
+    sameValues(draft.agentNames, applied.agentNames) &&
+    applied.providers.length === 0 &&
+    applied.models.length === 0 &&
+    applied.sessionIds.length === 0 &&
+    applied.eventType === "all";
   const choicesQuery = useQuery({
     queryKey: ["usage-models", "dashboard-filters", sessionScope],
     queryFn: () => fetchUsageSummary(sessionScope, { groupBy: ["provider", "model"] }),
     staleTime: 60_000,
+    enabled: !summaryCoversChoices,
   });
-  const choiceRows = React.useMemo(
-    () => choicesQuery.data?.rows ?? [],
-    [choicesQuery.data?.rows],
-  );
+  const choiceSource = summaryCoversChoices ? appliedRows : choicesQuery.data?.rows;
+  const choiceRows = React.useMemo(() => choiceSource ?? [], [choiceSource]);
   const providerOptions = React.useMemo(
     () => asFilterOptions(providerChoices(choiceRows, draft.providers)),
     [choiceRows, draft.providers],
@@ -456,11 +584,18 @@ const tooltipOrder = [
 
 const usageBarOrder: UsageShareKey[] = ["input", "output", "cacheRead", "cacheWrite"];
 
+const shareFormats = new Map<string, Intl.NumberFormat>();
+
 function formatShare(value: number, total: number, locale: string): string {
-  return new Intl.NumberFormat(locale, {
-    style: "percent",
-    maximumFractionDigits: 1,
-  }).format(total > 0 ? value / total : 0);
+  let format = shareFormats.get(locale);
+  if (format === undefined) {
+    format = new Intl.NumberFormat(locale, {
+      style: "percent",
+      maximumFractionDigits: 1,
+    });
+    shareFormats.set(locale, format);
+  }
+  return format.format(total > 0 ? value / total : 0);
 }
 
 /**
@@ -577,11 +712,14 @@ function TokenTooltipRow({
 function MetricCards({
   totals,
   agentCount,
+  live,
   loading,
   unavailable,
 }: {
   totals: UsageTotals;
   agentCount: number;
+  /** Whether the numbers are updating on their own right now. */
+  live: boolean;
   loading: boolean;
   /** The summary failed, so there are no numbers to show. */
   unavailable: boolean;
@@ -628,9 +766,14 @@ function MetricCards({
               {unavailable ? "—" : loading ? "..." : formatNumber(card.value)}
             </CardTitle>
             <CardAction>
-              <Badge variant="outline">
+              <Badge
+                variant="outline"
+                data-live={live}
+                title={live ? t("common.liveTitle") : t("common.livePausedTitle")}
+                className={cn(!live && "text-muted-foreground")}
+              >
                 <card.icon className="size-3.5" />
-                {t("common.live")}
+                {live ? t("common.live") : t("common.livePaused")}
               </Badge>
             </CardAction>
           </CardHeader>
@@ -643,16 +786,19 @@ function MetricCards({
   );
 }
 
-function TokenChart({
+const TokenChart = React.memo(function TokenChart({
   rows,
   loading,
   unavailable,
+  updating,
   range,
   onRangeChange,
 }: {
   rows: ChartRow[];
   loading: boolean;
   unavailable: boolean;
+  /** Days of a new range or filter are still loading over the shown chart. */
+  updating: boolean;
   range: TokenChartRange;
   onRangeChange: (range: TokenChartRange) => void;
 }) {
@@ -735,7 +881,14 @@ function TokenChart({
             {t("dashboard.tokenChart.empty")}
           </div>
         ) : (
-          <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
+          <ChartContainer
+            config={chartConfig}
+            aria-busy={updating}
+            className={cn(
+              "aspect-auto h-[250px] w-full transition-opacity",
+              updating && "opacity-60",
+            )}
+          >
             <AreaChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
               <defs>
                 <linearGradient id="fillCachedInputTokens" x1="0" y1="0" x2="0" y2="1">
@@ -832,7 +985,7 @@ function TokenChart({
       </CardContent>
     </Card>
   );
-}
+});
 
 /** Page state for a table whose rows are paged by the backend. */
 export interface ServerPagination {
@@ -1355,6 +1508,17 @@ function countAgentProducts(rows: SummaryRow[]): number {
       .filter((agentName): agentName is string => Boolean(agentName))
       .map(agentProductKey),
   ).size;
+}
+
+function sameTimeRange(left: TimeRange, right: TimeRange): boolean {
+  return (
+    left.preset === right.preset &&
+    (left.preset !== "custom" || (left.from === right.from && left.to === right.to))
+  );
+}
+
+function sameValues(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value) => right.includes(value));
 }
 
 function createDefaultFilters(): FilterDraft {
