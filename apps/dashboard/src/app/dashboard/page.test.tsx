@@ -275,6 +275,62 @@ describe("UsageDashboard", () => {
     );
   });
 
+  it("applies several models and agents at once", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    fetchUsageSummaryMock.mockImplementation(
+      (_query: unknown, options?: { groupBy?: string[] }) =>
+        Promise.resolve({
+          from: null,
+          to: null,
+          group_by: options?.groupBy ?? [],
+          rows: options?.groupBy
+            ? [
+                { ...baseSummaryRow, llm_model: "gpt-5", total_tokens: 30 },
+                { ...baseSummaryRow, llm_model: "gpt-5-mini", total_tokens: 20 },
+                { ...baseSummaryRow, llm_model: "o3", total_tokens: 10 },
+              ]
+            : [],
+          next_page_token: null,
+        }),
+    );
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <I18nProvider>
+            <UsageDashboard />
+          </I18nProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Model" }));
+    await user.click(await screen.findByRole("option", { name: "gpt-5" }));
+    await user.click(screen.getByRole("option", { name: "o3" }));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("combobox", { name: "Agent" }));
+    await user.click(screen.getByRole("option", { name: "Claude Code" }));
+    await user.click(screen.getByRole("option", { name: "Codex" }));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() =>
+      expect(fetchRawEventsMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          model: ["gpt-5", "o3"],
+          agentName: ["claude-code", "codex"],
+          provider: [],
+          sessionId: [],
+        }),
+        expect.any(Object),
+      ),
+    );
+  });
+
   it("shows cache reads and writes apart from input and output", async () => {
     fetchUsageSummaryMock.mockResolvedValue({
       from: null,
