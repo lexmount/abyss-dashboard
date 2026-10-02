@@ -11,6 +11,7 @@ import {
   SessionTrajectory,
   trajectoryRows,
   trajectoryTurnSummaries,
+  type SessionTrajectoryEvent,
   type SessionTrajectoryItem,
   type SessionTrajectoryLabels,
 } from "./session-trajectory";
@@ -57,7 +58,11 @@ describe("session trajectory model", () => {
     ]);
     expect(
       trajectoryRows(items, 2).map((row) =>
-        row.kind === "turn" ? `turn-${row.turnIndex}` : row.item.kind,
+        row.kind === "turn"
+          ? `turn-${row.turnIndex}`
+          : row.kind === "event"
+            ? row.event.event_type
+            : row.item.kind,
       ),
     ).toEqual(["turn-2", "assistant"]);
   });
@@ -67,7 +72,11 @@ describe("session trajectory model", () => {
 
     expect(
       rows.map((row) =>
-        row.kind === "turn" ? `turn-${row.turnIndex}` : row.item.kind,
+        row.kind === "turn"
+          ? `turn-${row.turnIndex}`
+          : row.kind === "event"
+            ? row.event.event_type
+            : row.item.kind,
       ),
     ).toEqual([
       "turn-1",
@@ -82,6 +91,255 @@ describe("session trajectory model", () => {
 });
 
 describe("SessionTrajectory", () => {
+  it("shows each request and response model and usage before opening an event", () => {
+    const onSelectEvent = vi.fn();
+    const events = [
+      usageEvent({
+        event_pk: "request",
+        input_tokens: 2,
+        cache_read_tokens: 77000,
+        cache_write_tokens: 400,
+        total_tokens: 77402,
+      }),
+      usageEvent({
+        event_pk: "response",
+        event_type: "response",
+        llm_model: "claude-sonnet-4",
+        output_tokens: 150,
+        reasoning_tokens: 40,
+        total_tokens: 150,
+        token_usage_estimated: true,
+      }),
+      usageEvent({ event_pk: "replay", token_usage_available: false }),
+    ];
+    renderTrajectory(
+      onSelectEvent,
+      null,
+      vi.fn(),
+      null,
+      null,
+      [
+        item({
+          kind: "context",
+          stream: 0,
+          turn_index: 1,
+          event_pk: "request",
+          text: "instructions",
+        }),
+        item({
+          kind: "user",
+          stream: 0,
+          turn_index: 1,
+          event_pk: "request",
+          text: "hello",
+        }),
+        item({
+          kind: "tool_call",
+          stream: 0,
+          turn_index: 1,
+          event_pk: "response",
+          name: "Read",
+          input: "file",
+          output: "result",
+          output_event_pk: "replay",
+        }),
+      ],
+      events,
+    );
+
+    const rows = document.querySelectorAll<HTMLElement>(
+      "[data-trajectory-event]",
+    );
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent("Request");
+    expect(rows[0]).toHaveTextContent("gpt-5");
+    expect(rows[0]).toHaveTextContent("77402 tokens");
+    expect(rows[0]).toHaveTextContent("Input 77402");
+    expect(rows[0]).toHaveTextContent("Cache read 77000");
+    expect(rows[0]).toHaveTextContent("Cache write 400");
+    expect(rows[1]).toHaveTextContent("Response");
+    expect(rows[1]).toHaveTextContent("claude-sonnet-4");
+    expect(rows[1]).toHaveTextContent("≈ 150 tokens");
+    expect(rows[1]).toHaveTextContent("Output ≈ 150");
+    expect(rows[1]).toHaveTextContent("Reasoning (included in output) ≈ 40");
+    expect(rows[1]).toHaveTextContent("Estimated");
+    expect(rows[2]).toHaveTextContent("Token usage unavailable");
+    expect(onSelectEvent).not.toHaveBeenCalled();
+    fireEvent.click(
+      within(rows[2]!).getByRole("button", { name: /^Request.*gpt-5/ }),
+    );
+    expect(onSelectEvent).toHaveBeenCalledWith("replay");
+  });
+
+  it("retains turns with no content and displays reported zero usage and unknown models", () => {
+    const events = [
+      usageEvent({
+        event_pk: "empty",
+        turn_index: 3,
+        event_type: "response",
+        llm_model: "",
+      }),
+    ];
+    renderTrajectory(vi.fn(), 3, vi.fn(), null, null, [], events);
+    expect(content().getByText("Unknown model")).toBeInTheDocument();
+    expect(content().getByText("0 tokens")).toBeInTheDocument();
+    expect(content().getByText("Output 0")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Turn 3/ })).toHaveTextContent(
+      "No new content",
+    );
+    expect(content().queryByText("Empty")).not.toBeInTheDocument();
+    expect(trajectoryRows([], 2, events)).toEqual([]);
+  });
+
+  it("keeps context blocks under the event that supplied them", () => {
+    renderTrajectory(
+      vi.fn(),
+      null,
+      vi.fn(),
+      null,
+      null,
+      [
+        item({
+          kind: "context",
+          stream: 0,
+          turn_index: 1,
+          event_pk: "first",
+          text: "first instructions",
+        }),
+        item({
+          kind: "context",
+          stream: 0,
+          turn_index: 1,
+          event_pk: "second",
+          text: "second instructions",
+        }),
+      ],
+      [usageEvent({ event_pk: "first" }), usageEvent({ event_pk: "second" })],
+    );
+    expect(content().getAllByText("Context")).toHaveLength(2);
+  });
+
+  it("groups content inside its request or response and links tool calls to the request carrying their results", async () => {
+    const onSelectEvent = vi.fn();
+    const source = [
+      item({
+        kind: "context",
+        stream: 0,
+        turn_index: 1,
+        event_pk: "request",
+        text: "system instructions",
+      }),
+      item({
+        kind: "user",
+        stream: 0,
+        turn_index: 1,
+        event_pk: "request",
+        text: "read the file",
+      }),
+      item({
+        kind: "assistant",
+        stream: 0,
+        turn_index: 1,
+        event_pk: "response",
+        text: "Reading now",
+      }),
+      item({
+        kind: "tool_call",
+        stream: 0,
+        turn_index: 1,
+        event_pk: "response",
+        name: "Read",
+        call_id: "call-1",
+        input: "file.md",
+        output: "unique result payload",
+        output_event_pk: "next-request",
+      }),
+    ];
+    const original = structuredClone(source);
+    renderTrajectory(onSelectEvent, null, vi.fn(), null, null, source, [
+      usageEvent({ event_pk: "request" }),
+      usageEvent({ event_pk: "response", event_type: "response" }),
+      usageEvent({ event_pk: "next-request", turn_index: 2 }),
+    ]);
+    const groups = [
+      ...document.querySelectorAll<HTMLElement>("[data-trajectory-event]"),
+    ];
+    expect(groups.map((group) => group.tagName)).toEqual([
+      "SECTION",
+      "SECTION",
+      "SECTION",
+    ]);
+    const request = within(groups[0]!);
+    const response = within(groups[1]!);
+    const nextRequest = within(groups[2]!);
+    expect(request.getByText("Context")).toBeInTheDocument();
+    expect(request.getByText("read the file")).toBeInTheDocument();
+    expect(request.queryByText("Reading now")).not.toBeInTheDocument();
+    expect(response.getByText("Reading now")).toBeInTheDocument();
+    expect(response.getByText("Tool call")).toBeInTheDocument();
+    expect(nextRequest.getByText("Tool result")).toBeInTheDocument();
+    expect(nextRequest.getByText("Read")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Turn 2/ })).toHaveTextContent(
+      "Tools: Read",
+    );
+    fireEvent.click(response.getByRole("button", { name: "Tool result →" }));
+    expect(
+      await nextRequest.findByText("unique result payload"),
+    ).toBeInTheDocument();
+    expect(
+      response.queryByText("unique result payload"),
+    ).not.toBeInTheDocument();
+    expect(onSelectEvent).not.toHaveBeenCalled();
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search this session" }),
+      { target: { value: "unique result payload" } },
+    );
+    expect(await screen.findByText("1 / 1")).toBeInTheDocument();
+    expect(nextRequest.getByText("unique result payload").tagName).toBe("MARK");
+    expect(source).toEqual(original);
+  });
+
+  it("places a compaction prompt in its request and the summary in its response", async () => {
+    renderTrajectory(
+      vi.fn(),
+      null,
+      vi.fn(),
+      null,
+      null,
+      [
+        item({
+          kind: "compaction",
+          stream: 0,
+          turn_index: 1,
+          event_pk: "request",
+          input: "Summarize the session",
+          output: "compact summary",
+          output_event_pk: "response",
+        }),
+      ],
+      [
+        usageEvent({ event_pk: "request" }),
+        usageEvent({ event_pk: "response", event_type: "response" }),
+      ],
+    );
+    const groups = document.querySelectorAll<HTMLElement>(
+      "[data-trajectory-event]",
+    );
+    const response = within(groups[1]!);
+    expect(
+      within(groups[0]!).getByText("Compaction prompt"),
+    ).toBeInTheDocument();
+    expect(response.getByText("Summary")).toBeInTheDocument();
+    fireEvent.click(
+      within(groups[0]!).getByRole("button", { name: "Summary →" }),
+    );
+    expect(await response.findByText("compact summary")).toBeInTheDocument();
+    expect(
+      within(groups[0]!).queryByText("compact summary"),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows unclassified request text without guessing a role or dropping paragraphs", () => {
     const text = "system: instructions\n\nuser text\n\nuser text";
     renderTrajectory(vi.fn(), null, vi.fn(), null, null, [
@@ -388,6 +646,7 @@ function renderTrajectory(
   selectedEventId: string | null = null,
   inspector: React.ReactNode = null,
   trajectoryItems: SessionTrajectoryItem[] = items,
+  events?: SessionTrajectoryEvent[],
 ) {
   // jsdom has no layout, so give the virtualized list a measurable viewport.
   vi.stubGlobal(
@@ -414,6 +673,7 @@ function renderTrajectory(
   return render(
     <SessionTrajectory
       items={trajectoryItems}
+      events={events}
       selectedEventId={selectedEventId}
       onSelectEvent={onSelectEvent}
       inspector={inspector}
@@ -438,7 +698,40 @@ function item(
   };
 }
 
+function usageEvent(
+  fields: Partial<SessionTrajectoryEvent>,
+): SessionTrajectoryEvent {
+  return {
+    event_pk: "event",
+    turn_index: 1,
+    event_type: "request",
+    observed_at: "2026-09-01T00:00:00Z",
+    llm_model: "gpt-5",
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    reasoning_tokens: 0,
+    total_tokens: 0,
+    token_usage_available: true,
+    token_usage_estimated: false,
+    ...fields,
+  };
+}
+
 const labels: SessionTrajectoryLabels = {
+  eventRequest: "Request",
+  eventResponse: "Response",
+  tokens: "tokens",
+  inputTokens: "Input",
+  outputTokens: "Output",
+  cacheReadTokens: "Cache read",
+  cacheWriteTokens: "Cache write",
+  reasoningTokens: "Reasoning (included in output)",
+  estimatedTokens: "Estimated",
+  tokensUnavailable: "Token usage unavailable",
+  unknownModel: "Unknown model",
+  noNewContent: "No new content",
   request: "Request content",
   context: "Context",
   user: "User",

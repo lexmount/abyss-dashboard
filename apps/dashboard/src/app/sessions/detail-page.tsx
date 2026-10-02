@@ -83,9 +83,9 @@ export default function SessionDetailPage() {
       : { status: "loading" };
 
   const turnCount = trajectory
-    ? new Set(trajectory.items.map((item) => item.turn_index)).size
+    ? new Set(trajectory.events.map((event) => event.turn_index)).size
     : null;
-  const models = trajectory?.items.map((item) => item.llm_model) ?? [];
+  const models = trajectory?.events.map((event) => event.llm_model) ?? [];
 
   return (
     <BaseLayout>
@@ -134,6 +134,7 @@ export default function SessionDetailPage() {
           <SessionTrajectory
             className="h-[calc(100svh-5.75rem)] min-h-[28rem]"
             items={trajectory.items}
+            events={trajectory.events}
             selectedEventId={selectedEventId}
             onSelectEvent={(eventPk) => updateParam(eventSearchParam, eventPk)}
             focusedTurn={focusedTurn}
@@ -197,6 +198,18 @@ function trajectoryLabels(t: ReturnType<typeof useI18n>["t"]): SessionTrajectory
     searchNext: t("sessions.trajectory.searchNext"),
     searchClear: t("sessions.trajectory.searchClear"),
     searchTurnMatches: (count) => t("sessions.trajectory.searchTurnMatches", { count }),
+    eventRequest: t("common.request"),
+    eventResponse: t("common.response"),
+    tokens: t("common.tokens"),
+    inputTokens: t("sessions.trajectory.inputTokens"),
+    outputTokens: t("sessions.trajectory.outputTokens"),
+    cacheReadTokens: t("sessions.trajectory.cacheReadTokens"),
+    cacheWriteTokens: t("sessions.trajectory.cacheWriteTokens"),
+    reasoningTokens: t("sessions.trajectory.reasoningTokens"),
+    estimatedTokens: t("sessions.trajectory.estimatedTokens"),
+    tokensUnavailable: t("sessions.trajectory.tokensUnavailable"),
+    unknownModel: t("sessions.trajectory.unknownModel"),
+    noNewContent: t("sessions.trajectory.noNewContent"),
   };
 }
 

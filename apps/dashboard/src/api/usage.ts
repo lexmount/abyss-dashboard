@@ -1,4 +1,7 @@
-import type { SessionTrajectoryItem } from "@lexmount.com/abyss-ui";
+import type {
+  SessionTrajectoryEvent,
+  SessionTrajectoryItem,
+} from "@lexmount.com/abyss-ui";
 import { fetchJson } from "@/api/http";
 
 export interface SummaryResponse {
@@ -286,6 +289,7 @@ export function fetchSessionTimeline(
 export interface SessionTrajectoryResponse {
   session: SessionInfo;
   items: SessionTrajectoryItem[];
+  events: SessionTrajectoryEvent[];
 }
 
 export function fetchSessionTrajectory(

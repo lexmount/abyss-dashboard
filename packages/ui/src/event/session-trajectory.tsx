@@ -12,6 +12,7 @@ import {
 } from "./session-trajectory-search";
 
 const ESTIMATED_ITEM_HEIGHT_PX = 72;
+const ESTIMATED_EVENT_HEIGHT_PX = 240;
 const VIRTUAL_OVERSCAN_ITEMS = 8;
 const COLLAPSED_MAX_CHARACTERS = 600;
 const COLLAPSED_MAX_LINES = 8;
@@ -41,6 +42,25 @@ export interface SessionTrajectoryItem {
   input?: string;
   output?: string;
   output_event_pk?: string;
+}
+
+/** One observed request or response, even when it adds no visible content. */
+export interface SessionTrajectoryEvent {
+  event_pk: string;
+  turn_index: number;
+  event_type: string;
+  observed_at: string;
+  llm_model: string;
+  /** Uncached input; cache reads and writes are disjoint input counters. */
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  /** Included in output_tokens. */
+  reasoning_tokens: number;
+  total_tokens: number;
+  token_usage_available: boolean;
+  token_usage_estimated: boolean;
 }
 
 export interface SessionTrajectoryLabels {
@@ -78,10 +98,25 @@ export interface SessionTrajectoryLabels {
   searchClear: string;
   /** Occurrences of the query in one turn, for the timeline. */
   searchTurnMatches: (count: string) => string;
+  /** Labels for summaries of every observed request and response. */
+  eventRequest: string;
+  eventResponse: string;
+  tokens: string;
+  inputTokens: string;
+  outputTokens: string;
+  cacheReadTokens: string;
+  cacheWriteTokens: string;
+  reasoningTokens: string;
+  estimatedTokens: string;
+  tokensUnavailable: string;
+  unknownModel: string;
+  noNewContent: string;
 }
 
 export interface SessionTrajectoryProps {
   items: SessionTrajectoryItem[];
+  /** Authoritative event order and usage, independent of merged content. */
+  events?: SessionTrajectoryEvent[];
   /** Raw event opened in the inspector, or null. */
   selectedEventId: string | null;
   /** Selects an item's raw event; items from the same event highlight together. */
@@ -99,15 +134,75 @@ export interface SessionTrajectoryProps {
 
 type TrajectoryRow =
   | { kind: "turn"; turnIndex: number; startedAt: string }
-  | { kind: "item"; item: DisplayTrajectoryItem; index: number };
+  | {
+      kind: "event";
+      event: SessionTrajectoryEvent;
+      items: TrajectoryContentRow[];
+    }
+  | TrajectoryContentRow;
+
+interface TrajectoryContentRow {
+  kind: "item";
+  item: DisplayTrajectoryItem;
+  index: number;
+}
 
 interface DisplayTrajectoryItem extends SessionTrajectoryItem {
   contextEventIds?: string[];
+  /** A paired output displayed under the event that actually carried it. */
+  linkedOutput?: boolean;
+  compactionPart?: "prompt" | "summary";
+}
+
+/** Keep tool results and compaction summaries inside their source events. */
+function eventContent(
+  items: readonly SessionTrajectoryItem[],
+  events: readonly SessionTrajectoryEvent[],
+): DisplayTrajectoryItem[] {
+  const byEvent = new Map(events.map((event) => [event.event_pk, event]));
+  const content: DisplayTrajectoryItem[] = [];
+  for (const item of items) {
+    const outputEvent = item.output_event_pk
+      ? byEvent.get(item.output_event_pk)
+      : undefined;
+    if (
+      (item.kind === "tool_call" || item.kind === "compaction") &&
+      outputEvent &&
+      outputEvent.event_pk !== item.event_pk
+    ) {
+      content.push({
+        ...item,
+        output: undefined,
+        linkedOutput: true,
+        ...(item.kind === "compaction" ? { compactionPart: "prompt" } : {}),
+      });
+      content.push({
+        ...item,
+        kind: item.kind === "tool_call" ? "tool_result" : "compaction",
+        event_pk: outputEvent.event_pk,
+        turn_index: outputEvent.turn_index,
+        observed_at: outputEvent.observed_at,
+        llm_model: outputEvent.llm_model,
+        input: undefined,
+        ...(item.kind === "compaction" ? { compactionPart: "summary" } : {}),
+      });
+    } else {
+      content.push({ ...item });
+    }
+  }
+  // Moving outputs forward also moves their search hits to the owning turn.
+  const order = new Map(events.map((event, index) => [event.event_pk, index]));
+  return content.sort(
+    (left, right) =>
+      (order.get(left.event_pk) ?? events.length) -
+      (order.get(right.event_pk) ?? events.length),
+  );
 }
 
 /** Group neighboring context messages while retaining their source events. */
 function groupContexts(
-  items: readonly SessionTrajectoryItem[],
+  items: readonly DisplayTrajectoryItem[],
+  keepEventBoundaries: boolean,
 ): DisplayTrajectoryItem[] {
   const grouped: DisplayTrajectoryItem[] = [];
   for (const item of items) {
@@ -116,7 +211,8 @@ function groupContexts(
       item.kind === "context" &&
       previous?.kind === "context" &&
       item.turn_index === previous.turn_index &&
-      item.stream === previous.stream
+      item.stream === previous.stream &&
+      (!keepEventBoundaries || item.event_pk === previous.event_pk)
     ) {
       previous.text = [previous.text, item.text]
         .filter((text) => text !== undefined && text !== "")
@@ -148,6 +244,7 @@ export interface TrajectoryTurnSummary {
 /** Summarizes each turn in session order. */
 export function trajectoryTurnSummaries(
   items: readonly SessionTrajectoryItem[],
+  events?: readonly SessionTrajectoryEvent[],
 ): TrajectoryTurnSummary[] {
   const turns: TrajectoryTurnSummary[] = [];
   const replies = new Map<number, string>();
@@ -169,26 +266,80 @@ export function trajectoryTurnSummaries(
       if (!replies.has(turn.turnIndex)) {
         replies.set(turn.turnIndex, oneLine(item.text));
       }
-    } else if (item.kind === "tool_call") {
-      turn.toolCalls += 1;
+    } else if (item.kind === "tool_call" || item.kind === "tool_result") {
+      if (item.kind === "tool_call") turn.toolCalls += 1;
       if (item.name && !turn.toolNames.includes(item.name)) {
         turn.toolNames.push(item.name);
+      }
+    } else if (item.kind === "compaction") {
+      const summary = item.output ?? item.input;
+      if (summary?.trim() && !replies.has(turn.turnIndex)) {
+        replies.set(turn.turnIndex, oneLine(summary));
       }
     }
   }
   for (const turn of turns) {
     turn.summary ??= replies.get(turn.turnIndex) ?? null;
   }
-  return turns;
+  if (!events) {
+    return turns;
+  }
+  const byTurn = new Map(turns.map((turn) => [turn.turnIndex, turn]));
+  const ordered = new Map<number, TrajectoryTurnSummary>();
+  for (const event of events) {
+    if (!ordered.has(event.turn_index)) {
+      ordered.set(event.turn_index, {
+        ...(byTurn.get(event.turn_index) ?? {
+          turnIndex: event.turn_index,
+          summary: null,
+          toolNames: [],
+          toolCalls: 0,
+        }),
+        startedAt: event.observed_at,
+      });
+    }
+  }
+  return [...ordered.values()];
 }
 
 /** Inserts a turn header before the first item of each turn. */
 export function trajectoryRows(
   items: readonly SessionTrajectoryItem[],
   onlyTurn: number | null = null,
+  events?: readonly SessionTrajectoryEvent[],
 ): TrajectoryRow[] {
   const rows: TrajectoryRow[] = [];
   let turn: number | null = null;
+  if (events) {
+    const byEvent = new Map<
+      string,
+      Extract<TrajectoryRow, { kind: "item" }>[]
+    >();
+    items.forEach((item, index) => {
+      const children = byEvent.get(item.event_pk) ?? [];
+      children.push({ kind: "item", item, index });
+      byEvent.set(item.event_pk, children);
+    });
+    for (const event of events) {
+      if (onlyTurn !== null && event.turn_index !== onlyTurn) {
+        continue;
+      }
+      if (event.turn_index !== turn) {
+        turn = event.turn_index;
+        rows.push({
+          kind: "turn",
+          turnIndex: turn,
+          startedAt: event.observed_at,
+        });
+      }
+      rows.push({
+        kind: "event",
+        event,
+        items: byEvent.get(event.event_pk) ?? [],
+      });
+    }
+    return rows;
+  }
   items.forEach((item, index) => {
     if (onlyTurn !== null && item.turn_index !== onlyTurn) {
       return;
@@ -212,6 +363,7 @@ export function trajectoryRows(
  */
 export function SessionTrajectory({
   items: sourceItems,
+  events,
   selectedEventId,
   onSelectEvent,
   inspector,
@@ -222,19 +374,31 @@ export function SessionTrajectory({
   labels,
   className,
 }: SessionTrajectoryProps) {
-  const items = React.useMemo(() => groupContexts(sourceItems), [sourceItems]);
-  const turns = React.useMemo(() => trajectoryTurnSummaries(items), [items]);
+  const items = React.useMemo(
+    () =>
+      groupContexts(
+        events ? eventContent(sourceItems, events) : sourceItems,
+        events !== undefined,
+      ),
+    [sourceItems, events],
+  );
+  const turns = React.useMemo(
+    () => trajectoryTurnSummaries(items, events),
+    [items, events],
+  );
   const rows = React.useMemo(
-    () => trajectoryRows(items, focusedTurn),
-    [items, focusedTurn],
+    () => trajectoryRows(items, focusedTurn, events),
+    [items, focusedTurn, events],
   );
   const counts = React.useMemo(() => {
     let itemCount = 0;
     let toolCalls = 0;
     for (const row of rows) {
-      if (row.kind === "item") {
-        itemCount += 1;
-        if (row.item.kind === "tool_call") {
+      const content =
+        row.kind === "item" ? [row] : row.kind === "event" ? row.items : [];
+      itemCount += content.length;
+      for (const child of content) {
+        if (child.item.kind === "tool_call") {
           toolCalls += 1;
         }
       }
@@ -324,15 +488,24 @@ export function SessionTrajectory({
   };
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const [outputTarget, setOutputTarget] = React.useState<{
+    eventPk: string;
+    callId?: string;
+  } | null>(null);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ESTIMATED_ITEM_HEIGHT_PX,
+    estimateSize: (index) =>
+      rows[index]?.kind === "event"
+        ? ESTIMATED_EVENT_HEIGHT_PX
+        : ESTIMATED_ITEM_HEIGHT_PX,
     getItemKey: (index) => {
       const row = rows[index];
       return row?.kind === "item"
         ? `item-${row.index}`
-        : `turn-${row?.turnIndex ?? index}`;
+        : row?.kind === "event"
+          ? `event-${row.event.event_pk}`
+          : `turn-${row?.turnIndex ?? index}`;
     },
     overscan: VIRTUAL_OVERSCAN_ITEMS,
   });
@@ -341,6 +514,62 @@ export function SessionTrajectory({
   React.useEffect(() => {
     virtualizer.scrollToOffset(0);
   }, [focusedTurn, virtualizer]);
+
+  React.useEffect(() => {
+    if (!outputTarget) return;
+    const event = events?.find(
+      (event) => event.event_pk === outputTarget.eventPk,
+    );
+    if (!event) return;
+    if (focusedTurn !== null && event.turn_index !== focusedTurn) {
+      onFocusTurn(event.turn_index);
+      return;
+    }
+    const rowIndex = rows.findIndex(
+      (row) => row.kind === "event" && row.event.event_pk === event.event_pk,
+    );
+    if (rowIndex === -1) return;
+    const outputIndex = items.findIndex(
+      (item) =>
+        item.event_pk === event.event_pk &&
+        (item.kind === "tool_result" || item.compactionPart === "summary") &&
+        item.call_id === outputTarget.callId,
+    );
+    if (outputIndex !== -1) {
+      setExpanded((current) => new Set([...current, outputIndex]));
+      setClosedHits((current) => {
+        const next = new Set(current);
+        next.delete(outputIndex);
+        return next;
+      });
+    }
+    setOutputTarget(null);
+    virtualizer.scrollToIndex(rowIndex, { align: "center" });
+    revealFrames.current.push(
+      window.requestAnimationFrame(() => {
+        virtualizer.scrollToIndex(rowIndex, { align: "center" });
+        revealFrames.current.push(
+          window.requestAnimationFrame(() => {
+            const target = scrollRef.current?.querySelector<HTMLElement>(
+              `[data-trajectory-item="${outputIndex}"]`,
+            );
+            if (target) {
+              centerWithin(scrollRef.current, target);
+              target.focus({ preventScroll: true });
+            }
+          }),
+        );
+      }),
+    );
+  }, [
+    outputTarget,
+    events,
+    focusedTurn,
+    onFocusTurn,
+    rows,
+    items,
+    virtualizer,
+  ]);
 
   // Reveal the active match: switch to its turn when another turn is shown,
   // expand it when collapsed, and center it in the list.
@@ -360,8 +589,11 @@ export function SessionTrajectory({
       next.delete(active.itemIndex);
       return next;
     });
-    const rowIndex = rows.findIndex(
-      (row) => row.kind === "item" && row.index === active.itemIndex,
+    const rowIndex = rows.findIndex((row) =>
+      row.kind === "item"
+        ? row.index === active.itemIndex
+        : row.kind === "event" &&
+          row.items.some((child) => child.index === active.itemIndex),
     );
     if (rowIndex === -1) {
       return;
@@ -463,8 +695,10 @@ export function SessionTrajectory({
                       key={virtual.key}
                       data-index={virtual.index}
                       ref={virtualizer.measureElement}
-                      className="absolute top-0 left-0 w-full"
-                      style={{ transform: `translateY(${virtual.start}px)` }}
+                      className="absolute left-0 w-full"
+                      // A real top offset lets sticky event headers follow the
+                      // scroll container without overlapping their contents.
+                      style={{ top: virtual.start }}
                     >
                       {row.kind === "turn" ? (
                         <div className="flex items-center gap-3 px-4 pt-5 pb-1.5 text-xs">
@@ -475,6 +709,66 @@ export function SessionTrajectory({
                             {formatTime(row.startedAt)}
                           </span>
                           <span aria-hidden className="bg-border h-px flex-1" />
+                        </div>
+                      ) : row.kind === "event" ? (
+                        <div className="px-3 py-2 sm:px-4">
+                          <section
+                            aria-label={`${row.event.event_type === "request" ? labels.eventRequest : labels.eventResponse} · ${row.event.llm_model || labels.unknownModel} · ${formatTime(row.event.observed_at)}`}
+                            data-trajectory-event={row.event.event_pk}
+                            className={cn(
+                              "bg-card overflow-clip rounded-xl border shadow-xs",
+                              selectedEventId === row.event.event_pk &&
+                                "ring-ring/60 ring-2",
+                            )}
+                          >
+                            <TrajectoryEventRow
+                              event={row.event}
+                              selected={selectedEventId === row.event.event_pk}
+                              onSelectEvent={onSelectEvent}
+                              formatTime={formatTime}
+                              formatNumber={formatNumber}
+                              labels={labels}
+                            />
+                            {row.items.length === 0 ? (
+                              <p className="text-muted-foreground px-4 py-3 text-xs">
+                                {labels.noNewContent}
+                              </p>
+                            ) : (
+                              <div className="px-2 py-2 sm:px-3">
+                                <div className="border-border ml-1 space-y-1 border-l-2 py-1 pl-2 sm:pl-3">
+                                  {row.items.map((child) => (
+                                    <div
+                                      key={child.index}
+                                      data-trajectory-item={child.index}
+                                      tabIndex={-1}
+                                      className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    >
+                                      <TrajectoryItemRow
+                                        item={child.item}
+                                        query={searchQuery}
+                                        activeOccurrence={
+                                          active?.itemIndex === child.index
+                                            ? active.occurrence
+                                            : null
+                                        }
+                                        expanded={isExpanded(child.index)}
+                                        selectedEventId={selectedEventId}
+                                        onToggle={() => toggle(child.index)}
+                                        onSelectEvent={onSelectEvent}
+                                        onRevealOutput={(eventPk, callId) =>
+                                          setOutputTarget({ eventPk, callId })
+                                        }
+                                        nested
+                                        formatTime={formatTime}
+                                        formatNumber={formatNumber}
+                                        labels={labels}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </section>
                         </div>
                       ) : (
                         <TrajectoryItemRow
@@ -632,7 +926,9 @@ function TurnTimeline({
                   {turn ? (
                     <span className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
                       {turn.summary ??
-                        labels.toolsOnly(turn.toolNames.join(", "))}
+                        (turn.toolNames.length > 0
+                          ? labels.toolsOnly(turn.toolNames.join(", "))
+                          : labels.noNewContent)}
                     </span>
                   ) : null}
                 </span>
@@ -645,11 +941,92 @@ function TurnTimeline({
   );
 }
 
+function TrajectoryEventRow({
+  event,
+  selected,
+  onSelectEvent,
+  formatTime,
+  formatNumber,
+  labels,
+}: {
+  event: SessionTrajectoryEvent;
+  selected: boolean;
+  onSelectEvent: (eventPk: string) => void;
+  formatTime: (value: string) => string;
+  formatNumber: (value: number) => string;
+  labels: SessionTrajectoryLabels;
+}) {
+  const input =
+    event.input_tokens + event.cache_read_tokens + event.cache_write_tokens;
+  const count = (value: number) =>
+    `${event.token_usage_estimated ? "≈ " : ""}${formatNumber(value)}`;
+  const breakdown = [
+    ...(input > 0 || event.event_type === "request"
+      ? [[labels.inputTokens, input] as const]
+      : []),
+    ...(event.output_tokens > 0 || event.event_type === "response"
+      ? [[labels.outputTokens, event.output_tokens] as const]
+      : []),
+    ...(event.cache_read_tokens > 0
+      ? [[labels.cacheReadTokens, event.cache_read_tokens] as const]
+      : []),
+    ...(event.cache_write_tokens > 0
+      ? [[labels.cacheWriteTokens, event.cache_write_tokens] as const]
+      : []),
+    ...(event.reasoning_tokens > 0
+      ? [[labels.reasoningTokens, event.reasoning_tokens] as const]
+      : []),
+  ];
+  return (
+    <div className="bg-card sticky top-0 z-10 border-b">
+      <button
+        type="button"
+        aria-pressed={selected}
+        onClick={() => onSelectEvent(event.event_pk)}
+        className={cn(
+          "bg-muted/40 hover:bg-muted/70 focus-visible:ring-ring flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset",
+        )}
+      >
+        <span className="bg-background shrink-0 rounded border px-2 py-0.5 font-semibold">
+          {event.event_type === "request"
+            ? labels.eventRequest
+            : labels.eventResponse}
+        </span>
+        <span className="min-w-0 font-mono font-medium [overflow-wrap:anywhere]">
+          {event.llm_model || labels.unknownModel}
+        </span>
+        <span className="shrink-0 font-semibold tabular-nums">
+          {event.token_usage_available
+            ? `${count(event.total_tokens)} ${labels.tokens}`
+            : labels.tokensUnavailable}
+        </span>
+        {event.token_usage_available && event.token_usage_estimated ? (
+          <span className="text-muted-foreground">
+            {labels.estimatedTokens}
+          </span>
+        ) : null}
+        <span className="text-muted-foreground ml-auto shrink-0 tabular-nums">
+          {formatTime(event.observed_at)}
+        </span>
+        {event.token_usage_available ? (
+          <span className="text-muted-foreground flex w-full flex-wrap gap-x-3 gap-y-1 tabular-nums">
+            {breakdown.map(([label, value]) => (
+              <span key={label}>
+                {label} {count(value)}
+              </span>
+            ))}
+          </span>
+        ) : null}
+      </button>
+    </div>
+  );
+}
+
 function kindLabel(
-  kind: SessionTrajectoryItemKind,
+  item: DisplayTrajectoryItem,
   labels: SessionTrajectoryLabels,
 ): string {
-  switch (kind) {
+  switch (item.kind) {
     case "request":
       return labels.request;
     case "context":
@@ -663,7 +1040,11 @@ function kindLabel(
     case "tool_result":
       return labels.toolResult;
     case "compaction":
-      return labels.compaction;
+      return item.compactionPart === "prompt"
+        ? labels.compactionPrompt
+        : item.compactionPart === "summary"
+          ? labels.compactionSummary
+          : labels.compaction;
   }
 }
 
@@ -682,6 +1063,8 @@ function TrajectoryItemRow({
   selectedEventId,
   onToggle,
   onSelectEvent,
+  onRevealOutput,
+  nested = false,
   formatTime,
   formatNumber,
   labels,
@@ -695,6 +1078,8 @@ function TrajectoryItemRow({
   selectedEventId: string | null;
   onToggle: () => void;
   onSelectEvent: (eventPk: string) => void;
+  onRevealOutput?: (eventPk: string, callId?: string) => void;
+  nested?: boolean;
   formatTime: (value: string) => string;
   formatNumber: (value: number) => string;
   labels: SessionTrajectoryLabels;
@@ -717,7 +1102,7 @@ function TrajectoryItemRow({
     item.event_pk === selectedEventId ||
     (selectedEventId !== null &&
       item.contextEventIds?.includes(selectedEventId)) ||
-    (resultEventPk !== null && resultEventPk === selectedEventId);
+    (!nested && resultEventPk !== null && resultEventPk === selectedEventId);
   // The item selects its raw event; controls inside it act on their own.
   const stop = (event: React.SyntheticEvent) => event.stopPropagation();
   const toggle = (event: React.SyntheticEvent) => {
@@ -748,7 +1133,7 @@ function TrajectoryItemRow({
 
   const meta = (
     <>
-      {paired ? (
+      {paired && !item.linkedOutput ? (
         <span className="text-muted-foreground shrink-0 tabular-nums">
           {item.output === undefined
             ? labels.noOutput
@@ -759,15 +1144,17 @@ function TrajectoryItemRow({
           {labels.characters(formatNumber(text.length))}
         </span>
       ) : null}
-      <span className="text-muted-foreground shrink-0 tabular-nums">
-        {formatTime(item.observed_at)}
-      </span>
+      {nested ? null : (
+        <span className="text-muted-foreground shrink-0 tabular-nums">
+          {formatTime(item.observed_at)}
+        </span>
+      )}
     </>
   );
 
   if (compact) {
     return (
-      <div className="px-4 py-1">
+      <div className={cn(nested ? "py-1" : "px-4 py-1")}>
         <div
           {...selectable}
           className={cn(
@@ -776,7 +1163,7 @@ function TrajectoryItemRow({
             selectedRing,
           )}
         >
-          <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
+          <div className="flex flex-wrap items-center gap-2 px-2.5 py-2 text-xs">
             <button
               type="button"
               aria-expanded={expanded}
@@ -787,7 +1174,7 @@ function TrajectoryItemRow({
               <Chevron className="size-3.5 shrink-0" />
             </button>
             <span className="text-muted-foreground shrink-0">
-              {kindLabel(item.kind, labels)}
+              {kindLabel(item, labels)}
             </span>
             {item.name ? (
               <span className="shrink-0 font-medium">
@@ -799,7 +1186,7 @@ function TrajectoryItemRow({
               </span>
             ) : null}
             <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[11px]">
-              {paired ? (
+              {paired && !expanded ? (
                 <Highlighted
                   text={oneLine(
                     (compaction ? item.output : item.input) ??
@@ -814,6 +1201,18 @@ function TrajectoryItemRow({
               )}
             </span>
             {meta}
+            {item.linkedOutput && resultEventPk && onRevealOutput ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  stop(event);
+                  onRevealOutput(resultEventPk, item.call_id);
+                }}
+                className="text-ring hover:underline"
+              >
+                {compaction ? labels.compactionSummary : labels.toolResult} →
+              </button>
+            ) : null}
           </div>
           {expanded ? (
             <div
@@ -832,27 +1231,31 @@ function TrajectoryItemRow({
                       active={activeIn("input")}
                     />
                   ) : null}
-                  <ContentBlock
-                    label={
-                      compaction ? labels.compactionSummary : labels.output
-                    }
-                    text={item.output ?? labels.noOutput}
-                    query={query}
-                    active={
-                      item.output === undefined ? undefined : activeIn("output")
-                    }
-                    action={
-                      resultEventPk !== null ? (
-                        <button
-                          type="button"
-                          onClick={() => onSelectEvent(resultEventPk)}
-                          className="hover:text-foreground normal-case underline-offset-2 hover:underline"
-                        >
-                          {labels.openEvent}
-                        </button>
-                      ) : null
-                    }
-                  />
+                  {item.linkedOutput ? null : (
+                    <ContentBlock
+                      label={
+                        compaction ? labels.compactionSummary : labels.output
+                      }
+                      text={item.output ?? labels.noOutput}
+                      query={query}
+                      active={
+                        item.output === undefined
+                          ? undefined
+                          : activeIn("output")
+                      }
+                      action={
+                        resultEventPk !== null ? (
+                          <button
+                            type="button"
+                            onClick={() => onSelectEvent(resultEventPk)}
+                            className="hover:text-foreground normal-case underline-offset-2 hover:underline"
+                          >
+                            {labels.openEvent}
+                          </button>
+                        ) : null
+                      }
+                    />
+                  )}
                 </>
               ) : (
                 <>
@@ -915,7 +1318,7 @@ function TrajectoryItemRow({
 
   if (item.kind === "user") {
     return (
-      <div className="px-4 py-1.5">
+      <div className={cn(nested ? "py-1" : "px-4 py-1.5")}>
         <div
           {...selectable}
           className={cn(
@@ -925,7 +1328,7 @@ function TrajectoryItemRow({
         >
           <div className="flex items-center gap-2 text-xs">
             <span className="text-ring font-medium">
-              {kindLabel(item.kind, labels)}
+              {kindLabel(item, labels)}
             </span>
             <span className="min-w-0 flex-1" />
             {meta}
@@ -939,7 +1342,7 @@ function TrajectoryItemRow({
 
   // Assistant replies read as plain prose with the time beside the first line.
   return (
-    <div className="px-4 py-1">
+    <div className={cn(nested ? "py-1" : "px-4 py-1")}>
       <div
         {...selectable}
         className={cn(
@@ -949,6 +1352,11 @@ function TrajectoryItemRow({
         )}
       >
         <div className="min-w-0 flex-1">
+          {nested ? (
+            <div className="text-muted-foreground mb-1.5 text-xs font-medium">
+              {kindLabel(item, labels)}
+            </div>
+          ) : null}
           {body}
           {more}
         </div>
