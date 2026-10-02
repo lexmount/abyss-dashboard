@@ -53,10 +53,21 @@ export interface DailyTokenUsageRow {
   total_tokens: number;
 }
 
-export interface RawEventsResponse {
-  events: UsageEvent[];
+/** A page of events as a list shows them, without their content. */
+export interface EventListResponse {
+  events: UsageEventListItem[];
   next_page_token: string | null;
 }
+
+/**
+ * An event without its text, metadata, or attachments. Those hold whole
+ * request bodies, often hundreds of kilobytes per event, and a list shows none
+ * of them.
+ */
+export type UsageEventListItem = Omit<
+  UsageEvent,
+  "text" | "text_sha256" | "metadata" | "attachments"
+>;
 
 export interface UsageEvent {
   id: string;
@@ -257,17 +268,22 @@ export async function fetchDayTokenUsage(
   );
 }
 
-/** One page of raw events, newest first; `offset` skips earlier pages. */
+/**
+ * One page of events newest first, as a list shows them; `offset` skips
+ * earlier pages. Their content is left out, so the live dashboard's refreshes
+ * move kilobytes rather than every request body on the page.
+ */
 export function fetchRawEvents(
   query: UsageQuery,
   page: { limit: number; offset: number } = { limit: rawEventsFetchLimit, offset: 0 },
-): Promise<RawEventsResponse> {
+): Promise<EventListResponse> {
   const params = usageParams(query);
+  params.set("fields", "list");
   params.set("limit", page.limit.toString());
   if (page.offset > 0) {
     params.set("offset", page.offset.toString());
   }
-  return fetchJson<RawEventsResponse>(`/api/v1/agent-usage/events?${params}`);
+  return fetchJson<EventListResponse>(`/api/v1/agent-usage/events?${params}`);
 }
 
 export function fetchSessionTimeline(

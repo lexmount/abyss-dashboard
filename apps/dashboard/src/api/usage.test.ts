@@ -101,6 +101,8 @@ describe("usage API", () => {
     expect(url.searchParams.has("scope")).toBe(false);
     expect(url.searchParams.get("session_id")).toBe("session-1");
     expect(url.searchParams.get("limit")).toBe("100");
+    // Lists ask for events without their request bodies.
+    expect(url.searchParams.get("fields")).toBe("list");
   });
 
   it("repeats a filter key for each chosen value and skips blank ones", async () => {

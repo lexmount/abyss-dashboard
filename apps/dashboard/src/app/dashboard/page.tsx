@@ -32,7 +32,7 @@ import {
   fetchUsageSummary,
   type DailyTokenUsageRow,
   type SummaryRow,
-  type UsageEvent,
+  type UsageEventListItem,
   type UsageDayWindow,
   type UsageQuery,
 } from "@/api/usage";
@@ -1005,7 +1005,7 @@ export function RawEventsTable({
   action,
   pagination: serverPagination,
 }: {
-  events: UsageEvent[];
+  events: UsageEventListItem[];
   loading: boolean;
   error: Error | null;
   /** Controls shown at the top right of the card, such as refresh. */
