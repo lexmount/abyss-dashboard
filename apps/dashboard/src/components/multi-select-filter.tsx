@@ -10,6 +10,11 @@ export interface FilterOption {
   label: string;
 }
 
+/** Options whose label is the value itself, such as provider or model names. */
+export function asFilterOptions(values: readonly string[]): FilterOption[] {
+  return values.map((value) => ({ value, label: value }));
+}
+
 /** Lists longer than this get a search box. */
 const searchThreshold = 8;
 

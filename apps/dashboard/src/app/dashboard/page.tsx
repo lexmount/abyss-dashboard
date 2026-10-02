@@ -70,7 +70,7 @@ import {
 } from "@lexmount.com/abyss-ui";
 import { ToggleGroup, ToggleGroupItem } from "@lexmount.com/abyss-ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@lexmount.com/abyss-ui";
-import { type FilterOption, MultiSelectFilter } from "@/components/multi-select-filter";
+import { asFilterOptions, MultiSelectFilter } from "@/components/multi-select-filter";
 import { QueryErrorBanner } from "@/components/query-error";
 import { RefreshControl } from "@/components/refresh-control";
 import { SessionPicker } from "@/components/session-picker";
@@ -329,12 +329,12 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
     [choicesQuery.data?.rows],
   );
   const providerOptions = React.useMemo(
-    () => asOptions(providerChoices(choiceRows, draft.providers)),
+    () => asFilterOptions(providerChoices(choiceRows, draft.providers)),
     [choiceRows, draft.providers],
   );
   const modelOptions = React.useMemo(
     () =>
-      asOptions(
+      asFilterOptions(
         modelChoices(
           draft.providers.length > 0
             ? choiceRows.filter(
@@ -420,10 +420,6 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
       </CardContent>
     </Card>
   );
-}
-
-function asOptions(values: string[]): FilterOption[] {
-  return values.map((value) => ({ value, label: value }));
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
