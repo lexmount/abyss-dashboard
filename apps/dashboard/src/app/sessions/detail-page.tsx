@@ -70,11 +70,11 @@ export default function SessionDetailPage() {
     [setSearchParams],
   );
 
-  const formatTime = React.useCallback(
-    (value: string) =>
-      new Intl.DateTimeFormat(locale, { timeStyle: "medium" }).format(new Date(value)),
-    [locale],
-  );
+  // Every trajectory row and turn shows a time, so the formatter is built once.
+  const formatTime = React.useMemo(() => {
+    const format = new Intl.DateTimeFormat(locale, { timeStyle: "medium" });
+    return (value: string) => format.format(new Date(value));
+  }, [locale]);
 
   const detail: SessionEventDetailState = eventQuery.isError
     ? { status: "error", message: t(`error.${apiErrorKind(eventQuery.error)}.title`) }

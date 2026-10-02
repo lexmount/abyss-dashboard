@@ -14,9 +14,9 @@ import {
   UsageDashboard,
 } from "./page";
 
-const { fetchDailyTokenUsageMock, fetchRawEventsMock, fetchUsageSummaryMock } =
+const { fetchDayTokenUsageMock, fetchRawEventsMock, fetchUsageSummaryMock } =
   vi.hoisted(() => ({
-    fetchDailyTokenUsageMock: vi.fn(),
+    fetchDayTokenUsageMock: vi.fn(),
     fetchRawEventsMock: vi.fn(),
     fetchUsageSummaryMock: vi.fn(),
   }));
@@ -25,7 +25,7 @@ vi.mock("@/api/usage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/usage")>();
   return {
     ...actual,
-    fetchDailyTokenUsage: fetchDailyTokenUsageMock,
+    fetchDayTokenUsage: fetchDayTokenUsageMock,
     fetchRawEvents: fetchRawEventsMock,
     fetchUsageSummary: fetchUsageSummaryMock,
   };
@@ -180,20 +180,17 @@ describe("UsageDashboard", () => {
       rows: [],
       next_page_token: null,
     });
-    fetchDailyTokenUsageMock.mockResolvedValue({
-      from: null,
-      to: null,
-      group_by: ["day"],
-      rows: [],
-      next_page_token: null,
-    });
+    fetchDayTokenUsageMock.mockImplementation(
+      (_query: unknown, { day }: { day: string }) =>
+        Promise.resolve({ ...baseDailyTokenUsageRow, day }),
+    );
     fetchRawEventsMock.mockResolvedValue({ events: [], next_page_token: null });
   });
 
   afterEach(() => {
     cleanup();
     fetchUsageSummaryMock.mockReset();
-    fetchDailyTokenUsageMock.mockReset();
+    fetchDayTokenUsageMock.mockReset();
     fetchRawEventsMock.mockReset();
   });
 
@@ -244,6 +241,106 @@ describe("UsageDashboard", () => {
     });
   });
 
+  it("refreshes only today's chart point and keeps the chart in place", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <I18nProvider>
+            <UsageDashboard />
+          </I18nProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // Seven days, one request each.
+    await waitFor(() => expect(fetchDayTokenUsageMock).toHaveBeenCalledTimes(7));
+    await waitFor(() =>
+      expect(screen.queryByText("Loading usage chart...")).toBeNull(),
+    );
+    const summaryCalls = fetchUsageSummaryMock.mock.calls.length;
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() =>
+      expect(fetchUsageSummaryMock.mock.calls.length).toBe(summaryCalls + 1),
+    );
+    await waitFor(() => expect(fetchDayTokenUsageMock).toHaveBeenCalledTimes(8));
+    expect(screen.queryByText("Loading usage chart...")).toBeNull();
+    const today = tokenChartDateWindow("7d").dayWindows.at(-1)?.day;
+    expect(fetchDayTokenUsageMock).toHaveBeenLastCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ day: today }),
+    );
+  });
+
+  it("updates on its own every 30 seconds while in view, keeping the events page", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fetchUsageSummaryMock.mockResolvedValue({
+        from: null,
+        to: null,
+        group_by: [],
+        rows: [{ ...baseSummaryRow, requests: 13, responses: 12 }],
+        next_page_token: null,
+      });
+      fetchRawEventsMock.mockImplementation(
+        (_query: unknown, page: { limit: number; offset: number }) =>
+          Promise.resolve({
+            events: [{ ...baseUsageEvent, id: `event-${page.offset}` }],
+            next_page_token: String(page.offset + page.limit),
+          }),
+      );
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <I18nProvider>
+              <UsageDashboard />
+            </I18nProvider>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      await screen.findByText("Page 1 of 3");
+      await waitFor(() => expect(fetchDayTokenUsageMock).toHaveBeenCalledTimes(7));
+      expect(screen.getAllByText("Live")).toHaveLength(4);
+      await userEvent
+        .setup({ advanceTimers: vi.advanceTimersByTime })
+        .click(screen.getByRole("button", { name: "Go to next page" }));
+      await screen.findByText("Page 2 of 3");
+      const summaryCalls = fetchUsageSummaryMock.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      await waitFor(() =>
+        expect(fetchUsageSummaryMock.mock.calls.length).toBe(summaryCalls + 1),
+      );
+      // Only today's chart point reloads, and the reader stays on page 2.
+      await waitFor(() => expect(fetchDayTokenUsageMock).toHaveBeenCalledTimes(8));
+      expect(screen.getByText("Page 2 of 3")).toBeInTheDocument();
+      expect(fetchRawEventsMock).toHaveBeenLastCalledWith(expect.any(Object), {
+        limit: 10,
+        offset: 10,
+      });
+
+      // A hidden page stops polling and says so.
+      const visibility = vi
+        .spyOn(document, "visibilityState", "get")
+        .mockReturnValue("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(await screen.findAllByText("Paused")).toHaveLength(4);
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(fetchUsageSummaryMock.mock.calls.length).toBe(summaryCalls + 1);
+      visibility.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses the compact filter grid without distribution or summary sections", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -265,14 +362,9 @@ describe("UsageDashboard", () => {
     expect(await screen.findByText("Token Usage")).toBeInTheDocument();
     expect(screen.queryByText("Agent Distribution")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Summary" })).not.toBeInTheDocument();
-    // One summary for the metric cards, one for the provider and model
-    // filters' choices.
-    await waitFor(() => expect(fetchUsageSummaryMock).toHaveBeenCalledTimes(2));
+    // The metric cards' summary also supplies the provider and model choices.
+    await waitFor(() => expect(fetchUsageSummaryMock).toHaveBeenCalledTimes(1));
     expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object));
-    expect(fetchUsageSummaryMock).toHaveBeenCalledWith(
-      expect.not.objectContaining({ provider: expect.anything() }),
-      { groupBy: ["provider", "model"] },
-    );
   });
 
   it("shows cache reads and writes apart from input and output", async () => {

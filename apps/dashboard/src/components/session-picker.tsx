@@ -186,7 +186,7 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
               : selectedChoice?.title
                 ? selectedChoice.title
                 : selectedChoice
-                  ? `${agentDisplayName(selectedChoice.agentName)} · ${shortDateTime(selectedChoice.lastActivityAt, locale)}`
+                  ? `${agentDisplayName(selectedChoice.agentName)} · ${shortDateTimeFormat(locale).format(new Date(selectedChoice.lastActivityAt))}`
                   : shortSessionId(value)}
           </FilterTrigger>
         </PopoverTrigger>
@@ -314,27 +314,43 @@ const relativeUnits: [Intl.RelativeTimeFormatUnit, number][] = [
 export function relativeTime(value: string, locale: string, now = Date.now()): string {
   let amount = (new Date(value).getTime() - now) / 60_000;
   if (Math.abs(amount) < 1) {
-    return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(0, "second");
+    return relativeTimeFormat(locale).format(0, "second");
   }
   for (const [unit, size] of relativeUnits) {
     if (Math.abs(amount) < size) {
-      return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(
-        Math.round(amount),
-        unit,
-      );
+      return relativeTimeFormat(locale).format(Math.round(amount), unit);
     }
     amount /= size;
   }
-  return shortDateTime(value, locale);
+  return shortDateTimeFormat(locale).format(new Date(value));
 }
 
-function shortDateTime(value: string, locale: string): string {
-  return new Intl.DateTimeFormat(locale, {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+// Every option formats its time on each hover, so formatters are built once
+// per locale.
+const relativeTimeFormats = new Map<string, Intl.RelativeTimeFormat>();
+const shortDateTimeFormats = new Map<string, Intl.DateTimeFormat>();
+
+function relativeTimeFormat(locale: string): Intl.RelativeTimeFormat {
+  let format = relativeTimeFormats.get(locale);
+  if (format === undefined) {
+    format = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+    relativeTimeFormats.set(locale, format);
+  }
+  return format;
+}
+
+function shortDateTimeFormat(locale: string): Intl.DateTimeFormat {
+  let format = shortDateTimeFormats.get(locale);
+  if (format === undefined) {
+    format = new Intl.DateTimeFormat(locale, {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    shortDateTimeFormats.set(locale, format);
+  }
+  return format;
 }
 
 function PickerItem({

@@ -218,48 +218,37 @@ export interface UsageDayWindow {
 }
 
 /**
- * Token usage per local day. The backend buckets days in UTC, so each local
+ * Token usage of one local day. The backend buckets days in UTC, so each local
  * day is asked for on its own and its rows (one per event type) are summed.
  */
-export async function fetchDailyTokenUsage(
+export async function fetchDayTokenUsage(
   query: UsageQuery,
-  days: readonly UsageDayWindow[],
-): Promise<DailyTokenUsageResponse> {
-  const rows = await Promise.all(
-    days.map(async ({ day, from, to }) => {
-      const params = usageParams({ ...query, from, to });
-      params.set("group_by", "event_type");
-      params.set("fields", "token_usage");
-      const response = await fetchJson<DailyTokenUsageResponse>(
-        `/api/v1/agent-usage/summary?${params}`,
-      );
-      return response.rows.reduce<DailyTokenUsageRow>(
-        (total, row) => ({
-          day,
-          input_tokens: total.input_tokens + row.input_tokens,
-          output_tokens: total.output_tokens + row.output_tokens,
-          cache_read_tokens: total.cache_read_tokens + row.cache_read_tokens,
-          cache_write_tokens: total.cache_write_tokens + row.cache_write_tokens,
-          total_tokens: total.total_tokens + row.total_tokens,
-        }),
-        {
-          day,
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_read_tokens: 0,
-          cache_write_tokens: 0,
-          total_tokens: 0,
-        },
-      );
-    }),
+  { day, from, to }: UsageDayWindow,
+): Promise<DailyTokenUsageRow> {
+  const params = usageParams({ ...query, from, to });
+  params.set("group_by", "event_type");
+  params.set("fields", "token_usage");
+  const response = await fetchJson<DailyTokenUsageResponse>(
+    `/api/v1/agent-usage/summary?${params}`,
   );
-  return {
-    from: days[0]?.from ?? null,
-    to: days.at(-1)?.to ?? null,
-    group_by: ["day"],
-    rows,
-    next_page_token: null,
-  };
+  return response.rows.reduce<DailyTokenUsageRow>(
+    (total, row) => ({
+      day,
+      input_tokens: total.input_tokens + row.input_tokens,
+      output_tokens: total.output_tokens + row.output_tokens,
+      cache_read_tokens: total.cache_read_tokens + row.cache_read_tokens,
+      cache_write_tokens: total.cache_write_tokens + row.cache_write_tokens,
+      total_tokens: total.total_tokens + row.total_tokens,
+    }),
+    {
+      day,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      total_tokens: 0,
+    },
+  );
 }
 
 /** One page of raw events, newest first; `offset` skips earlier pages. */
