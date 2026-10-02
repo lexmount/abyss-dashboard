@@ -127,13 +127,16 @@ export interface TurnTimeline {
   events: UsageEvent[];
 }
 
+/** One filter value, or several where any of them matches. */
+export type FilterValues = string | readonly string[];
+
 export interface SessionSearchQuery {
   q: string;
   from?: string;
   to?: string;
-  agentName?: string;
-  provider?: string;
-  model?: string;
+  agentName?: FilterValues;
+  provider?: FilterValues;
+  model?: FilterValues;
   eventType?: "request" | "response";
   page?: number;
   pageSize?: number;
@@ -186,10 +189,10 @@ export interface SearchFragmentSegment {
 export interface UsageQuery {
   from?: string;
   to?: string;
-  agentName?: string;
-  sessionId?: string;
-  provider?: string;
-  model?: string;
+  agentName?: FilterValues;
+  sessionId?: FilterValues;
+  provider?: FilterValues;
+  model?: FilterValues;
   eventType?: string;
 }
 
@@ -309,9 +312,9 @@ export function fetchUsageEvent(eventPk: string): Promise<UsageEvent> {
 export interface SessionListQuery {
   from?: string;
   to?: string;
-  agentName?: string;
-  provider?: string;
-  model?: string;
+  agentName?: FilterValues;
+  provider?: FilterValues;
+  model?: FilterValues;
   page?: number;
   pageSize?: number;
 }
@@ -348,9 +351,9 @@ export function listSessions(query: SessionListQuery): Promise<SessionListRespon
   const params = new URLSearchParams();
   append(params, "from", query.from);
   append(params, "to", query.to);
-  append(params, "agent_name", query.agentName);
-  append(params, "llm_provider", query.provider);
-  append(params, "llm_model", query.model);
+  appendAll(params, "agent_name", query.agentName);
+  appendAll(params, "llm_provider", query.provider);
+  appendAll(params, "llm_model", query.model);
   if (query.page !== undefined) {
     params.set("page", query.page.toString());
   }
@@ -367,9 +370,9 @@ export function searchSessions(
   params.set("q", query.q.trim());
   append(params, "from", query.from);
   append(params, "to", query.to);
-  append(params, "agent_name", query.agentName);
-  append(params, "llm_provider", query.provider);
-  append(params, "llm_model", query.model);
+  appendAll(params, "agent_name", query.agentName);
+  appendAll(params, "llm_provider", query.provider);
+  appendAll(params, "llm_model", query.model);
   append(params, "event_type", query.eventType);
   if (query.page !== undefined) {
     params.set("page", query.page.toString());
@@ -388,10 +391,10 @@ function usageParams(query: UsageQuery): URLSearchParams {
   const params = new URLSearchParams();
   append(params, "from", query.from);
   append(params, "to", query.to);
-  append(params, "agent_name", query.agentName);
-  append(params, "session_id", query.sessionId);
-  append(params, "llm_provider", query.provider);
-  append(params, "llm_model", query.model);
+  appendAll(params, "agent_name", query.agentName);
+  appendAll(params, "session_id", query.sessionId);
+  appendAll(params, "llm_provider", query.provider);
+  appendAll(params, "llm_model", query.model);
   append(params, "event_type", query.eventType);
   return params;
 }
@@ -400,4 +403,21 @@ function append(params: URLSearchParams, key: string, value: string | undefined)
   if (value !== undefined && value.trim().length > 0) {
     params.set(key, value.trim());
   }
+}
+
+/** Repeats the key once per value; the backend matches any of them. */
+function appendAll(
+  params: URLSearchParams,
+  key: string,
+  values: FilterValues | undefined,
+): void {
+  for (const value of filterValueList(values)) {
+    params.append(key, value);
+  }
+}
+
+/** Trimmed, non-empty filter values; an empty list means no filter. */
+export function filterValueList(values: FilterValues | undefined): string[] {
+  const list = typeof values === "string" ? [values] : (values ?? []);
+  return list.map((value) => value.trim()).filter((value) => value.length > 0);
 }

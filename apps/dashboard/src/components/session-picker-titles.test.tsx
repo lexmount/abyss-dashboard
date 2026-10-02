@@ -39,7 +39,7 @@ describe("SessionPicker titles", () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <I18nProvider>
-          <SessionPicker value="" onChange={onChange} scope={{}} />
+          <SessionPicker value={[]} onChange={onChange} scope={{}} />
         </I18nProvider>
       </QueryClientProvider>,
     );
@@ -52,7 +52,48 @@ describe("SessionPicker titles", () => {
     await userEvent.type(screen.getByRole("textbox"), "pelican");
     expect(screen.getAllByRole("option")).toHaveLength(2);
     await userEvent.click(screen.getByText("Draw a pelican"));
-    expect(onChange).toHaveBeenCalledWith("titled-session");
+    expect(onChange).toHaveBeenCalledWith(["titled-session"]);
+  });
+
+  it("adds and removes sessions while the list stays open", async () => {
+    const onChange = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider>
+          <SessionPicker value={["titled-session"]} onChange={onChange} scope={{}} />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Session" }));
+    await screen.findByRole("option", { name: /Draw a pelican/ });
+    const [, , untitled] = screen.getAllByRole("option");
+    await userEvent.click(untitled);
+    expect(onChange).toHaveBeenLastCalledWith(["titled-session", "untitled-session"]);
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("option", { name: /Draw a pelican/ }));
+    expect(onChange).toHaveBeenLastCalledWith([]);
+  });
+
+  it("summarizes several chosen sessions on the trigger", async () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider>
+          <SessionPicker
+            value={["titled-session", "untitled-session"]}
+            onChange={vi.fn()}
+            scope={{}}
+          />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Session" }));
+    await screen.findByRole("option", { name: /Draw a pelican/ });
+    expect(screen.getByRole("combobox", { name: "Session" })).toHaveTextContent(
+      "Draw a pelican+1",
+    );
   });
 });
 

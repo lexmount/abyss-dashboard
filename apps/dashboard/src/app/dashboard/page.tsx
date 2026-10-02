@@ -70,6 +70,7 @@ import {
 } from "@lexmount.com/abyss-ui";
 import { ToggleGroup, ToggleGroupItem } from "@lexmount.com/abyss-ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@lexmount.com/abyss-ui";
+import { asFilterOptions, MultiSelectFilter } from "@/components/multi-select-filter";
 import { QueryErrorBanner } from "@/components/query-error";
 import { RefreshControl } from "@/components/refresh-control";
 import { SessionPicker } from "@/components/session-picker";
@@ -80,20 +81,21 @@ import { modelChoices, providerChoices } from "@/lib/usage-choices";
 import { createTimeRange, resolveTimeRange, type TimeRange } from "@/lib/time-range";
 import { agentDisplayName, agentFilterOptions, agentProductKey } from "@/lib/agents";
 
+/** Each list matches any of its values; an empty list matches everything. */
 interface FilterDraft {
   time: TimeRange;
-  agentName: string;
-  sessionId: string;
-  provider: string;
-  model: string;
+  agentNames: string[];
+  sessionIds: string[];
+  providers: string[];
+  models: string[];
   eventType: string;
 }
 
 const defaultNonDateFilters = {
-  agentName: "",
-  sessionId: "",
-  provider: "",
-  model: "",
+  agentNames: [],
+  sessionIds: [],
+  providers: [],
+  models: [],
   eventType: "all",
 } satisfies Omit<FilterDraft, "time">;
 
@@ -124,10 +126,10 @@ export function UsageDashboard() {
       // Usage counts today as a day: "last 7 days" starts at midnight six
       // days ago rather than exactly 168 hours back.
       ...resolveTimeRange(filters.time, now, "calendar"),
-      agentName: filters.agentName,
-      sessionId: filters.sessionId,
-      provider: filters.provider,
-      model: filters.model,
+      agentName: filters.agentNames,
+      sessionId: filters.sessionIds,
+      provider: filters.providers,
+      model: filters.models,
       eventType: filters.eventType === "all" ? "" : filters.eventType,
     }),
     [filters, now],
@@ -304,19 +306,19 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
   const sessionScope = React.useMemo(
     () => ({
       ...resolveTimeRange(draft.time, undefined, "calendar"),
-      agentName: draft.agentName,
+      agentName: draft.agentNames,
     }),
-    [draft.time, draft.agentName],
+    [draft.time, draft.agentNames],
   );
-  // Session choices also follow the provider and model, so only sessions that
-  // used them are offered.
+  // Session choices also follow the providers and models, so only sessions
+  // that used one of them are offered.
   const pickerScope = React.useMemo(
-    () => ({ ...sessionScope, provider: draft.provider, model: draft.model }),
-    [sessionScope, draft.provider, draft.model],
+    () => ({ ...sessionScope, provider: draft.providers, model: draft.models }),
+    [sessionScope, draft.providers, draft.models],
   );
   // Provider and model choices come from the data in the time and Agent
-  // scope, so custom gateways are listed; picking a provider narrows the
-  // models to the ones it served. Neither choice hides its own alternatives.
+  // scope, so custom gateways are listed; picking providers narrows the models
+  // to the ones they served. Neither choice hides its own alternatives.
   const choicesQuery = useQuery({
     queryKey: ["usage-models", "dashboard-filters", sessionScope],
     queryFn: () => fetchUsageSummary(sessionScope, { groupBy: ["provider", "model"] }),
@@ -327,18 +329,24 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
     [choicesQuery.data?.rows],
   );
   const providerOptions = React.useMemo(
-    () => providerChoices(choiceRows, draft.provider),
-    [choiceRows, draft.provider],
+    () => asFilterOptions(providerChoices(choiceRows, draft.providers)),
+    [choiceRows, draft.providers],
   );
   const modelOptions = React.useMemo(
     () =>
-      modelChoices(
-        draft.provider
-          ? choiceRows.filter((row) => row.llm_provider === draft.provider)
-          : choiceRows,
-        draft.model,
+      asFilterOptions(
+        modelChoices(
+          draft.providers.length > 0
+            ? choiceRows.filter(
+                (row) =>
+                  row.llm_provider !== undefined &&
+                  draft.providers.includes(row.llm_provider),
+              )
+            : choiceRows,
+          draft.models,
+        ),
       ),
-    [choiceRows, draft.provider, draft.model],
+    [choiceRows, draft.providers, draft.models],
   );
   return (
     <Card>
@@ -363,64 +371,35 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
       >
         <TimeRangeField value={draft.time} onChange={(time) => update("time", time)} />
         <Field label={t("common.agent")}>
-          <Select
-            value={draft.agentName || "all"}
-            onValueChange={(value) => update("agentName", value === "all" ? "" : value)}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("common.all")}</SelectItem>
-              {agentFilterOptions.map((agent) => (
-                <SelectItem key={agent.value} value={agent.value}>
-                  {agent.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MultiSelectFilter
+            label={t("common.agent")}
+            options={agentFilterOptions}
+            value={draft.agentNames}
+            onChange={(agentNames) => update("agentNames", agentNames)}
+          />
         </Field>
         <Field label={t("common.provider")}>
-          <Select
-            value={draft.provider || "all"}
-            onValueChange={(value) => update("provider", value === "all" ? "" : value)}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("common.all")}</SelectItem>
-              {providerOptions.map((provider) => (
-                <SelectItem key={provider} value={provider}>
-                  {provider}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MultiSelectFilter
+            label={t("common.provider")}
+            options={providerOptions}
+            value={draft.providers}
+            onChange={(providers) => update("providers", providers)}
+          />
         </Field>
         <Field label={t("common.model")}>
-          <Select
-            value={draft.model || "all"}
-            onValueChange={(value) => update("model", value === "all" ? "" : value)}
-          >
-            <SelectTrigger className="w-full" title={draft.model || undefined}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("common.all")}</SelectItem>
-              {modelOptions.map((model) => (
-                <SelectItem key={model} value={model} className="font-mono text-xs">
-                  {model}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MultiSelectFilter
+            label={t("common.model")}
+            options={modelOptions}
+            value={draft.models}
+            mono
+            onChange={(models) => update("models", models)}
+          />
         </Field>
         <Field label={t("common.session")}>
           <SessionPicker
-            value={draft.sessionId}
+            value={draft.sessionIds}
             scope={pickerScope}
-            onChange={(sessionId) => update("sessionId", sessionId)}
+            onChange={(sessionIds) => update("sessionIds", sessionIds)}
           />
         </Field>
         <Field label={t("common.event")}>

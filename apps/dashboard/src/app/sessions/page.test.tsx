@@ -70,9 +70,45 @@ describe("SessionsPage", () => {
 
     await screen.findByRole("link", { name: "019fcfff" });
     expect(listSessionsMock).toHaveBeenCalledWith(
-      expect.objectContaining({ provider: "openai", model: "gpt-5" }),
+      expect.objectContaining({ provider: ["openai"], model: ["gpt-5"] }),
     );
     expect(searchSessionsMock).not.toHaveBeenCalled();
+  });
+
+  it("searches and lists with every chosen value from the URL", async () => {
+    renderPage(
+      "/sessions?q=timeout&agent_name=codex&agent_name=claude-code&llm_model=gpt-5&llm_model=o3",
+    );
+
+    expect(await screen.findByText("timeout")).toBeInTheDocument();
+    expect(searchSessionsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        q: "timeout",
+        agentName: ["codex", "claude-code"],
+        provider: [],
+        model: ["gpt-5", "o3"],
+      }),
+    );
+    expect(screen.getByRole("combobox", { name: "Agent" })).toHaveTextContent(
+      "Codex+1",
+    );
+  });
+
+  it("applies several agents chosen in the form", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    renderPage("/sessions");
+    const user = userEvent.setup();
+    await screen.findByRole("link", { name: "019fcfff" });
+
+    await user.click(screen.getByRole("combobox", { name: "Agent" }));
+    await user.click(screen.getByRole("option", { name: "Claude Code" }));
+    await user.click(screen.getByRole("option", { name: "Codex" }));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(listSessionsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ agentName: ["claude-code", "codex"], page: 1 }),
+    );
   });
 
   it("renders safe highlights and links the whole result to the existing detail page", async () => {
@@ -113,22 +149,29 @@ describe("session search URL parameters", () => {
       {
         q: " timeout ",
         time: { preset: "any", from: "2026-09-01T08:30", to: "2026-09-07T18:00" },
-        agentName: "codex",
-        provider: "",
-        model: "gpt-5",
+        agentNames: ["codex", "claude-code"],
+        providers: [],
+        models: ["gpt-5", " "],
       },
       1,
     );
 
-    expect(params.toString()).toBe("q=timeout&agent_name=codex&llm_model=gpt-5");
+    expect(params.toString()).toBe(
+      "q=timeout&agent_name=codex&agent_name=claude-code&llm_model=gpt-5",
+    );
+    expect(filtersFromParams(params)).toMatchObject({
+      agentNames: ["codex", "claude-code"],
+      providers: [],
+      models: ["gpt-5"],
+    });
   });
 
   it("writes custom date-time bounds only for the custom time range", () => {
     const base = {
       q: "timeout",
-      agentName: "",
-      provider: "",
-      model: "",
+      agentNames: [],
+      providers: [],
+      models: [],
     };
     const dates = { from: "2026-09-01T08:30", to: "2026-09-07T18:00" };
 

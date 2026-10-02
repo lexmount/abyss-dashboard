@@ -14,25 +14,20 @@ import {
 } from "@lexmount.com/abyss-ui";
 import { Input } from "@lexmount.com/abyss-ui";
 import { Label } from "@lexmount.com/abyss-ui";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@lexmount.com/abyss-ui";
+import { asFilterOptions, MultiSelectFilter } from "@/components/multi-select-filter";
 import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentFilterOptions } from "@/lib/agents";
 import { resolveTimeRange, type TimeRange } from "@/lib/time-range";
 import { modelChoices, providerChoices } from "@/lib/usage-choices";
 
+/** Each list matches any of its values; an empty list matches everything. */
 export interface SessionSearchFilters {
   q: string;
   time: TimeRange;
-  agentName: string;
-  provider: string;
-  model: string;
+  agentNames: string[];
+  providers: string[];
+  models: string[];
 }
 
 interface SessionSearchFormProps {
@@ -56,10 +51,10 @@ export function SessionSearchForm({
     value: SessionSearchFilters[Key],
   ): void => onDraftChange({ ...draft, [key]: value });
   // Provider and model choices come from the sessions in the time and Agent
-  // scope; picking a provider narrows the models to the ones it served.
+  // scope; picking providers narrows the models to the ones they served.
   const choiceScope = React.useMemo(
-    () => ({ ...resolveTimeRange(draft.time), agentName: draft.agentName }),
-    [draft.time, draft.agentName],
+    () => ({ ...resolveTimeRange(draft.time), agentName: draft.agentNames }),
+    [draft.time, draft.agentNames],
   );
   const choicesQuery = useQuery({
     queryKey: ["usage-models", "session-filters", choiceScope],
@@ -67,10 +62,18 @@ export function SessionSearchForm({
     staleTime: 60_000,
   });
   const rows = choicesQuery.data?.rows ?? [];
-  const providers = providerChoices(rows, draft.provider);
-  const models = modelChoices(
-    draft.provider ? rows.filter((row) => row.llm_provider === draft.provider) : rows,
-    draft.model,
+  const providers = asFilterOptions(providerChoices(rows, draft.providers));
+  const models = asFilterOptions(
+    modelChoices(
+      draft.providers.length > 0
+        ? rows.filter(
+            (row) =>
+              row.llm_provider !== undefined &&
+              draft.providers.includes(row.llm_provider),
+          )
+        : rows,
+      draft.models,
+    ),
   );
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -121,70 +124,29 @@ export function SessionSearchForm({
               onChange={(time) => update("time", time)}
             />
             <Field label={t("common.agent")}>
-              <Select
-                value={draft.agentName || "all"}
-                onValueChange={(value) =>
-                  update("agentName", value === "all" ? "" : value)
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t("common.all")}</SelectItem>
-                  {agentFilterOptions.map((agent) => (
-                    <SelectItem key={agent.value} value={agent.value}>
-                      {agent.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                label={t("common.agent")}
+                options={agentFilterOptions}
+                value={draft.agentNames}
+                onChange={(agentNames) => update("agentNames", agentNames)}
+              />
             </Field>
             <Field label={t("common.provider")}>
-              <Select
-                value={draft.provider || "all"}
-                onValueChange={(value) =>
-                  onDraftChange({
-                    ...draft,
-                    provider: value === "all" ? "" : value,
-                    model: "",
-                  })
-                }
-              >
-                <SelectTrigger className="w-full" aria-label={t("common.provider")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t("common.all")}</SelectItem>
-                  {providers.map((provider) => (
-                    <SelectItem key={provider} value={provider}>
-                      {provider}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                label={t("common.provider")}
+                options={providers}
+                value={draft.providers}
+                onChange={(providers) => update("providers", providers)}
+              />
             </Field>
             <Field label={t("common.model")}>
-              <Select
-                value={draft.model || "all"}
-                onValueChange={(value) => update("model", value === "all" ? "" : value)}
-              >
-                <SelectTrigger
-                  className="w-full"
-                  aria-label={t("common.model")}
-                  title={draft.model || undefined}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t("common.all")}</SelectItem>
-                  {models.map((model) => (
-                    <SelectItem key={model} value={model} className="font-mono text-xs">
-                      {model}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                label={t("common.model")}
+                options={models}
+                value={draft.models}
+                mono
+                onChange={(models) => update("models", models)}
+              />
             </Field>
           </div>
         </CardContent>
