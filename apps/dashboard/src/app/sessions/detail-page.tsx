@@ -28,6 +28,8 @@ import { cn } from "@/lib/utils";
 
 const eventSearchParam = "event";
 const turnSearchParam = "turn";
+/** Search text, carried over from a session search and kept as it changes. */
+const querySearchParam = "q";
 
 export default function SessionDetailPage() {
   const { t, locale, formatDateTime, formatNumber } = useI18n();
@@ -36,6 +38,7 @@ export default function SessionDetailPage() {
   const selectedEventId = searchParams.get(eventSearchParam);
   const turnParam = Number.parseInt(searchParams.get(turnSearchParam) ?? "", 10);
   const focusedTurn = Number.isNaN(turnParam) ? null : turnParam;
+  const initialQuery = searchParams.get(querySearchParam) ?? undefined;
 
   const trajectoryQuery = useQuery({
     queryKey: ["session-trajectory", sessionPk],
@@ -64,7 +67,7 @@ export default function SessionDetailPage() {
           }
           return next;
         },
-        { replace: name === eventSearchParam },
+        { replace: name === eventSearchParam || name === querySearchParam },
       );
     },
     [setSearchParams],
@@ -147,6 +150,8 @@ export default function SessionDetailPage() {
             formatTime={formatTime}
             formatNumber={formatNumber}
             labels={trajectoryLabels(t)}
+            initialQuery={initialQuery}
+            onQueryChange={(query) => updateParam(querySearchParam, query || null)}
             inspector={
               selectedEventId === null ? null : (
                 <SessionEventInspector

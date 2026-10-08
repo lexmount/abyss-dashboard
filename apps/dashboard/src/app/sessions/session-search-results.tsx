@@ -74,7 +74,11 @@ export function SessionSearchResults({
       </div>
 
       {response.items.map((result) => (
-        <SessionResultCard key={result.session_pk} result={result} />
+        <SessionResultCard
+          key={result.session_pk}
+          result={result}
+          query={response.query}
+        />
       ))}
 
       <div className="flex justify-end gap-2">
@@ -99,14 +103,42 @@ export function SessionSearchResults({
   );
 }
 
-function SessionResultCard({ result }: { result: SessionSearchResult }) {
+/**
+ * Opens a session with the search carried over, at a hit's turn when given.
+ * Hits are raw events and the session shows merged content, so the session
+ * finds the text again itself, starting in that turn.
+ */
+export function sessionSearchLink(
+  sessionPk: string,
+  query: string,
+  turnIndex?: number,
+): string {
+  const params = new URLSearchParams();
+  if (turnIndex !== undefined) {
+    params.set("turn", turnIndex.toString());
+  }
+  params.set("q", query);
+  return `/sessions/${encodeURIComponent(sessionPk)}?${params}`;
+}
+
+const linkFocus =
+  "focus-visible:ring-ring/50 block focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none";
+
+function SessionResultCard({
+  result,
+  query,
+}: {
+  result: SessionSearchResult;
+  query: string;
+}) {
   const { t, formatDateTime, formatNumber } = useI18n();
   return (
-    <Link
-      to={`/sessions/${result.session_pk}`}
-      className="focus-visible:ring-ring/50 block rounded-xl focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-    >
-      <Card className="transition-colors hover:border-primary/40 hover:bg-muted/10">
+    <Card className="transition-colors hover:border-primary/40">
+      {/* The header opens the session; each hit opens it at the hit's turn. */}
+      <Link
+        to={sessionSearchLink(result.session_pk, query)}
+        className={`${linkFocus} rounded-t-xl`}
+      >
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 space-y-1">
@@ -149,43 +181,45 @@ function SessionResultCard({ result }: { result: SessionSearchResult }) {
             </Badge>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {result.matches.map((match) => (
-            <div key={match.event_pk} className="rounded-lg border bg-muted/20 p-3">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <Badge
-                  variant={match.event_type === "request" ? "default" : "secondary"}
-                >
-                  {match.event_type === "request"
-                    ? t("common.request")
-                    : t("common.response")}
-                </Badge>
-                <span className="text-sm font-medium">
-                  {t("sessions.detail.turn", { index: match.turn_index })}
-                </span>
-                <span className="text-muted-foreground text-xs">
-                  {formatDateTime(match.observed_at)}
-                </span>
-              </div>
-              {match.fragments.length > 0 ? (
-                <div className="space-y-2 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
-                  {match.fragments.map((fragment, index) => (
-                    <HighlightedFragment
-                      key={`${match.event_pk}-${index}`}
-                      fragment={fragment}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  {t("sessions.search.noPreview")}
-                </p>
-              )}
+      </Link>
+      <CardContent className="space-y-3">
+        {result.matches.map((match) => (
+          <Link
+            key={match.event_pk}
+            to={sessionSearchLink(result.session_pk, query, match.turn_index)}
+            className={`${linkFocus} bg-muted/20 hover:bg-muted/40 rounded-lg border p-3 transition-colors`}
+          >
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Badge variant={match.event_type === "request" ? "default" : "secondary"}>
+                {match.event_type === "request"
+                  ? t("common.request")
+                  : t("common.response")}
+              </Badge>
+              <span className="text-sm font-medium">
+                {t("sessions.detail.turn", { index: match.turn_index })}
+              </span>
+              <span className="text-muted-foreground text-xs">
+                {formatDateTime(match.observed_at)}
+              </span>
             </div>
-          ))}
-        </CardContent>
-      </Card>
-    </Link>
+            {match.fragments.length > 0 ? (
+              <div className="space-y-2 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
+                {match.fragments.map((fragment, index) => (
+                  <HighlightedFragment
+                    key={`${match.event_pk}-${index}`}
+                    fragment={fragment}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                {t("sessions.search.noPreview")}
+              </p>
+            )}
+          </Link>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -3,8 +3,10 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
+import { StrictMode } from "react";
 import type * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -14,6 +16,7 @@ import {
   type SessionTrajectoryEvent,
   type SessionTrajectoryItem,
   type SessionTrajectoryLabels,
+  type SessionTrajectoryProps,
 } from "./session-trajectory";
 
 const items: SessionTrajectoryItem[] = [
@@ -616,6 +619,43 @@ describe("SessionTrajectory search", () => {
     expect(marks[1]).not.toHaveAttribute("data-active-match");
   });
 
+  it("opens with a carried-over search and shows its first match", async () => {
+    const onQueryChange = vi.fn();
+    renderTrajectory(vi.fn(), null, vi.fn(), null, null, items, undefined, {
+      initialQuery: "readme",
+      onQueryChange,
+    });
+
+    expect(
+      screen.getByRole("textbox", { name: "Search this session" }),
+    ).toHaveValue("readme");
+    expect(await screen.findByText("1 / 2")).toBeInTheDocument();
+    expect(content().getAllByText("README")[0]).toHaveAttribute(
+      "data-active-match",
+    );
+    // The text the view opened with is not reported back.
+    expect(onQueryChange).not.toHaveBeenCalled();
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search this session" }),
+      { target: { value: "" } },
+    );
+    await waitFor(() => expect(onQueryChange).toHaveBeenLastCalledWith(""));
+  });
+
+  it("starts a carried-over search inside the turn it was opened on", async () => {
+    const onFocusTurn = vi.fn();
+    renderTrajectory(vi.fn(), 2, onFocusTurn, null, null, items, undefined, {
+      initialQuery: "readme",
+      strict: true,
+    });
+
+    // Turn 2's reply is the second of two matches; the view stays on turn 2.
+    expect(await screen.findByText("2 / 2")).toBeInTheDocument();
+    expect(onFocusTurn).not.toHaveBeenCalled();
+    expect(content().getByText("README")).toHaveAttribute("data-active-match");
+  });
+
   it("reports when nothing matches", async () => {
     renderTrajectory(vi.fn());
     fireEvent.change(
@@ -647,6 +687,13 @@ function renderTrajectory(
   inspector: React.ReactNode = null,
   trajectoryItems: SessionTrajectoryItem[] = items,
   events?: SessionTrajectoryEvent[],
+  {
+    strict = false,
+    ...search
+  }: Pick<SessionTrajectoryProps, "initialQuery" | "onQueryChange"> & {
+    /** Renders under StrictMode, which runs effects twice on mount. */
+    strict?: boolean;
+  } = {},
 ) {
   // jsdom has no layout, so give the virtualized list a measurable viewport.
   vi.stubGlobal(
@@ -682,7 +729,9 @@ function renderTrajectory(
       formatTime={(value) => value}
       formatNumber={(value) => value.toString()}
       labels={labels}
+      {...search}
     />,
+    strict ? { wrapper: StrictMode } : undefined,
   );
 }
 

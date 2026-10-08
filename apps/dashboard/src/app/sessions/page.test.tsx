@@ -111,14 +111,20 @@ describe("SessionsPage", () => {
     );
   });
 
-  it("renders safe highlights and links the whole result to the existing detail page", async () => {
+  it("renders safe highlights and opens the session with the search carried over", async () => {
     renderPage("/sessions?q=timeout");
 
     expect(await screen.findByText("timeout")).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /session-provider-id/ });
     expect(link).toHaveAttribute(
       "href",
-      "/sessions/019fcfff-ba46-7340-bd15-600791fe583f",
+      "/sessions/019fcfff-ba46-7340-bd15-600791fe583f?q=timeout",
+    );
+    // A hit opens the session at its own turn.
+    const hit = screen.getByRole("link", { name: /Turn 2/ });
+    expect(hit).toHaveAttribute(
+      "href",
+      "/sessions/019fcfff-ba46-7340-bd15-600791fe583f?turn=2&q=timeout",
     );
     expect(screen.getByText("timeout").tagName).toBe("MARK");
     expect(searchSessionsMock).toHaveBeenCalledWith(

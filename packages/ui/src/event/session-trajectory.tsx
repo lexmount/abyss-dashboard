@@ -130,6 +130,14 @@ export interface SessionTrajectoryProps {
   formatNumber: (value: number) => string;
   labels: SessionTrajectoryLabels;
   className?: string;
+  /**
+   * Search text the view opens with, such as a term carried over from a
+   * session search. It seeds the search box once; the first match inside
+   * `focusedTurn`, when there is one, is brought into view.
+   */
+  initialQuery?: string;
+  /** Reports the settled search text, so a caller can keep it in its URL. */
+  onQueryChange?: (query: string) => void;
 }
 
 type TrajectoryRow =
@@ -373,6 +381,8 @@ export function SessionTrajectory({
   formatNumber,
   labels,
   className,
+  initialQuery,
+  onQueryChange,
 }: SessionTrajectoryProps) {
   const items = React.useMemo(
     () =>
@@ -409,8 +419,21 @@ export function SessionTrajectory({
     () => new Set(),
   );
 
-  const [query, setQuery] = React.useState("");
+  const [query, setQuery] = React.useState(initialQuery ?? "");
   const searchQuery = useDebounced(query.trim(), SEARCH_DEBOUNCE_MS);
+  // The settled text is reported only when it changes, not for the text the
+  // view opened with.
+  const reportQuery = React.useRef(onQueryChange);
+  React.useEffect(() => {
+    reportQuery.current = onQueryChange;
+  });
+  const reportedQuery = React.useRef(searchQuery);
+  React.useEffect(() => {
+    if (reportedQuery.current !== searchQuery) {
+      reportedQuery.current = searchQuery;
+      reportQuery.current?.(searchQuery);
+    }
+  }, [searchQuery]);
   const matches = React.useMemo(
     () => searchTrajectory(items, searchQuery),
     [items, searchQuery],
@@ -439,7 +462,16 @@ export function SessionTrajectory({
   // Stepping moves through every occurrence, not every matching item, so a
   // long system prompt with several hits is visited hit by hit.
   const occurrences = React.useMemo(() => occurrencesOf(matches), [matches]);
-  const [activeMatch, setActiveMatch] = React.useState(0);
+  // A search the view opens with starts at its first occurrence in the turn
+  // it was opened on, when that turn has one.
+  const [activeMatch, setActiveMatch] = React.useState(() =>
+    Math.max(
+      focusedTurn === null
+        ? -1
+        : occurrences.findIndex((match) => match.turnIndex === focusedTurn),
+      0,
+    ),
+  );
   const active = occurrences[activeMatch];
   // The active match is brought into view only when the reader asks for it:
   // a new query, stepping, or picking a turn that has matches. Browsing
@@ -467,9 +499,16 @@ export function SessionTrajectory({
       requestReveal();
     }
   };
+  // A typed search starts over at the first occurrence; the one the view
+  // opened with keeps the start chosen above. Comparing with the last search
+  // rather than counting runs keeps this right when effects run twice.
+  const startedQuery = React.useRef(searchQuery);
   React.useEffect(() => {
-    setActiveMatch(0);
-    setClosedHits(new Set());
+    if (startedQuery.current !== searchQuery) {
+      startedQuery.current = searchQuery;
+      setActiveMatch(0);
+      setClosedHits(new Set());
+    }
     if (searchQuery) {
       requestReveal();
     }
