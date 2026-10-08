@@ -1030,12 +1030,14 @@ export function RawEventsTable({
             <colgroup>
               <col className="w-[15%]" />
               <col className="w-[10%]" />
-              <col className="w-[9%]" />
+              {/* Fits the whole turn label, up to "ターン 99999" with its
+                  arrow, even at the table's 1100px minimum width. */}
+              <col className="w-[13%]" />
               <col className="w-[15%]" />
               <col className="w-[12%]" />
               <col className="w-[11%]" />
               <col className="w-[8%]" />
-              <col className="w-[20%]" />
+              <col className="w-[16%]" />
             </colgroup>
             <TableHeader>
               <TableRow>
