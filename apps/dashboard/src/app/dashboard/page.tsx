@@ -141,9 +141,12 @@ export function UsageDashboard() {
   // `now` out of its keys lets a refresh leave finished days alone.
   const chartScope = React.useMemo(() => nonTimeScope(filters), [filters]);
 
+  // Sessions and turns are counted within each row, so the cards add rows of
+  // one Agent each: a session never spans two Agents, while it can span
+  // several providers and models and would be counted once for each.
   const summaryQuery = useQuery({
     queryKey: ["usage-summary", "table", query],
-    queryFn: () => fetchUsageSummary(query),
+    queryFn: () => fetchUsageSummary(query, { groupBy: ["agent"] }),
     // A refresh moves the range's end, which is a new query; keep the shown
     // numbers until it lands rather than blanking the cards.
     placeholderData: keepPreviousData,
@@ -274,8 +277,6 @@ export function UsageDashboard() {
         <UsageFilters
           draft={draft}
           onDraftChange={setDraft}
-          applied={filters}
-          appliedRows={summaryQuery.data?.rows}
           onApply={() => applyFilters(draft)}
           onReset={() => {
             const nextFilters = createDefaultFilters();
@@ -398,23 +399,12 @@ function nonTimeScope(filters: FilterDraft): Omit<UsageQuery, "from" | "to"> {
 
 interface UsageFiltersProps {
   draft: FilterDraft;
-  /** Filters behind the shown summary. */
-  applied: FilterDraft;
-  /** Summary rows of the applied filters, once loaded. */
-  appliedRows: SummaryRow[] | undefined;
   onDraftChange: (draft: FilterDraft) => void;
   onApply: () => void;
   onReset: () => void;
 }
 
-function UsageFilters({
-  draft,
-  applied,
-  appliedRows,
-  onDraftChange,
-  onApply,
-  onReset,
-}: UsageFiltersProps) {
+function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersProps) {
   const { t } = useI18n();
   const update = <Field extends keyof FilterDraft>(
     field: Field,
@@ -438,24 +428,15 @@ function UsageFilters({
   // Provider and model choices come from the data in the time and Agent
   // scope, so custom gateways are listed; picking providers narrows the models
   // to the ones they served. Neither choice hides its own alternatives.
-  // The summary behind the cards already groups by provider and model; when
-  // it covers the same time and Agents with no narrower filter, its rows are
-  // the choices and the extra summary is skipped.
-  const summaryCoversChoices =
-    sameTimeRange(draft.time, applied.time) &&
-    sameValues(draft.agentNames, applied.agentNames) &&
-    applied.providers.length === 0 &&
-    applied.models.length === 0 &&
-    applied.sessionIds.length === 0 &&
-    applied.eventType === "all";
   const choicesQuery = useQuery({
     queryKey: ["usage-models", "dashboard-filters", sessionScope],
     queryFn: () => fetchUsageSummary(sessionScope, { groupBy: ["provider", "model"] }),
     staleTime: 60_000,
-    enabled: !summaryCoversChoices,
   });
-  const choiceSource = summaryCoversChoices ? appliedRows : choicesQuery.data?.rows;
-  const choiceRows = React.useMemo(() => choiceSource ?? [], [choiceSource]);
+  const choiceRows = React.useMemo(
+    () => choicesQuery.data?.rows ?? [],
+    [choicesQuery.data?.rows],
+  );
   const providerOptions = React.useMemo(
     () => asFilterOptions(providerChoices(choiceRows, draft.providers)),
     [choiceRows, draft.providers],
@@ -1508,17 +1489,6 @@ function countAgentProducts(rows: SummaryRow[]): number {
       .filter((agentName): agentName is string => Boolean(agentName))
       .map(agentProductKey),
   ).size;
-}
-
-function sameTimeRange(left: TimeRange, right: TimeRange): boolean {
-  return (
-    left.preset === right.preset &&
-    (left.preset !== "custom" || (left.from === right.from && left.to === right.to))
-  );
-}
-
-function sameValues(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((value) => right.includes(value));
 }
 
 function createDefaultFilters(): FilterDraft {

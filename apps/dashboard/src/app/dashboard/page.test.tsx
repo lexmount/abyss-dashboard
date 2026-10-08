@@ -260,13 +260,11 @@ describe("UsageDashboard", () => {
     await waitFor(() =>
       expect(screen.queryByText("Loading usage chart...")).toBeNull(),
     );
-    const summaryCalls = fetchUsageSummaryMock.mock.calls.length;
+    const summaryCalls = cardSummaryCalls();
 
     await userEvent.setup().click(screen.getByRole("button", { name: "Refresh" }));
 
-    await waitFor(() =>
-      expect(fetchUsageSummaryMock.mock.calls.length).toBe(summaryCalls + 1),
-    );
+    await waitFor(() => expect(cardSummaryCalls()).toBe(summaryCalls + 1));
     await waitFor(() => expect(fetchDayTokenUsageMock).toHaveBeenCalledTimes(8));
     expect(screen.queryByText("Loading usage chart...")).toBeNull();
     const today = tokenChartDateWindow("7d").dayWindows.at(-1)?.day;
@@ -312,13 +310,11 @@ describe("UsageDashboard", () => {
         .setup({ advanceTimers: vi.advanceTimersByTime })
         .click(screen.getByRole("button", { name: "Go to next page" }));
       await screen.findByText("Page 2 of 3");
-      const summaryCalls = fetchUsageSummaryMock.mock.calls.length;
+      const summaryCalls = cardSummaryCalls();
 
       await vi.advanceTimersByTimeAsync(30_000);
 
-      await waitFor(() =>
-        expect(fetchUsageSummaryMock.mock.calls.length).toBe(summaryCalls + 1),
-      );
+      await waitFor(() => expect(cardSummaryCalls()).toBe(summaryCalls + 1));
       // Only today's chart point reloads, and the reader stays on page 2.
       await waitFor(() => expect(fetchDayTokenUsageMock).toHaveBeenCalledTimes(8));
       expect(screen.getByText("Page 2 of 3")).toBeInTheDocument();
@@ -334,7 +330,7 @@ describe("UsageDashboard", () => {
       document.dispatchEvent(new Event("visibilitychange"));
       expect(await screen.findAllByText("Paused")).toHaveLength(4);
       await vi.advanceTimersByTimeAsync(90_000);
-      expect(fetchUsageSummaryMock.mock.calls.length).toBe(summaryCalls + 1);
+      expect(cardSummaryCalls()).toBe(summaryCalls + 1);
       visibility.mockRestore();
     } finally {
       vi.useRealTimers();
@@ -362,9 +358,57 @@ describe("UsageDashboard", () => {
     expect(await screen.findByText("Token Usage")).toBeInTheDocument();
     expect(screen.queryByText("Agent Distribution")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Summary" })).not.toBeInTheDocument();
-    // The metric cards' summary also supplies the provider and model choices.
-    await waitFor(() => expect(fetchUsageSummaryMock).toHaveBeenCalledTimes(1));
-    expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object));
+    // One summary for the metric cards, one for the provider and model
+    // filters' choices.
+    await waitFor(() => expect(fetchUsageSummaryMock).toHaveBeenCalledTimes(2));
+    expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object), {
+      groupBy: ["agent"],
+    });
+    expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object), {
+      groupBy: ["provider", "model"],
+    });
+  });
+
+  it("counts each session once by adding up rows of one Agent each", async () => {
+    fetchUsageSummaryMock.mockImplementation(
+      (_query: unknown, options?: { groupBy?: string[] }) =>
+        Promise.resolve({
+          from: null,
+          to: null,
+          group_by: options?.groupBy ?? [],
+          rows:
+            options?.groupBy?.[0] === "agent"
+              ? [
+                  { ...baseSummaryRow, agent_name: "codex", sessions: 3, turns: 7 },
+                  {
+                    ...baseSummaryRow,
+                    agent_name: "claude-code",
+                    sessions: 2,
+                    turns: 4,
+                  },
+                ]
+              : [],
+          next_page_token: null,
+        }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <I18nProvider>
+            <UsageDashboard />
+          </I18nProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const sessions = await screen.findByText("Sessions");
+    const card = sessions.closest("[data-slot=card]");
+    expect(card).toHaveTextContent("5");
+    expect(card).toHaveTextContent("11 turns observed");
   });
 
   it("applies several models and agents at once", async () => {
@@ -375,8 +419,6 @@ describe("UsageDashboard", () => {
           from: null,
           to: null,
           group_by: options?.groupBy ?? [],
-          // The cards' summary also groups by model, and supplies the
-          // choices while it covers the filters' scope.
           rows: [
             { ...baseSummaryRow, llm_model: "gpt-5", total_tokens: 30 },
             { ...baseSummaryRow, llm_model: "gpt-5-mini", total_tokens: 20 },
@@ -533,6 +575,14 @@ describe("modelChoices", () => {
     expect(modelChoices(rows, "retired")).toEqual(["retired", "large", "small"]);
   });
 });
+
+/** Summaries behind the metric cards, apart from the filters' choices. */
+function cardSummaryCalls(): number {
+  return fetchUsageSummaryMock.mock.calls.filter(
+    ([, options]) =>
+      (options as { groupBy?: string[] } | undefined)?.groupBy?.[0] === "agent",
+  ).length;
+}
 
 const baseSummaryRow: SummaryRow = {
   sessions: 1,
