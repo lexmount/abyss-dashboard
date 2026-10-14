@@ -19,7 +19,12 @@ import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentFilterOptions } from "@/lib/agents";
 import { resolveTimeRange, type TimeRange } from "@/lib/time-range";
-import { modelChoices, providerChoices } from "@/lib/usage-choices";
+import {
+  agentChoices,
+  modelChoices,
+  providerChoices,
+  rowsOfAgents,
+} from "@/lib/usage-choices";
 
 /** Each list matches any of its values; an empty list matches everything. */
 export interface SessionSearchFilters {
@@ -50,18 +55,20 @@ export function SessionSearchForm({
     key: Key,
     value: SessionSearchFilters[Key],
   ): void => onDraftChange({ ...draft, [key]: value });
-  // Provider and model choices come from the sessions in the time and Agent
-  // scope; picking providers narrows the models to the ones they served.
-  const choiceScope = React.useMemo(
-    () => ({ ...resolveTimeRange(draft.time), agentName: draft.agentNames }),
-    [draft.time, draft.agentNames],
-  );
+  // Agent, provider, and model choices come from the sessions in the time
+  // scope, so every Agent the backend reports is listed. Picking Agents narrows
+  // the providers and models, and picking providers narrows the models to the
+  // ones they served.
+  const choiceScope = React.useMemo(() => resolveTimeRange(draft.time), [draft.time]);
   const choicesQuery = useQuery({
     queryKey: ["usage-models", "session-filters", choiceScope],
-    queryFn: () => fetchUsageSummary(choiceScope, { groupBy: ["provider", "model"] }),
+    queryFn: () =>
+      fetchUsageSummary(choiceScope, { groupBy: ["provider", "model", "agent"] }),
     staleTime: 60_000,
   });
-  const rows = choicesQuery.data?.rows ?? [];
+  const allRows = choicesQuery.data?.rows ?? [];
+  const agents = agentFilterOptions(agentChoices(allRows, draft.agentNames));
+  const rows = rowsOfAgents(allRows, draft.agentNames);
   const providers = asFilterOptions(providerChoices(rows, draft.providers));
   const models = asFilterOptions(
     modelChoices(
@@ -126,7 +133,7 @@ export function SessionSearchForm({
             <Field label={t("common.agent")}>
               <MultiSelectFilter
                 label={t("common.agent")}
-                options={agentFilterOptions}
+                options={agents}
                 value={draft.agentNames}
                 onChange={(agentNames) => update("agentNames", agentNames)}
               />

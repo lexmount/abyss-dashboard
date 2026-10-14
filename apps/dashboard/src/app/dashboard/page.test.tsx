@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/contexts/i18n-context";
-import { modelChoices } from "@/lib/usage-choices";
+import { agentChoices, modelChoices, rowsOfAgents } from "@/lib/usage-choices";
 import { type DailyTokenUsageRow, type UsageEvent, type SummaryRow } from "@/api/usage";
 import {
   chartRowsByDay,
@@ -82,7 +82,7 @@ describe("RawEventsTable", () => {
     expect(screen.getByText("alice-mbp")).toBeInTheDocument();
   });
 
-  it("renders Claude Desktop events under the Claude Code product name", () => {
+  it("renders Claude Desktop events under their own Agent name", () => {
     renderRawEventsTable([
       {
         ...baseUsageEvent,
@@ -91,7 +91,8 @@ describe("RawEventsTable", () => {
       },
     ]);
 
-    expect(screen.getByText("Claude Code")).toBeInTheDocument();
+    expect(screen.getByText("Claude Desktop")).toBeInTheDocument();
+    expect(screen.queryByText("Claude Code")).not.toBeInTheDocument();
     expect(screen.getByText("Desktop/0.14.7")).toBeInTheDocument();
   });
 
@@ -358,14 +359,14 @@ describe("UsageDashboard", () => {
     expect(await screen.findByText("Token Usage")).toBeInTheDocument();
     expect(screen.queryByText("Agent Distribution")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Summary" })).not.toBeInTheDocument();
-    // One summary for the metric cards, one for the provider and model
-    // filters' choices.
+    // One summary for the metric cards, one for the Agent, provider, and
+    // model filters' choices.
     await waitFor(() => expect(fetchUsageSummaryMock).toHaveBeenCalledTimes(2));
     expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object), {
       groupBy: ["agent"],
     });
     expect(fetchUsageSummaryMock).toHaveBeenCalledWith(expect.any(Object), {
-      groupBy: ["provider", "model"],
+      groupBy: ["provider", "model", "agent"],
     });
   });
 
@@ -420,9 +421,24 @@ describe("UsageDashboard", () => {
           to: null,
           group_by: options?.groupBy ?? [],
           rows: [
-            { ...baseSummaryRow, llm_model: "gpt-5", total_tokens: 30 },
-            { ...baseSummaryRow, llm_model: "gpt-5-mini", total_tokens: 20 },
-            { ...baseSummaryRow, llm_model: "o3", total_tokens: 10 },
+            {
+              ...baseSummaryRow,
+              agent_name: "codex",
+              llm_model: "gpt-5",
+              total_tokens: 30,
+            },
+            {
+              ...baseSummaryRow,
+              agent_name: "claude-desktop",
+              llm_model: "gpt-5-mini",
+              total_tokens: 20,
+            },
+            {
+              ...baseSummaryRow,
+              agent_name: "claude-code",
+              llm_model: "o3",
+              total_tokens: 10,
+            },
           ],
           next_page_token: null,
         }),
@@ -447,6 +463,13 @@ describe("UsageDashboard", () => {
     await user.click(screen.getByRole("option", { name: "o3" }));
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("combobox", { name: "Agent" }));
+    // The Agents come from the data, each under its own name.
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "All",
+      "Codex",
+      "Claude Desktop",
+      "Claude Code",
+    ]);
     await user.click(screen.getByRole("option", { name: "Claude Code" }));
     await user.click(screen.getByRole("option", { name: "Codex" }));
     await user.keyboard("{Escape}");
@@ -573,6 +596,32 @@ describe("modelChoices", () => {
 
     expect(modelChoices(rows, "")).toEqual(["large", "small"]);
     expect(modelChoices(rows, "retired")).toEqual(["retired", "large", "small"]);
+  });
+});
+
+describe("agentChoices", () => {
+  const rows: SummaryRow[] = [
+    { ...baseSummaryRow, agent_name: "claude-code", total_tokens: 10 },
+    { ...baseSummaryRow, agent_name: "claude-desktop", total_tokens: 40 },
+    { ...baseSummaryRow, agent_name: "codex", total_tokens: 20 },
+    { ...baseSummaryRow, agent_name: "claude-code", total_tokens: 15 },
+  ];
+
+  it("lists every reported Agent apart, busiest first", () => {
+    expect(agentChoices(rows, [])).toEqual(["claude-desktop", "claude-code", "codex"]);
+    expect(agentChoices(rows, ["retired"])).toEqual([
+      "retired",
+      "claude-desktop",
+      "claude-code",
+      "codex",
+    ]);
+  });
+
+  it("narrows rows to the chosen Agents only", () => {
+    expect(rowsOfAgents(rows, ["claude-code"]).map((row) => row.total_tokens)).toEqual([
+      10, 15,
+    ]);
+    expect(rowsOfAgents(rows, [])).toHaveLength(4);
   });
 });
 

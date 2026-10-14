@@ -80,9 +80,14 @@ import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
 import { shortSessionId } from "@/lib/session-id";
 import { cn } from "@/lib/utils";
-import { modelChoices, providerChoices } from "@/lib/usage-choices";
+import {
+  agentChoices,
+  modelChoices,
+  providerChoices,
+  rowsOfAgents,
+} from "@/lib/usage-choices";
 import { createTimeRange, resolveTimeRange, type TimeRange } from "@/lib/time-range";
-import { agentDisplayName, agentFilterOptions, agentProductKey } from "@/lib/agents";
+import { agentDisplayName, agentFilterOptions } from "@/lib/agents";
 
 /** Each list matches any of its values; an empty list matches everything. */
 interface FilterDraft {
@@ -197,7 +202,7 @@ export function UsageDashboard() {
     [eventsQuery.data?.events],
   );
   const totals = React.useMemo(() => summarizeRows(rows), [rows]);
-  const agentCount = React.useMemo(() => countAgentProducts(rows), [rows]);
+  const agentCount = React.useMemo(() => countAgents(rows), [rows]);
 
   // The chart redraws only once every day of its range has arrived, and only
   // when the numbers changed, so a refresh or a new range does not blank it.
@@ -412,12 +417,13 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
   ): void => {
     onDraftChange({ ...draft, [field]: value });
   };
+  const timeScope = React.useMemo(
+    () => resolveTimeRange(draft.time, undefined, "calendar"),
+    [draft.time],
+  );
   const sessionScope = React.useMemo(
-    () => ({
-      ...resolveTimeRange(draft.time, undefined, "calendar"),
-      agentName: draft.agentNames,
-    }),
-    [draft.time, draft.agentNames],
+    () => ({ ...timeScope, agentName: draft.agentNames }),
+    [timeScope, draft.agentNames],
   );
   // Session choices also follow the providers and models, so only sessions
   // that used one of them are offered.
@@ -425,37 +431,47 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
     () => ({ ...sessionScope, provider: draft.providers, model: draft.models }),
     [sessionScope, draft.providers, draft.models],
   );
-  // Provider and model choices come from the data in the time and Agent
-  // scope, so custom gateways are listed; picking providers narrows the models
-  // to the ones they served. Neither choice hides its own alternatives.
+  // Agent, provider, and model choices come from the data in the time scope,
+  // so every Agent the backend reports and custom gateways are listed. Picking
+  // Agents narrows the providers and models, and picking providers narrows the
+  // models to the ones they served. No choice hides its own alternatives.
   const choicesQuery = useQuery({
-    queryKey: ["usage-models", "dashboard-filters", sessionScope],
-    queryFn: () => fetchUsageSummary(sessionScope, { groupBy: ["provider", "model"] }),
+    queryKey: ["usage-models", "dashboard-filters", timeScope],
+    queryFn: () =>
+      fetchUsageSummary(timeScope, { groupBy: ["provider", "model", "agent"] }),
     staleTime: 60_000,
   });
   const choiceRows = React.useMemo(
     () => choicesQuery.data?.rows ?? [],
     [choicesQuery.data?.rows],
   );
+  const agentOptions = React.useMemo(
+    () => agentFilterOptions(agentChoices(choiceRows, draft.agentNames)),
+    [choiceRows, draft.agentNames],
+  );
+  const agentRows = React.useMemo(
+    () => rowsOfAgents(choiceRows, draft.agentNames),
+    [choiceRows, draft.agentNames],
+  );
   const providerOptions = React.useMemo(
-    () => asFilterOptions(providerChoices(choiceRows, draft.providers)),
-    [choiceRows, draft.providers],
+    () => asFilterOptions(providerChoices(agentRows, draft.providers)),
+    [agentRows, draft.providers],
   );
   const modelOptions = React.useMemo(
     () =>
       asFilterOptions(
         modelChoices(
           draft.providers.length > 0
-            ? choiceRows.filter(
+            ? agentRows.filter(
                 (row) =>
                   row.llm_provider !== undefined &&
                   draft.providers.includes(row.llm_provider),
               )
-            : choiceRows,
+            : agentRows,
           draft.models,
         ),
       ),
-    [choiceRows, draft.providers, draft.models],
+    [agentRows, draft.providers, draft.models],
   );
   return (
     <Card>
@@ -482,7 +498,7 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
         <Field label={t("common.agent")}>
           <MultiSelectFilter
             label={t("common.agent")}
-            options={agentFilterOptions}
+            options={agentOptions}
             value={draft.agentNames}
             onChange={(agentNames) => update("agentNames", agentNames)}
           />
@@ -1484,12 +1500,11 @@ function formatLocalDay(date: Date): string {
   );
 }
 
-function countAgentProducts(rows: SummaryRow[]): number {
+function countAgents(rows: SummaryRow[]): number {
   return new Set(
     rows
       .map((row) => row.agent_name)
-      .filter((agentName): agentName is string => Boolean(agentName))
-      .map(agentProductKey),
+      .filter((agentName): agentName is string => Boolean(agentName)),
   ).size;
 }
 

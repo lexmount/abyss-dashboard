@@ -21,6 +21,20 @@ function busiestFirst(
   return [...unseen, ...values];
 }
 
+/** Agents seen in scope, busiest first, keeping current choices listed. */
+export function agentChoices(rows: SummaryRow[], selected: FilterValues): string[] {
+  return busiestFirst(rows, (row) => row.agent_name, selected);
+}
+
+/** Rows of the selected Agents, or every row when none is selected. */
+export function rowsOfAgents(rows: SummaryRow[], agentNames: string[]): SummaryRow[] {
+  return agentNames.length > 0
+    ? rows.filter(
+        (row) => row.agent_name !== undefined && agentNames.includes(row.agent_name),
+      )
+    : rows;
+}
+
 /** Models seen in scope, busiest first, keeping current choices listed. */
 export function modelChoices(rows: SummaryRow[], selected: FilterValues): string[] {
   return busiestFirst(rows, (row) => row.llm_model, selected);

@@ -7,15 +7,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/contexts/i18n-context";
 import SessionsPage, { filtersFromParams, paramsFromFilters } from "./page";
 
-const { listSessionsMock, searchSessionsMock } = vi.hoisted(() => ({
-  listSessionsMock: vi.fn(),
-  searchSessionsMock: vi.fn(),
-}));
+const { fetchUsageSummaryMock, listSessionsMock, searchSessionsMock } = vi.hoisted(
+  () => ({
+    fetchUsageSummaryMock: vi.fn(),
+    listSessionsMock: vi.fn(),
+    searchSessionsMock: vi.fn(),
+  }),
+);
 
 vi.mock("@/api/usage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/usage")>();
   return {
     ...actual,
+    fetchUsageSummary: fetchUsageSummaryMock,
     listSessions: listSessionsMock,
     searchSessions: searchSessionsMock,
   };
@@ -30,12 +34,14 @@ describe("SessionsPage", () => {
     window.localStorage.setItem("abyss-ui-language", "en");
     searchSessionsMock.mockResolvedValue(searchResponse());
     listSessionsMock.mockResolvedValue(listResponse());
+    fetchUsageSummaryMock.mockResolvedValue(choicesResponse());
   });
 
   afterEach(() => {
     cleanup();
     searchSessionsMock.mockReset();
     listSessionsMock.mockReset();
+    fetchUsageSummaryMock.mockReset();
   });
 
   it("lists every session until the user searches for a keyword", async () => {
@@ -291,5 +297,31 @@ function listResponse() {
         purpose: "title_generation",
       },
     ],
+  };
+}
+
+/** Summary behind the filter choices: one row per Agent, provider, and model. */
+function choicesResponse() {
+  const row = (agent_name: string, llm_model: string, total_tokens: number) => ({
+    agent_name,
+    llm_provider: "openai",
+    llm_model,
+    sessions: 1,
+    turns: 1,
+    requests: 1,
+    responses: 1,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    reasoning_tokens: 0,
+    total_tokens,
+  });
+  return {
+    from: null,
+    to: null,
+    group_by: ["provider", "model", "agent"],
+    rows: [row("claude-code", "o3", 20), row("codex", "gpt-5", 10)],
+    next_page_token: null,
   };
 }
