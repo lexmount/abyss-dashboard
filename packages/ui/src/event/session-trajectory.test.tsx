@@ -20,8 +20,20 @@ import {
 } from "./session-trajectory";
 
 const items: SessionTrajectoryItem[] = [
-  item({ kind: "context", stream: 0, turn_index: 1, text: "system: prompt" }),
-  item({ kind: "user", stream: 0, turn_index: 1, text: "list files" }),
+  item({
+    kind: "message",
+    role: "system",
+    stream: 0,
+    turn_index: 1,
+    text: "system: prompt",
+  }),
+  item({
+    kind: "message",
+    role: "user",
+    stream: 0,
+    turn_index: 1,
+    text: "list files",
+  }),
   item({
     kind: "tool_call",
     stream: 0,
@@ -31,8 +43,20 @@ const items: SessionTrajectoryItem[] = [
     output: "README.md",
     output_event_pk: "event-result",
   }),
-  item({ kind: "user", stream: 1, turn_index: 1, text: "classifier input" }),
-  item({ kind: "assistant", stream: 0, turn_index: 2, text: "Found README" }),
+  item({
+    kind: "message",
+    role: "user",
+    stream: 1,
+    turn_index: 1,
+    text: "classifier input",
+  }),
+  item({
+    kind: "message",
+    role: "assistant",
+    stream: 0,
+    turn_index: 2,
+    text: "Found README",
+  }),
 ];
 
 describe("session trajectory model", () => {
@@ -59,13 +83,32 @@ describe("session trajectory model", () => {
       { turnIndex: 2, summary: "Found README", toolNames: [], toolCalls: 0 },
       { turnIndex: 3, summary: null, toolNames: ["Read"], toolCalls: 1 },
     ]);
+    // A turn without user input is summarized by its reply, not its reasoning.
+    expect(
+      trajectoryTurnSummaries([
+        item({
+          kind: "message",
+          role: "reasoning",
+          stream: 0,
+          turn_index: 4,
+          text: "plan",
+        }),
+        item({
+          kind: "message",
+          role: "assistant",
+          stream: 0,
+          turn_index: 4,
+          text: "reply",
+        }),
+      ]).map(({ summary }) => summary),
+    ).toEqual(["reply"]);
     expect(
       trajectoryRows(items, 2).map((row) =>
         row.kind === "turn"
           ? `turn-${row.turnIndex}`
           : row.kind === "event"
             ? row.event.event_type
-            : row.item.kind,
+            : (row.item.role ?? row.item.kind),
       ),
     ).toEqual(["turn-2", "assistant"]);
   });
@@ -79,11 +122,11 @@ describe("session trajectory model", () => {
           ? `turn-${row.turnIndex}`
           : row.kind === "event"
             ? row.event.event_type
-            : row.item.kind,
+            : (row.item.role ?? row.item.kind),
       ),
     ).toEqual([
       "turn-1",
-      "context",
+      "system",
       "user",
       "tool_call",
       "user",
@@ -122,14 +165,16 @@ describe("SessionTrajectory", () => {
       null,
       [
         item({
-          kind: "context",
+          kind: "message",
+          role: "system",
           stream: 0,
           turn_index: 1,
           event_pk: "request",
           text: "instructions",
         }),
         item({
-          kind: "user",
+          kind: "message",
+          role: "user",
           stream: 0,
           turn_index: 1,
           event_pk: "request",
@@ -202,14 +247,16 @@ describe("SessionTrajectory", () => {
       null,
       [
         item({
-          kind: "context",
+          kind: "message",
+          role: "system",
           stream: 0,
           turn_index: 1,
           event_pk: "first",
           text: "first instructions",
         }),
         item({
-          kind: "context",
+          kind: "message",
+          role: "system",
           stream: 0,
           turn_index: 1,
           event_pk: "second",
@@ -225,21 +272,24 @@ describe("SessionTrajectory", () => {
     const onSelectEvent = vi.fn();
     const source = [
       item({
-        kind: "context",
+        kind: "message",
+        role: "system",
         stream: 0,
         turn_index: 1,
         event_pk: "request",
         text: "system instructions",
       }),
       item({
-        kind: "user",
+        kind: "message",
+        role: "user",
         stream: 0,
         turn_index: 1,
         event_pk: "request",
         text: "read the file",
       }),
       item({
-        kind: "assistant",
+        kind: "message",
+        role: "assistant",
         stream: 0,
         turn_index: 1,
         event_pk: "response",
@@ -345,7 +395,7 @@ describe("SessionTrajectory", () => {
   it("shows unclassified request text without guessing a role or dropping paragraphs", () => {
     const text = "system: instructions\n\nuser text\n\nuser text";
     renderTrajectory(vi.fn(), null, vi.fn(), null, null, [
-      item({ kind: "request", stream: 0, turn_index: 1, text }),
+      item({ kind: "text", stream: 0, turn_index: 1, text }),
     ]);
     expect(content().getByText("Request content")).toBeInTheDocument();
     expect(content().queryByText("Context")).not.toBeInTheDocument();
@@ -355,6 +405,36 @@ describe("SessionTrajectory", () => {
       content().getByText(/system: instructions.*user text.*user text/s)
         .textContent,
     ).toBe(text);
+  });
+
+  it("labels each message by the role the collector reported", () => {
+    renderTrajectory(vi.fn(), null, vi.fn(), null, null, [
+      item({
+        kind: "message",
+        role: "reasoning",
+        stream: 0,
+        turn_index: 1,
+        text: "plan",
+      }),
+      item({
+        kind: "message",
+        role: "assistant",
+        stream: 0,
+        turn_index: 1,
+        text: "done",
+      }),
+      item({
+        kind: "message",
+        role: "auditor",
+        stream: 0,
+        turn_index: 1,
+        text: "check",
+      }),
+    ]);
+    expect(content().getByText("Reasoning")).toBeInTheDocument();
+    // An assistant reply reads as plain prose without a label.
+    expect(content().getByText("done")).toBeInTheDocument();
+    expect(content().getByText("auditor")).toBeInTheDocument();
   });
 
   afterEach(() => {
@@ -367,27 +447,43 @@ describe("SessionTrajectory", () => {
     const onSelectEvent = vi.fn();
     const prompts = [
       item({
-        kind: "context",
+        kind: "message",
+        role: "system",
         stream: 0,
         turn_index: 1,
         text: "system instructions",
       }),
       item({
-        kind: "context",
+        kind: "message",
+        role: "system",
         stream: 0,
         turn_index: 1,
         text: "developer guidance",
       }),
-      item({ kind: "user", stream: 0, turn_index: 1, text: "hello" }),
       item({
-        kind: "context",
+        kind: "message",
+        role: "user",
+        stream: 0,
+        turn_index: 1,
+        text: "hello",
+      }),
+      item({
+        kind: "message",
+        role: "system",
         stream: 0,
         turn_index: 1,
         text: "later context",
       }),
-      item({ kind: "context", stream: 1, turn_index: 1, text: "side context" }),
       item({
-        kind: "context",
+        kind: "message",
+        role: "system",
+        stream: 1,
+        turn_index: 1,
+        text: "side context",
+      }),
+      item({
+        kind: "message",
+        role: "system",
         stream: 1,
         turn_index: 2,
         text: "next turn context",
@@ -475,7 +571,8 @@ describe("SessionTrajectory", () => {
     const onSelectEvent = vi.fn();
     renderTrajectory(onSelectEvent, null, vi.fn(), null, null, [
       item({
-        kind: "user",
+        kind: "message",
+        role: "user",
         stream: 0,
         turn_index: 1,
         text: "write the report",
@@ -587,7 +684,13 @@ describe("SessionTrajectory search", () => {
 
   it("opens every item with a hit so scrolling shows them", async () => {
     renderTrajectory(vi.fn(), null, vi.fn(), null, null, [
-      item({ kind: "user", stream: 0, turn_index: 1, text: "look around" }),
+      item({
+        kind: "message",
+        role: "user",
+        stream: 0,
+        turn_index: 1,
+        text: "look around",
+      }),
       item({
         kind: "tool_call",
         stream: 0,
@@ -739,7 +842,7 @@ function item(
     Pick<SessionTrajectoryItem, "kind" | "stream" | "turn_index">,
 ): SessionTrajectoryItem {
   return {
-    event_pk: `event-${fields.kind}-${fields.text ?? fields.name ?? ""}`,
+    event_pk: `event-${fields.role ?? fields.kind}-${fields.text ?? fields.name ?? ""}`,
     observed_at: "2026-09-01T00:00:00Z",
     llm_model: "gpt-5",
     ...fields,
@@ -778,8 +881,10 @@ const labels: SessionTrajectoryLabels = {
   tokensUnavailable: "Token usage unavailable",
   unknownModel: "Unknown model",
   noNewContent: "No new content",
-  request: "Request content",
-  context: "Context",
+  text: "Request content",
+  system: "Context",
+  developer: "Developer",
+  reasoning: "Reasoning",
   user: "User",
   assistant: "Assistant",
   toolCall: "Tool call",

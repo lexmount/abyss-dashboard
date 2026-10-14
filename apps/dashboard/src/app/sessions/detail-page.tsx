@@ -255,10 +255,12 @@ function useFoldSidebarOnScroll(summaryRef: React.RefObject<HTMLElement | null>)
 
 function trajectoryLabels(t: ReturnType<typeof useI18n>["t"]): SessionTrajectoryLabels {
   return {
-    request: t("sessions.trajectory.request"),
-    context: t("sessions.trajectory.context"),
+    text: t("sessions.trajectory.text"),
+    system: t("sessions.trajectory.system"),
+    developer: t("sessions.trajectory.developer"),
     user: t("sessions.trajectory.user"),
     assistant: t("sessions.trajectory.assistant"),
+    reasoning: t("sessions.trajectory.reasoning"),
     toolCall: t("sessions.detail.toolCall"),
     toolResult: t("sessions.detail.toolResult"),
     compaction: t("sessions.trajectory.compaction"),

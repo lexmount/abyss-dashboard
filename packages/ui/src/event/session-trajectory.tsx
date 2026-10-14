@@ -19,17 +19,13 @@ const COLLAPSED_MAX_LINES = 8;
 const SEARCH_DEBOUNCE_MS = 150;
 
 export type SessionTrajectoryItemKind =
-  | "request"
-  | "context"
-  | "user"
-  | "assistant"
-  | "tool_call"
-  | "tool_result"
-  | "compaction";
+  "message" | "text" | "tool_call" | "tool_result" | "compaction";
 
 /** One piece of new content contributed by one event. */
 export interface SessionTrajectoryItem {
   kind: SessionTrajectoryItemKind;
+  /** Role of a message item, exactly as the collector reported it. */
+  role?: string;
   stream: number;
   turn_index: number;
   event_pk: string;
@@ -63,10 +59,14 @@ export interface SessionTrajectoryEvent {
 }
 
 export interface SessionTrajectoryLabels {
-  request: string;
-  context: string;
+  /** Event text of an event whose conversation could not be read. */
+  text: string;
+  /** Labels of message roles; any other role shows as reported. */
+  system: string;
+  developer: string;
   user: string;
   assistant: string;
+  reasoning: string;
   toolCall: string;
   toolResult: string;
   /** Context compaction: its summary prompt as `input`, the summary as `output`. */
@@ -205,8 +205,8 @@ function eventContent(
   );
 }
 
-/** Group neighboring context messages while retaining their source events. */
-function groupContexts(
+/** Group neighboring instructions of one role while retaining their source events. */
+function groupInstructions(
   items: readonly DisplayTrajectoryItem[],
   keepEventBoundaries: boolean,
 ): DisplayTrajectoryItem[] {
@@ -214,8 +214,10 @@ function groupContexts(
   for (const item of items) {
     const previous = grouped.at(-1);
     if (
-      item.kind === "context" &&
-      previous?.kind === "context" &&
+      isInstruction(item) &&
+      previous !== undefined &&
+      previous.role === item.role &&
+      previous.kind === item.kind &&
       item.turn_index === previous.turn_index &&
       item.stream === previous.stream &&
       (!keepEventBoundaries || item.event_pk === previous.event_pk)
@@ -266,9 +268,9 @@ export function trajectoryTurnSummaries(
       };
       turns.push(turn);
     }
-    if (item.kind === "user" && turn.summary === null && item.text?.trim()) {
+    if (item.role === "user" && turn.summary === null && item.text?.trim()) {
       turn.summary = oneLine(item.text);
-    } else if (item.kind === "assistant" && item.text?.trim()) {
+    } else if (item.role === "assistant" && item.text?.trim()) {
       if (!replies.has(turn.turnIndex)) {
         replies.set(turn.turnIndex, oneLine(item.text));
       }
@@ -384,7 +386,7 @@ export function SessionTrajectory({
 }: SessionTrajectoryProps) {
   const items = React.useMemo(
     () =>
-      groupContexts(
+      groupInstructions(
         events ? eventContent(sourceItems, events) : sourceItems,
         events !== undefined,
       ),
@@ -1052,19 +1054,53 @@ function TrajectoryEventRow({
   );
 }
 
+/** System and developer messages: the instructions a conversation runs under. */
+function isInstruction(item: SessionTrajectoryItem): boolean {
+  return item.role === "system" || item.role === "developer";
+}
+
+/**
+ * Text that starts collapsed: event text, and every message that is neither
+ * user input nor the assistant's reply, such as instructions or reasoning.
+ */
+function isCollapsedText(item: SessionTrajectoryItem): boolean {
+  return (
+    item.kind === "text" ||
+    (item.kind === "message" &&
+      item.role !== "user" &&
+      item.role !== "assistant")
+  );
+}
+
+function roleLabel(
+  role: string | undefined,
+  labels: SessionTrajectoryLabels,
+): string {
+  switch (role) {
+    case "system":
+      return labels.system;
+    case "developer":
+      return labels.developer;
+    case "user":
+      return labels.user;
+    case "assistant":
+      return labels.assistant;
+    case "reasoning":
+      return labels.reasoning;
+    default:
+      return role ?? labels.text;
+  }
+}
+
 function kindLabel(
   item: DisplayTrajectoryItem,
   labels: SessionTrajectoryLabels,
 ): string {
   switch (item.kind) {
-    case "request":
-      return labels.request;
-    case "context":
-      return labels.context;
-    case "user":
-      return labels.user;
-    case "assistant":
-      return labels.assistant;
+    case "message":
+      return roleLabel(item.role, labels);
+    case "text":
+      return labels.text;
     case "tool_call":
       return labels.toolCall;
     case "tool_result":
@@ -1119,8 +1155,8 @@ function TrajectoryItemRow({
   // Tools and compactions both pair an input with an output.
   const paired = tool || compaction;
   const text = item.text ?? "";
-  // Context is the whole system prompt, so it starts collapsed like tools.
-  const compact = paired || item.kind === "context" || item.kind === "request";
+  // Instructions and reasoning can be long, so they start collapsed like tools.
+  const compact = paired || isCollapsedText(item);
   const collapsible = compact || isLong(text);
   const Chevron = expanded ? ChevronDown : ChevronRight;
   // A tool result usually arrives in a later request than its call.
@@ -1169,7 +1205,7 @@ function TrajectoryItemRow({
             ? labels.noOutput
             : labels.characters(formatNumber(item.output.length))}
         </span>
-      ) : item.kind === "context" || item.kind === "request" ? (
+      ) : isCollapsedText(item) ? (
         <span className="text-muted-foreground shrink-0 tabular-nums">
           {labels.characters(formatNumber(text.length))}
         </span>
@@ -1346,7 +1382,7 @@ function TrajectoryItemRow({
     </button>
   ) : null;
 
-  if (item.kind === "user") {
+  if (item.role === "user") {
     return (
       <div className={cn(nested ? "py-1" : "px-4 py-1.5")}>
         <div
