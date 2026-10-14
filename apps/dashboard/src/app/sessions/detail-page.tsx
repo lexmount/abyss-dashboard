@@ -295,7 +295,6 @@ function trajectoryLabels(t: ReturnType<typeof useI18n>["t"]): SessionTrajectory
     cacheReadTokens: t("sessions.trajectory.cacheReadTokens"),
     cacheWriteTokens: t("sessions.trajectory.cacheWriteTokens"),
     reasoningTokens: t("sessions.trajectory.reasoningTokens"),
-    estimatedTokens: t("sessions.trajectory.estimatedTokens"),
     tokensUnavailable: t("sessions.trajectory.tokensUnavailable"),
     unknownModel: t("sessions.trajectory.unknownModel"),
     noNewContent: t("sessions.trajectory.noNewContent"),

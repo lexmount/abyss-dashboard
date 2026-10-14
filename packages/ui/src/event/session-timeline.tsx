@@ -9,11 +9,7 @@ import {
 } from "../components/card";
 import { ScrollArea } from "../components/scroll-area";
 import { Separator } from "../components/separator";
-import {
-  isEstimatedTokenUsage,
-  toolContentSegments,
-  type ToolContentSegment,
-} from "./event-content";
+import { toolContentSegments, type ToolContentSegment } from "./event-content";
 
 const scrollableContentMaxCharacters = 1_200;
 const scrollableContentMaxLines = 12;
@@ -67,7 +63,6 @@ export interface SessionTimelineLabels {
   callId: string;
   deviceContext: string;
   ended: (time: string) => string;
-  estimatedTokens: string;
   image: string;
   imageContentHidden: string;
   imageLabel: (index: number) => string;
@@ -286,7 +281,6 @@ function SessionEvent({
   const eventText = eventTextOrPlaceholder(event.text, labels.noText);
   const toolSegments = toolContentSegments(event.metadata);
   const imageAttachments = event.attachments ?? [];
-  const tokenUsageEstimated = isEstimatedTokenUsage(event.metadata);
   const textContent = (
     <div className="p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">
       {eventText}
@@ -307,11 +301,7 @@ function SessionEvent({
             {event.llm_provider}
           </span>
         </div>
-        <div
-          className="text-muted-foreground text-xs"
-          title={tokenUsageEstimated ? labels.estimatedTokens : undefined}
-        >
-          {tokenUsageEstimated ? "≈ " : ""}
+        <div className="text-muted-foreground text-xs">
           {formatNumber(event.total_tokens)} {labels.tokens}
         </div>
       </div>

@@ -111,7 +111,6 @@ describe("SessionTrajectory", () => {
         output_tokens: 150,
         reasoning_tokens: 40,
         total_tokens: 150,
-        token_usage_estimated: true,
       }),
       usageEvent({ event_pk: "replay", token_usage_available: false }),
     ];
@@ -162,10 +161,10 @@ describe("SessionTrajectory", () => {
     expect(rows[0]).toHaveTextContent("Cache write 400");
     expect(rows[1]).toHaveTextContent("Response");
     expect(rows[1]).toHaveTextContent("claude-sonnet-4");
-    expect(rows[1]).toHaveTextContent("≈ 150 tokens");
-    expect(rows[1]).toHaveTextContent("Output ≈ 150");
-    expect(rows[1]).toHaveTextContent("Reasoning (included in output) ≈ 40");
-    expect(rows[1]).toHaveTextContent("Estimated");
+    expect(rows[1]).toHaveTextContent("150 tokens");
+    expect(rows[1]).toHaveTextContent("Output 150");
+    expect(rows[1]).toHaveTextContent("Reasoning (included in output) 40");
+    expect(rows[1]).not.toHaveTextContent("≈");
     expect(rows[2]).toHaveTextContent("Token usage unavailable");
     expect(onSelectEvent).not.toHaveBeenCalled();
     fireEvent.click(
@@ -763,7 +762,6 @@ function usageEvent(
     reasoning_tokens: 0,
     total_tokens: 0,
     token_usage_available: true,
-    token_usage_estimated: false,
     ...fields,
   };
 }
@@ -777,7 +775,6 @@ const labels: SessionTrajectoryLabels = {
   cacheReadTokens: "Cache read",
   cacheWriteTokens: "Cache write",
   reasoningTokens: "Reasoning (included in output)",
-  estimatedTokens: "Estimated",
   tokensUnavailable: "Token usage unavailable",
   unknownModel: "Unknown model",
   noNewContent: "No new content",

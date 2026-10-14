@@ -8,10 +8,6 @@ export interface ToolContentSegment {
   content: string | null;
 }
 
-export function isEstimatedTokenUsage(metadata: unknown): boolean {
-  return isRecord(metadata) && metadata.token_usage_estimated === true;
-}
-
 export function toolContentSegments(metadata: unknown): ToolContentSegment[] {
   if (!isRecord(metadata) || !Array.isArray(metadata.content_segments)) {
     return [];

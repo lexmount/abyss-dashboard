@@ -60,7 +60,6 @@ export interface SessionTrajectoryEvent {
   reasoning_tokens: number;
   total_tokens: number;
   token_usage_available: boolean;
-  token_usage_estimated: boolean;
 }
 
 export interface SessionTrajectoryLabels {
@@ -107,7 +106,6 @@ export interface SessionTrajectoryLabels {
   cacheReadTokens: string;
   cacheWriteTokens: string;
   reasoningTokens: string;
-  estimatedTokens: string;
   tokensUnavailable: string;
   unknownModel: string;
   noNewContent: string;
@@ -997,8 +995,6 @@ function TrajectoryEventRow({
 }) {
   const input =
     event.input_tokens + event.cache_read_tokens + event.cache_write_tokens;
-  const count = (value: number) =>
-    `${event.token_usage_estimated ? "≈ " : ""}${formatNumber(value)}`;
   const breakdown = [
     ...(input > 0 || event.event_type === "request"
       ? [[labels.inputTokens, input] as const]
@@ -1036,14 +1032,9 @@ function TrajectoryEventRow({
         </span>
         <span className="shrink-0 font-semibold tabular-nums">
           {event.token_usage_available
-            ? `${count(event.total_tokens)} ${labels.tokens}`
+            ? `${formatNumber(event.total_tokens)} ${labels.tokens}`
             : labels.tokensUnavailable}
         </span>
-        {event.token_usage_available && event.token_usage_estimated ? (
-          <span className="text-muted-foreground">
-            {labels.estimatedTokens}
-          </span>
-        ) : null}
         <span className="text-muted-foreground ml-auto shrink-0 tabular-nums">
           {formatTime(event.observed_at)}
         </span>
@@ -1051,7 +1042,7 @@ function TrajectoryEventRow({
           <span className="text-muted-foreground flex w-full flex-wrap gap-x-3 gap-y-1 tabular-nums">
             {breakdown.map(([label, value]) => (
               <span key={label}>
-                {label} {count(value)}
+                {label} {formatNumber(value)}
               </span>
             ))}
           </span>
