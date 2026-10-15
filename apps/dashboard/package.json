@@ -46,7 +46,7 @@
   "devDependencies": {
     "@fontsource/dm-sans": "^5.3.0",
     "@fontsource/fragment-mono": "^5.3.0",
-    "@lexmount.com/abyss-ui": "0.2.2",
+    "@lexmount.com/abyss-ui": "0.3.0",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",

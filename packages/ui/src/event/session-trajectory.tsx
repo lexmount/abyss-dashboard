@@ -117,8 +117,8 @@ export interface SessionTrajectoryProps {
   events?: SessionTrajectoryEvent[];
   /** Raw event opened in the inspector, or null. */
   selectedEventId: string | null;
-  /** Selects an item's raw event; items from the same event highlight together. */
-  onSelectEvent: (eventPk: string) => void;
+  /** Selects a raw event; omit for read-only snapshots without raw-event access. */
+  onSelectEvent?: (eventPk: string) => void;
   /** Raw event inspector, shown beside the content while an event is selected. */
   inspector?: React.ReactNode;
   /** Turn shown on its own, or null for the whole session. */
@@ -990,7 +990,7 @@ function TrajectoryEventRow({
 }: {
   event: SessionTrajectoryEvent;
   selected: boolean;
-  onSelectEvent: (eventPk: string) => void;
+  onSelectEvent?: (eventPk: string) => void;
   formatTime: (value: string) => string;
   formatNumber: (value: number) => string;
   labels: SessionTrajectoryLabels;
@@ -1019,7 +1019,8 @@ function TrajectoryEventRow({
       <button
         type="button"
         aria-pressed={selected}
-        onClick={() => onSelectEvent(event.event_pk)}
+        disabled={!onSelectEvent}
+        onClick={() => onSelectEvent?.(event.event_pk)}
         className={cn(
           "bg-muted/40 hover:bg-muted/70 focus-visible:ring-ring flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset",
         )}
@@ -1143,7 +1144,7 @@ function TrajectoryItemRow({
   expanded: boolean;
   selectedEventId: string | null;
   onToggle: () => void;
-  onSelectEvent: (eventPk: string) => void;
+  onSelectEvent?: (eventPk: string) => void;
   onRevealOutput?: (eventPk: string, callId?: string) => void;
   nested?: boolean;
   formatTime: (value: string) => string;
@@ -1175,17 +1176,19 @@ function TrajectoryItemRow({
     stop(event);
     onToggle();
   };
-  const selectable = {
-    role: "button",
-    tabIndex: 0,
-    "aria-pressed": selected,
-    onClick: () => onSelectEvent(item.event_pk),
-    onKeyDown: (event: React.KeyboardEvent) => {
-      if (event.target === event.currentTarget && event.key === "Enter") {
-        onSelectEvent(item.event_pk);
-      }
-    },
-  } as const;
+  const selectable = onSelectEvent
+    ? ({
+        role: "button",
+        tabIndex: 0,
+        "aria-pressed": selected,
+        onClick: () => onSelectEvent(item.event_pk),
+        onKeyDown: (event: React.KeyboardEvent) => {
+          if (event.target === event.currentTarget && event.key === "Enter") {
+            onSelectEvent(item.event_pk);
+          }
+        },
+      } as const)
+    : {};
   const activeMatch = activeOccurrence !== null;
   // The active occurrence, relative to each field's own occurrences.
   const offsets = activeMatch ? fieldOccurrenceOffsets(item, query) : null;
@@ -1310,7 +1313,7 @@ function TrajectoryItemRow({
                           : activeIn("output")
                       }
                       action={
-                        resultEventPk !== null ? (
+                        resultEventPk !== null && onSelectEvent ? (
                           <button
                             type="button"
                             onClick={() => onSelectEvent(resultEventPk)}
@@ -1336,7 +1339,9 @@ function TrajectoryItemRow({
                       active={activeIn("text")}
                     />
                   </SearchScrollBox>
-                  {item.contextEventIds && item.contextEventIds.length > 1 ? (
+                  {onSelectEvent &&
+                  item.contextEventIds &&
+                  item.contextEventIds.length > 1 ? (
                     <div className="text-muted-foreground flex flex-wrap gap-3 text-xs">
                       {item.contextEventIds.map((id, index) => (
                         <button
