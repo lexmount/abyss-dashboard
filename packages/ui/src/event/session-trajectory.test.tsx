@@ -602,6 +602,32 @@ describe("SessionTrajectory", () => {
   });
 });
 
+describe("read-only session snapshots", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps projected content readable without offering raw event access", () => {
+    renderTrajectory(undefined, null, vi.fn(), null, null, items, [
+      usageEvent({ event_pk: items[0]!.event_pk }),
+    ]);
+    for (const button of screen.queryAllByRole("button", {
+      name: /Open event/,
+    })) {
+      expect(button).not.toBeInTheDocument();
+    }
+    const eventHeader = document.querySelector(
+      "[data-trajectory-event] button",
+    );
+    expect(eventHeader).toBeDisabled();
+    expect(
+      screen.getByRole("textbox", { name: "Search this session" }),
+    ).toBeEnabled();
+  });
+});
+
 describe("SessionTrajectory search", () => {
   afterEach(() => {
     cleanup();
@@ -622,7 +648,7 @@ describe("SessionTrajectory search", () => {
 
     // The tool result in turn 1 and the reply in turn 2 both mention README.
     expect(await screen.findByText("1 / 2")).toBeInTheDocument();
-    expect(onFocusTurn).toHaveBeenLastCalledWith(1);
+    await waitFor(() => expect(onFocusTurn).toHaveBeenLastCalledWith(1));
     const turns = within(screen.getByRole("listbox", { name: "Turns" }));
     expect(turns.getAllByText("1 hits")).toHaveLength(2);
 
@@ -782,7 +808,7 @@ function content() {
 }
 
 function renderTrajectory(
-  onSelectEvent: (eventPk: string) => void,
+  onSelectEvent: ((eventPk: string) => void) | undefined,
   focusedTurn: number | null = null,
   onFocusTurn: (turnIndex: number | null) => void = vi.fn(),
   selectedEventId: string | null = null,
