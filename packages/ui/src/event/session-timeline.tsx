@@ -9,6 +9,7 @@ import {
 } from "../components/card";
 import { ScrollArea } from "../components/scroll-area";
 import { Separator } from "../components/separator";
+import { toolContentSegments, type ToolContentSegment } from "./event-content";
 
 const scrollableContentMaxCharacters = 1_200;
 const scrollableContentMaxLines = 12;
@@ -62,7 +63,6 @@ export interface SessionTimelineLabels {
   callId: string;
   deviceContext: string;
   ended: (time: string) => string;
-  estimatedTokens: string;
   image: string;
   imageContentHidden: string;
   imageLabel: (index: number) => string;
@@ -92,14 +92,6 @@ export interface SessionTimelineProps {
   labels: SessionTimelineLabels;
   timeline: SessionTimelineViewModel;
   showInternalIdentifiers?: boolean;
-}
-
-interface ToolContentSegment {
-  type: "tool_call" | "tool_result";
-  itemId: string | null;
-  callId: string | null;
-  name: string | null;
-  content: string | null;
 }
 
 export function SessionTimeline({
@@ -289,7 +281,6 @@ function SessionEvent({
   const eventText = eventTextOrPlaceholder(event.text, labels.noText);
   const toolSegments = toolContentSegments(event.metadata);
   const imageAttachments = event.attachments ?? [];
-  const tokenUsageEstimated = isEstimatedTokenUsage(event.metadata);
   const textContent = (
     <div className="p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">
       {eventText}
@@ -310,11 +301,7 @@ function SessionEvent({
             {event.llm_provider}
           </span>
         </div>
-        <div
-          className="text-muted-foreground text-xs"
-          title={tokenUsageEstimated ? labels.estimatedTokens : undefined}
-        >
-          {tokenUsageEstimated ? "≈ " : ""}
+        <div className="text-muted-foreground text-xs">
           {formatNumber(event.total_tokens)} {labels.tokens}
         </div>
       </div>
@@ -454,46 +441,9 @@ function eventTextOrPlaceholder(
   return text?.trim() ? text : placeholder;
 }
 
-function isEstimatedTokenUsage(metadata: unknown): boolean {
-  return isRecord(metadata) && metadata.token_usage_estimated === true;
-}
-
 function shouldScrollContent(text: string): boolean {
   return (
     text.length > scrollableContentMaxCharacters ||
     text.split(/\r\n|\r|\n/).length > scrollableContentMaxLines
   );
-}
-
-function toolContentSegments(metadata: unknown): ToolContentSegment[] {
-  if (!isRecord(metadata) || !Array.isArray(metadata.content_segments)) {
-    return [];
-  }
-
-  return metadata.content_segments.flatMap((value): ToolContentSegment[] => {
-    if (
-      !isRecord(value) ||
-      (value.type !== "tool_call" && value.type !== "tool_result")
-    ) {
-      return [];
-    }
-    const isToolCall = value.type === "tool_call";
-    return [
-      {
-        type: value.type,
-        itemId: stringValue(value.item_id),
-        callId: stringValue(value.call_id),
-        name: isToolCall ? stringValue(value.name) : null,
-        content: stringValue(isToolCall ? value.input : value.output),
-      },
-    ];
-  });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value : null;
 }

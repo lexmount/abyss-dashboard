@@ -1,42 +1,22 @@
-const agentProductLabels = {
+// Display labels for the Agent names abyss-rs reports. Names are shown and
+// filtered exactly as the backend returns them; an unlisted name shows as is.
+const agentLabels: Record<string, string> = {
   "claude-code": "Claude Code",
+  "claude-desktop": "Claude Desktop",
   codex: "Codex",
-  cursor: "Cursor",
-  chatgpt: "ChatGPT",
   openclaw: "OpenClaw",
-} as const;
-
-const agentProductAliases: Record<string, keyof typeof agentProductLabels> = {
-  claude: "claude-code",
-  "claude-code": "claude-code",
-  "claude-desktop": "claude-code",
-  codex: "codex",
-  cursor: "cursor",
-  chatgpt: "chatgpt",
-  openclaw: "openclaw",
 };
 
-export const agentFilterOptions = [
-  { value: "claude-code", label: agentProductLabels["claude-code"] },
-  { value: "codex", label: agentProductLabels.codex },
-] as const;
-
-export function agentProductKey(agentName: string | null | undefined): string {
-  const normalized = normalizeAgentName(agentName);
-  return agentProductAliases[normalized] ?? normalized;
-}
-
 export function agentDisplayName(agentName: string | null | undefined): string {
-  const productKey = agentProductKey(agentName);
-  return (
-    agentProductLabels[productKey as keyof typeof agentProductLabels] ?? productKey
-  );
+  if (!agentName) {
+    return "unknown";
+  }
+  return Object.hasOwn(agentLabels, agentName) ? agentLabels[agentName] : agentName;
 }
 
-function normalizeAgentName(agentName: string | null | undefined): string {
-  const normalized = agentName
-    ?.trim()
-    .toLocaleLowerCase()
-    .replace(/[_\s]+/g, "-");
-  return normalized && normalized.length > 0 ? normalized : "unknown";
+/** Filter options for the Agent names seen in the data, labelled for display. */
+export function agentFilterOptions(
+  agentNames: readonly string[],
+): { value: string; label: string }[] {
+  return agentNames.map((value) => ({ value, label: agentDisplayName(value) }));
 }

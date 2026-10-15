@@ -1,33 +1,38 @@
-import { RefreshCw, Search } from "lucide-react";
+import { RotateCcw, Search } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import * as React from "react";
 import type { FormEvent, ReactNode } from "react";
+import { fetchUsageSummary } from "@/api/usage";
 import { Button } from "@lexmount.com/abyss-ui";
 import {
   Card,
   CardAction,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
 } from "@lexmount.com/abyss-ui";
 import { Input } from "@lexmount.com/abyss-ui";
 import { Label } from "@lexmount.com/abyss-ui";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@lexmount.com/abyss-ui";
+import { asFilterOptions, MultiSelectFilter } from "@/components/multi-select-filter";
+import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentFilterOptions } from "@/lib/agents";
+import { resolveTimeRange, type TimeRange } from "@/lib/time-range";
+import {
+  agentChoices,
+  modelChoices,
+  providerChoices,
+  rowsOfAgents,
+} from "@/lib/usage-choices";
 
+/** Each list matches any of its values; an empty list matches everything. */
 export interface SessionSearchFilters {
   q: string;
-  from: string;
-  to: string;
-  agentName: string;
-  provider: string;
-  model: string;
-  eventType: "all" | "request" | "response";
+  time: TimeRange;
+  agentNames: string[];
+  providers: string[];
+  models: string[];
 }
 
 interface SessionSearchFormProps {
@@ -37,8 +42,6 @@ interface SessionSearchFormProps {
   onSubmit: () => void;
   onReset: () => void;
 }
-
-const providerOptions = ["openai", "anthropic"] as const;
 
 export function SessionSearchForm({
   draft,
@@ -52,26 +55,50 @@ export function SessionSearchForm({
     key: Key,
     value: SessionSearchFilters[Key],
   ): void => onDraftChange({ ...draft, [key]: value });
+  // Agent, provider, and model choices come from the sessions in the time
+  // scope, so every Agent the backend reports is listed. Picking Agents narrows
+  // the providers and models, and picking providers narrows the models to the
+  // ones they served.
+  const choiceScope = React.useMemo(() => resolveTimeRange(draft.time), [draft.time]);
+  const choicesQuery = useQuery({
+    queryKey: ["usage-models", "session-filters", choiceScope],
+    queryFn: () =>
+      fetchUsageSummary(choiceScope, { groupBy: ["provider", "model", "agent"] }),
+    staleTime: 60_000,
+  });
+  const allRows = choicesQuery.data?.rows ?? [];
+  const agents = agentFilterOptions(agentChoices(allRows, draft.agentNames));
+  const rows = rowsOfAgents(allRows, draft.agentNames);
+  const providers = asFilterOptions(providerChoices(rows, draft.providers));
+  const models = asFilterOptions(
+    modelChoices(
+      draft.providers.length > 0
+        ? rows.filter(
+            (row) =>
+              row.llm_provider !== undefined &&
+              draft.providers.includes(row.llm_provider),
+          )
+        : rows,
+      draft.models,
+    ),
+  );
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (draft.q.trim()) {
-      onSubmit();
-    }
+    onSubmit();
   };
 
   return (
     <Card>
-      <form onSubmit={submit}>
-        <CardHeader className="grid-rows-1 items-center">
-          <CardTitle className="text-base leading-6">
-            {t("sessions.search.title")}
-          </CardTitle>
-          <CardAction className="row-span-1 flex self-center gap-2">
+      <form onSubmit={submit} className="flex flex-col gap-6">
+        <CardHeader>
+          <CardTitle>{t("sessions.search.title")}</CardTitle>
+          <CardDescription>{t("sessions.search.description")}</CardDescription>
+          <CardAction className="flex gap-2">
             <Button type="button" variant="outline" size="sm" onClick={onReset}>
-              <RefreshCw className="size-4" />
+              <RotateCcw className="size-4" />
               {t("common.reset")}
             </Button>
-            <Button type="submit" size="sm" disabled={!draft.q.trim() || searching}>
+            <Button type="submit" size="sm" disabled={searching}>
               <Search className="size-4" />
               {t("sessions.search.submit")}
             </Button>
@@ -97,84 +124,36 @@ export function SessionSearchForm({
           <div
             className="session-search-filter-grid grid gap-4"
             data-testid="session-search-filter-grid"
+            data-time-range={draft.time.preset}
           >
-            <Field label={t("common.from")}>
-              <Input
-                type="datetime-local"
-                value={draft.from}
-                onChange={(event) => update("from", event.target.value)}
-              />
-            </Field>
-            <Field label={t("common.to")}>
-              <Input
-                type="datetime-local"
-                value={draft.to}
-                onChange={(event) => update("to", event.target.value)}
-              />
-            </Field>
+            <TimeRangeField
+              value={draft.time}
+              onChange={(time) => update("time", time)}
+            />
             <Field label={t("common.agent")}>
-              <Select
-                value={draft.agentName || "all"}
-                onValueChange={(value) =>
-                  update("agentName", value === "all" ? "" : value)
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t("common.all")}</SelectItem>
-                  {agentFilterOptions.map((agent) => (
-                    <SelectItem key={agent.value} value={agent.value}>
-                      {agent.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                label={t("common.agent")}
+                options={agents}
+                value={draft.agentNames}
+                onChange={(agentNames) => update("agentNames", agentNames)}
+              />
             </Field>
             <Field label={t("common.provider")}>
-              <Select
-                value={draft.provider || "all"}
-                onValueChange={(value) =>
-                  update("provider", value === "all" ? "" : value)
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t("common.all")}</SelectItem>
-                  {providerOptions.map((provider) => (
-                    <SelectItem key={provider} value={provider}>
-                      {provider}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label={t("common.model")}>
-              <Input
-                value={draft.model}
-                maxLength={256}
-                onChange={(event) => update("model", event.target.value)}
+              <MultiSelectFilter
+                label={t("common.provider")}
+                options={providers}
+                value={draft.providers}
+                onChange={(providers) => update("providers", providers)}
               />
             </Field>
-            <Field label={t("common.event")}>
-              <Select
-                value={draft.eventType}
-                onValueChange={(value: SessionSearchFilters["eventType"]) =>
-                  update("eventType", value)
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t("common.all")}</SelectItem>
-                  <SelectItem value="request">{t("common.request")}</SelectItem>
-                  <SelectItem value="response">{t("common.response")}</SelectItem>
-                </SelectContent>
-              </Select>
+            <Field label={t("common.model")}>
+              <MultiSelectFilter
+                label={t("common.model")}
+                options={models}
+                value={draft.models}
+                mono
+                onChange={(models) => update("models", models)}
+              />
             </Field>
           </div>
         </CardContent>
@@ -185,8 +164,8 @@ export function SessionSearchForm({
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-2">
-      <Label className="leading-5">{label}</Label>
+    <div className="grid min-w-0 gap-2">
+      <Label>{label}</Label>
       {children}
     </div>
   );

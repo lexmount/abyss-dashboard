@@ -1,9 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  type Query,
+  replaceEqualDeep,
+  useIsFetching,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   Activity,
+  ArrowRight,
   Bot,
   ChevronLeft,
   ChevronRight,
@@ -11,21 +20,20 @@ import {
   ChevronsRight,
   Database,
   ExternalLink,
-  Eye,
-  EyeOff,
   MessageSquare,
-  RefreshCw,
+  RotateCcw,
   Search,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import {
-  fetchDailyTokenUsage,
+  fetchDayTokenUsage,
   fetchRawEvents,
   fetchUsageSummary,
   type DailyTokenUsageRow,
   type SummaryRow,
-  type UsageEvent,
+  type UsageEventListItem,
+  type UsageDayWindow,
   type UsageQuery,
 } from "@/api/usage";
 import { BaseLayout } from "@/components/layouts/base-layout";
@@ -46,9 +54,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@lexmount.com/abyss-ui";
-import { Input } from "@lexmount.com/abyss-ui";
 import { Label } from "@lexmount.com/abyss-ui";
-import { Popover, PopoverContent, PopoverTrigger } from "@lexmount.com/abyss-ui";
 import {
   Select,
   SelectContent,
@@ -65,30 +71,43 @@ import {
   TableRow,
 } from "@lexmount.com/abyss-ui";
 import { ToggleGroup, ToggleGroupItem } from "@lexmount.com/abyss-ui";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@lexmount.com/abyss-ui";
+import { asFilterOptions, MultiSelectFilter } from "@/components/multi-select-filter";
+import { QueryErrorBanner } from "@/components/query-error";
+import { RefreshControl } from "@/components/refresh-control";
+import { SessionPicker } from "@/components/session-picker";
+import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
-import { agentDisplayName, agentFilterOptions, agentProductKey } from "@/lib/agents";
+import { shortSessionId } from "@/lib/session-id";
+import { cn } from "@/lib/utils";
+import {
+  agentChoices,
+  modelChoices,
+  providerChoices,
+  rowsOfAgents,
+} from "@/lib/usage-choices";
+import { createTimeRange, resolveTimeRange, type TimeRange } from "@/lib/time-range";
+import { agentDisplayName, agentFilterOptions } from "@/lib/agents";
 
+/** Each list matches any of its values; an empty list matches everything. */
 interface FilterDraft {
-  from: string;
-  to: string;
-  agentName: string;
-  sessionId: string;
-  provider: string;
-  model: string;
+  time: TimeRange;
+  agentNames: string[];
+  sessionIds: string[];
+  providers: string[];
+  models: string[];
   eventType: string;
 }
 
 const defaultNonDateFilters = {
-  agentName: "",
-  sessionId: "",
-  provider: "",
-  model: "",
+  agentNames: [],
+  sessionIds: [],
+  providers: [],
+  models: [],
   eventType: "all",
-} satisfies Omit<FilterDraft, "from" | "to">;
+} satisfies Omit<FilterDraft, "time">;
 
-const providerOptions = ["openai", "anthropic"] as const;
 const pageSizeOptions = [10, 20, 50] as const;
-const recentEventTextPreviewMaxCharacters = 700;
 const tokenChartRangeOptions = [
   { value: "7d", days: 7, labelKey: "dashboard.tokenChart.range7Days" },
   { value: "30d", days: 30, labelKey: "dashboard.tokenChart.range30Days" },
@@ -107,62 +126,155 @@ export function UsageDashboard() {
     createDefaultFilters(),
   );
   const [tokenChartRange, setTokenChartRange] = React.useState<TokenChartRange>("7d");
+  // Relative ranges end at this moment; applying filters or refreshing moves it.
+  const [now, setNow] = React.useState(() => new Date());
+  const queryClient = useQueryClient();
   const query = React.useMemo<UsageQuery>(
     () => ({
-      from: toUtcIso(filters.from),
-      to: toUtcIso(filters.to),
-      agentName: filters.agentName,
-      sessionId: filters.sessionId,
-      provider: filters.provider,
-      model: filters.model,
-      eventType: filters.eventType === "all" ? "" : filters.eventType,
+      // Usage counts today as a day: "last 7 days" starts at midnight six
+      // days ago rather than exactly 168 hours back.
+      ...resolveTimeRange(filters.time, now, "calendar"),
+      ...nonTimeScope(filters),
     }),
-    [filters],
+    [filters, now],
   );
   const tokenChartWindow = React.useMemo(
-    () => tokenChartDateWindow(tokenChartRange),
-    [tokenChartRange],
+    () => tokenChartDateWindow(tokenChartRange, now),
+    [tokenChartRange, now],
   );
-  const chartQuery = React.useMemo<UsageQuery>(
-    () => ({
-      ...query,
-      from: tokenChartWindow.from,
-      to: tokenChartWindow.to,
-    }),
-    [query, tokenChartWindow],
-  );
+  // The chart has its own days, so only the non-time filters scope it; keeping
+  // `now` out of its keys lets a refresh leave finished days alone.
+  const chartScope = React.useMemo(() => nonTimeScope(filters), [filters]);
 
+  // Sessions and turns are counted within each row, so the cards add rows of
+  // one Agent each: a session never spans two Agents, while it can span
+  // several providers and models and would be counted once for each.
   const summaryQuery = useQuery({
     queryKey: ["usage-summary", "table", query],
-    queryFn: () => fetchUsageSummary(query),
+    queryFn: () => fetchUsageSummary(query, { groupBy: ["agent"] }),
+    // A refresh moves the range's end, which is a new query; keep the shown
+    // numbers until it lands rather than blanking the cards.
+    placeholderData: keepPreviousData,
   });
-  const chartSummaryQuery = useQuery({
-    queryKey: ["usage-summary", "token-chart", chartQuery],
-    queryFn: () => fetchDailyTokenUsage(chartQuery),
+  const tokenDays = useQueries({
+    queries: tokenChartWindow.dayWindows.map((dayWindow, index) => {
+      // Today is still filling, so its key leaves out the moving end and each
+      // fetch reads up to that moment; finished days never change.
+      const today = index === tokenChartWindow.dayWindows.length - 1;
+      return {
+        queryKey: [
+          tokenDayQueryRoot,
+          chartScope,
+          dayWindow.from,
+          today ? openDayEnd : dayWindow.to,
+        ],
+        queryFn: () =>
+          fetchDayTokenUsage(
+            chartScope,
+            today ? { ...dayWindow, to: new Date().toISOString() } : dayWindow,
+          ),
+        staleTime: today ? undefined : Infinity,
+      };
+    }),
   });
+  // Recent events page through the backend, so every matching event is
+  // reachable rather than only the newest hundred.
+  const [eventsPage, setEventsPage] = React.useState(0);
+  const [eventsPageSize, setEventsPageSize] = React.useState<number>(
+    pageSizeOptions[0],
+  );
   const eventsQuery = useQuery({
-    queryKey: ["usage-events", query],
-    queryFn: () => fetchRawEvents(query),
+    queryKey: ["usage-events", query, eventsPage, eventsPageSize],
+    queryFn: () =>
+      fetchRawEvents(query, {
+        limit: eventsPageSize,
+        offset: eventsPage * eventsPageSize,
+      }),
+    placeholderData: keepPreviousData,
   });
 
   const rows = React.useMemo(
     () => summaryQuery.data?.rows ?? [],
     [summaryQuery.data?.rows],
   );
-  const chartSummaryRows = React.useMemo(
-    () => chartSummaryQuery.data?.rows ?? [],
-    [chartSummaryQuery.data?.rows],
-  );
   const events = React.useMemo(
     () => eventsQuery.data?.events ?? [],
     [eventsQuery.data?.events],
   );
   const totals = React.useMemo(() => summarizeRows(rows), [rows]);
-  const agentCount = React.useMemo(() => countAgentProducts(rows), [rows]);
-  const chartRows = React.useMemo(
-    () => chartRowsByDay(chartSummaryRows, tokenChartWindow),
-    [chartSummaryRows, tokenChartWindow],
+  const agentCount = React.useMemo(() => countAgents(rows), [rows]);
+
+  // The chart redraws only once every day of its range has arrived, and only
+  // when the numbers changed, so a refresh or a new range does not blank it.
+  const dayRows = tokenDays.map((day) => day.data);
+  const loadedDayRows = dayRows.every((row) => row !== undefined)
+    ? (dayRows as DailyTokenUsageRow[])
+    : null;
+  const [chartRows, setChartRows] = React.useState<ChartRow[] | null>(null);
+  if (loadedDayRows !== null) {
+    const nextChartRows = replaceEqualDeep(
+      chartRows,
+      chartRowsByDay(loadedDayRows, tokenChartWindow),
+    );
+    if (nextChartRows !== chartRows) {
+      setChartRows(nextChartRows);
+    }
+  }
+  const chartError = tokenDays.find((day) => day.isError)?.error ?? null;
+
+  const refreshing = useIsFetching({ predicate: isUsageQuery }) > 0;
+  const usageError = summaryQuery.error ?? chartError ?? eventsQuery.error;
+  const updatedAt = Math.max(
+    summaryQuery.dataUpdatedAt,
+    eventsQuery.dataUpdatedAt,
+    ...tokenDays.map((day) => day.dataUpdatedAt),
   );
+
+  // Queries whose key moved with `now` start on their own; the rest (open
+  // ranges, today's chart point, filter choices) refetch here. Requests already
+  // under way are reused rather than sent twice.
+  const [refreshRequest, setRefreshRequest] = React.useState(0);
+  React.useEffect(() => {
+    if (refreshRequest > 0) {
+      void queryClient.invalidateQueries(
+        { predicate: isRefreshedOnRequest },
+        { cancelRefetch: false },
+      );
+    }
+  }, [queryClient, refreshRequest]);
+  const refresh = React.useCallback(() => {
+    setNow(new Date());
+    setRefreshRequest((current) => current + 1);
+  }, []);
+  const applyFilters = (nextFilters: FilterDraft): void => {
+    setFilters(nextFilters);
+    setEventsPage(0);
+    refresh();
+  };
+
+  // Live: while the page is in view and nothing failed, the same refresh runs
+  // on a timer. It keeps the events page and leaves unapplied filters alone; a
+  // failure pauses it until the reader retries.
+  const pageVisible = usePageVisible();
+  const live = pageVisible && usageError === null;
+  const latestUpdate = React.useRef(updatedAt);
+  React.useEffect(() => {
+    latestUpdate.current = updatedAt;
+  }, [updatedAt]);
+  React.useEffect(() => {
+    if (!live) {
+      return;
+    }
+    // Coming back to the page catches up at once when the data is stale.
+    if (
+      latestUpdate.current > 0 &&
+      Date.now() - latestUpdate.current >= autoRefreshIntervalMs
+    ) {
+      refresh();
+    }
+    const timer = window.setInterval(refresh, autoRefreshIntervalMs);
+    return () => window.clearInterval(timer);
+  }, [live, refresh]);
 
   return (
     <BaseLayout title={t("dashboard.title")} description={t("dashboard.description")}>
@@ -170,35 +282,42 @@ export function UsageDashboard() {
         <UsageFilters
           draft={draft}
           onDraftChange={setDraft}
-          onApply={() => setFilters(draft)}
+          onApply={() => applyFilters(draft)}
           onReset={() => {
             const nextFilters = createDefaultFilters();
             setDraft(nextFilters);
-            setFilters(nextFilters);
+            applyFilters(nextFilters);
           }}
         />
 
-        {summaryQuery.isError ? (
-          <StatusCard
-            title={t("dashboard.summaryError")}
-            detail={summaryQuery.error.message}
-          />
-        ) : null}
-        {chartSummaryQuery.isError ? (
-          <StatusCard
-            title={t("dashboard.chart.error")}
-            detail={chartSummaryQuery.error.message}
+        {/* One explanation for the page; failed sections below only say
+            they have nothing to show, rather than repeating the error. */}
+        {usageError ? (
+          <QueryErrorBanner
+            error={usageError}
+            retrying={refreshing}
+            onRetry={() => {
+              void queryClient.invalidateQueries({
+                predicate: (query) =>
+                  isRefreshedOnRequest(query) ||
+                  (isUsageQuery(query) && query.state.status === "error"),
+              });
+            }}
           />
         ) : null}
         <MetricCards
           totals={totals}
           agentCount={agentCount}
+          live={live}
           loading={summaryQuery.isLoading}
+          unavailable={summaryQuery.isError}
         />
 
         <TokenChart
-          rows={chartRows}
-          loading={chartSummaryQuery.isLoading}
+          rows={chartRows ?? emptyChartRows}
+          loading={chartRows === null && chartError === null}
+          unavailable={chartRows === null && chartError !== null}
+          updating={chartRows !== null && loadedDayRows === null}
           range={tokenChartRange}
           onRangeChange={setTokenChartRange}
         />
@@ -207,10 +326,80 @@ export function UsageDashboard() {
           events={events}
           loading={eventsQuery.isLoading}
           error={eventsQuery.error}
+          pagination={{
+            pageIndex: eventsPage,
+            pageSize: eventsPageSize,
+            // Every event is a request or a response in the same filter scope.
+            total: summaryQuery.data ? totals.requests + totals.responses : undefined,
+            hasNext: eventsQuery.data?.next_page_token != null,
+            onPageChange: setEventsPage,
+            onPageSizeChange: (pageSize) => {
+              setEventsPageSize(pageSize);
+              setEventsPage(0);
+            },
+          }}
+          action={
+            <RefreshControl
+              refreshing={refreshing}
+              updatedAt={updatedAt}
+              onRefresh={() => applyFilters(filters)}
+            />
+          }
         />
       </div>
     </BaseLayout>
   );
+}
+
+const autoRefreshIntervalMs = 30_000;
+
+function subscribeToVisibility(onChange: () => void): () => void {
+  document.addEventListener("visibilitychange", onChange);
+  return () => document.removeEventListener("visibilitychange", onChange);
+}
+
+/** Whether the page is in view, so background tabs stop polling. */
+function usePageVisible(): boolean {
+  return React.useSyncExternalStore(
+    subscribeToVisibility,
+    () => document.visibilityState === "visible",
+    () => true,
+  );
+}
+
+const tokenDayQueryRoot = "usage-token-day";
+/** Key part standing in for the end of today, which moves with every fetch. */
+const openDayEnd = "now";
+const emptyChartRows: ChartRow[] = [];
+
+const usageQueryRoots = new Set([
+  "usage-summary",
+  "usage-events",
+  "usage-models",
+  "session-options",
+  tokenDayQueryRoot,
+]);
+
+function isUsageQuery(query: Query): boolean {
+  return usageQueryRoots.has(String(query.queryKey[0]));
+}
+
+/** Everything a refresh reloads: all usage data except finished chart days. */
+function isRefreshedOnRequest(query: Query): boolean {
+  return (
+    isUsageQuery(query) &&
+    (query.queryKey[0] !== tokenDayQueryRoot || query.queryKey[3] === openDayEnd)
+  );
+}
+
+function nonTimeScope(filters: FilterDraft): Omit<UsageQuery, "from" | "to"> {
+  return {
+    agentName: filters.agentNames,
+    sessionId: filters.sessionIds,
+    provider: filters.providers,
+    model: filters.models,
+    eventType: filters.eventType === "all" ? "" : filters.eventType,
+  };
 }
 
 interface UsageFiltersProps {
@@ -222,9 +411,68 @@ interface UsageFiltersProps {
 
 function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersProps) {
   const { t } = useI18n();
-  const update = (field: keyof FilterDraft, value: string): void => {
+  const update = <Field extends keyof FilterDraft>(
+    field: Field,
+    value: FilterDraft[Field],
+  ): void => {
     onDraftChange({ ...draft, [field]: value });
   };
+  const timeScope = React.useMemo(
+    () => resolveTimeRange(draft.time, undefined, "calendar"),
+    [draft.time],
+  );
+  const sessionScope = React.useMemo(
+    () => ({ ...timeScope, agentName: draft.agentNames }),
+    [timeScope, draft.agentNames],
+  );
+  // Session choices also follow the providers and models, so only sessions
+  // that used one of them are offered.
+  const pickerScope = React.useMemo(
+    () => ({ ...sessionScope, provider: draft.providers, model: draft.models }),
+    [sessionScope, draft.providers, draft.models],
+  );
+  // Agent, provider, and model choices come from the data in the time scope,
+  // so every Agent the backend reports and custom gateways are listed. Picking
+  // Agents narrows the providers and models, and picking providers narrows the
+  // models to the ones they served. No choice hides its own alternatives.
+  const choicesQuery = useQuery({
+    queryKey: ["usage-models", "dashboard-filters", timeScope],
+    queryFn: () =>
+      fetchUsageSummary(timeScope, { groupBy: ["provider", "model", "agent"] }),
+    staleTime: 60_000,
+  });
+  const choiceRows = React.useMemo(
+    () => choicesQuery.data?.rows ?? [],
+    [choicesQuery.data?.rows],
+  );
+  const agentOptions = React.useMemo(
+    () => agentFilterOptions(agentChoices(choiceRows, draft.agentNames)),
+    [choiceRows, draft.agentNames],
+  );
+  const agentRows = React.useMemo(
+    () => rowsOfAgents(choiceRows, draft.agentNames),
+    [choiceRows, draft.agentNames],
+  );
+  const providerOptions = React.useMemo(
+    () => asFilterOptions(providerChoices(agentRows, draft.providers)),
+    [agentRows, draft.providers],
+  );
+  const modelOptions = React.useMemo(
+    () =>
+      asFilterOptions(
+        modelChoices(
+          draft.providers.length > 0
+            ? agentRows.filter(
+                (row) =>
+                  row.llm_provider !== undefined &&
+                  draft.providers.includes(row.llm_provider),
+              )
+            : agentRows,
+          draft.models,
+        ),
+      ),
+    [agentRows, draft.providers, draft.models],
+  );
   return (
     <Card>
       <CardHeader>
@@ -232,7 +480,7 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
         <CardDescription>{t("dashboard.filters.description")}</CardDescription>
         <CardAction className="flex gap-2">
           <Button variant="outline" size="sm" onClick={onReset}>
-            <RefreshCw className="size-4" />
+            <RotateCcw className="size-4" />
             {t("common.reset")}
           </Button>
           <Button size="sm" onClick={onApply}>
@@ -244,67 +492,39 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
       <CardContent
         className="dashboard-filter-grid grid gap-4"
         data-testid="usage-filters-grid"
+        data-time-range={draft.time.preset}
       >
-        <Field label={t("common.from")}>
-          <Input
-            type="datetime-local"
-            value={draft.from}
-            onChange={(event) => update("from", event.target.value)}
-          />
-        </Field>
-        <Field label={t("common.to")}>
-          <Input
-            type="datetime-local"
-            value={draft.to}
-            onChange={(event) => update("to", event.target.value)}
-          />
-        </Field>
+        <TimeRangeField value={draft.time} onChange={(time) => update("time", time)} />
         <Field label={t("common.agent")}>
-          <Select
-            value={draft.agentName || "all"}
-            onValueChange={(value) => update("agentName", value === "all" ? "" : value)}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("common.all")}</SelectItem>
-              {agentFilterOptions.map((agent) => (
-                <SelectItem key={agent.value} value={agent.value}>
-                  {agent.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MultiSelectFilter
+            label={t("common.agent")}
+            options={agentOptions}
+            value={draft.agentNames}
+            onChange={(agentNames) => update("agentNames", agentNames)}
+          />
         </Field>
         <Field label={t("common.provider")}>
-          <Select
-            value={draft.provider || "all"}
-            onValueChange={(value) => update("provider", value === "all" ? "" : value)}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("common.all")}</SelectItem>
-              {providerOptions.map((provider) => (
-                <SelectItem key={provider} value={provider}>
-                  {provider}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MultiSelectFilter
+            label={t("common.provider")}
+            options={providerOptions}
+            value={draft.providers}
+            onChange={(providers) => update("providers", providers)}
+          />
         </Field>
         <Field label={t("common.model")}>
-          <Input
-            value={draft.model}
-            onChange={(event) => update("model", event.target.value)}
+          <MultiSelectFilter
+            label={t("common.model")}
+            options={modelOptions}
+            value={draft.models}
+            mono
+            onChange={(models) => update("models", models)}
           />
         </Field>
         <Field label={t("common.session")}>
-          <Input
-            value={draft.sessionId}
-            onChange={(event) => update("sessionId", event.target.value)}
+          <SessionPicker
+            value={draft.sessionIds}
+            scope={pickerScope}
+            onChange={(sessionIds) => update("sessionIds", sessionIds)}
           />
         </Field>
         <Field label={t("common.event")}>
@@ -329,9 +549,159 @@ function UsageFilters({ draft, onDraftChange, onApply, onReset }: UsageFiltersPr
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid gap-2">
+    <div className="grid min-w-0 gap-2">
       <Label>{label}</Label>
       {children}
+    </div>
+  );
+}
+
+// Legend rows: input / output, then cache read / cache write, so cache reads
+// sit under input and cache writes under output.
+const usageShares = [
+  { key: "input", dataKey: "input_tokens", color: "var(--usage-input)" },
+  { key: "output", dataKey: "output_tokens", color: "var(--usage-output)" },
+  { key: "cacheRead", dataKey: "cache_read_tokens", color: "var(--usage-cache-read)" },
+  {
+    key: "cacheWrite",
+    dataKey: "cache_write_tokens",
+    color: "var(--usage-cache-write)",
+  },
+] as const;
+
+type UsageShareKey = (typeof usageShares)[number]["key"];
+
+/** Bar order follows the legend, reading input, output, cache read, cache write. */
+const tooltipOrder = [
+  "input_tokens",
+  "output_tokens",
+  "cache_read_tokens",
+  "cache_write_tokens",
+];
+
+const usageBarOrder: UsageShareKey[] = ["input", "output", "cacheRead", "cacheWrite"];
+
+const shareFormats = new Map<string, Intl.NumberFormat>();
+
+function formatShare(value: number, total: number, locale: string): string {
+  let format = shareFormats.get(locale);
+  if (format === undefined) {
+    format = new Intl.NumberFormat(locale, {
+      style: "percent",
+      maximumFractionDigits: 1,
+    });
+    shareFormats.set(locale, format);
+  }
+  return format.format(total > 0 ? value / total : 0);
+}
+
+/**
+ * Token composition for the total card: a proportional bar whose colors match
+ * the daily chart, and a legend with input / output above cache read / cache
+ * write. Hovering a segment or entry shows its exact count and share.
+ */
+function TokenBreakdown({ totals }: { totals: UsageTotals }) {
+  const { t, locale, formatNumber } = useI18n();
+  const compactNumber = React.useMemo(
+    () =>
+      new Intl.NumberFormat(locale, {
+        notation: "compact",
+        maximumSignificantDigits: 3,
+      }),
+    [locale],
+  );
+  const values: Record<UsageShareKey, number> = {
+    input: totals.inputTokens,
+    output: totals.outputTokens,
+    cacheWrite: totals.cacheWriteTokens,
+    cacheRead: totals.cacheReadTokens,
+  };
+  const labels: Record<UsageShareKey, string> = {
+    input: t("dashboard.metric.input"),
+    output: t("dashboard.metric.output"),
+    cacheWrite: t("dashboard.metric.cacheWrite"),
+    cacheRead: t("dashboard.metric.cacheRead"),
+  };
+  const total = Object.values(values).reduce((sum, value) => sum + value, 0);
+  const shareText = (key: UsageShareKey): string =>
+    t("dashboard.metric.share", {
+      label: labels[key],
+      value: formatNumber(values[key]),
+      percent: formatShare(values[key], total, locale),
+    });
+  const colorOf = (key: UsageShareKey): string =>
+    usageShares.find((share) => share.key === key)?.color ?? "";
+
+  return (
+    <div className="grid gap-2.5">
+      <div className="bg-muted flex h-1.5 gap-0.5 rounded-full">
+        {total > 0
+          ? usageBarOrder
+              .filter((key) => values[key] > 0)
+              .map((key) => (
+                <Tooltip key={key}>
+                  <TooltipTrigger asChild>
+                    <span
+                      aria-label={shareText(key)}
+                      className="relative min-w-0.5 first:rounded-l-full last:rounded-r-full before:absolute before:-inset-y-1.5 before:inset-x-0"
+                      style={{ flexGrow: values[key], background: colorOf(key) }}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent>{shareText(key)}</TooltipContent>
+                </Tooltip>
+              ))
+          : null}
+      </div>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        {usageShares.map(({ key, color }) => (
+          <Tooltip key={key}>
+            <TooltipTrigger asChild>
+              <div className="flex min-w-0 cursor-default items-center gap-1.5">
+                <span
+                  className="size-1.5 shrink-0 rounded-full"
+                  style={{ background: color }}
+                  aria-hidden="true"
+                />
+                <dt className="truncate">{labels[key]}</dt>
+                <dd className="text-foreground ml-auto font-medium tabular-nums">
+                  {compactNumber.format(values[key])}
+                </dd>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>{shareText(key)}</TooltipContent>
+          </Tooltip>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function TokenTooltipRow({
+  label,
+  color,
+  value,
+  total,
+}: {
+  label: React.ReactNode;
+  color: string | undefined;
+  value: number;
+  total: number;
+}) {
+  const { locale, formatNumber } = useI18n();
+  return (
+    <div className="flex w-full items-center gap-2">
+      <span
+        className="size-2.5 shrink-0 rounded-[2px]"
+        style={{ background: color }}
+        aria-hidden="true"
+      />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-foreground ml-auto font-mono font-medium tabular-nums">
+        {formatNumber(value)}
+      </span>
+      <span className="text-muted-foreground w-11 text-right tabular-nums">
+        {formatShare(value, total, locale)}
+      </span>
     </div>
   );
 }
@@ -339,11 +709,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function MetricCards({
   totals,
   agentCount,
+  live,
   loading,
+  unavailable,
 }: {
   totals: UsageTotals;
   agentCount: number;
+  /** Whether the numbers are updating on their own right now. */
+  live: boolean;
   loading: boolean;
+  /** The summary failed, so there are no numbers to show. */
+  unavailable: boolean;
 }) {
   const { t, formatNumber } = useI18n();
   const cards = [
@@ -351,10 +727,7 @@ function MetricCards({
       label: t("dashboard.metric.totalTokens"),
       value: totals.totalTokens,
       icon: Database,
-      detail: t("dashboard.metric.inputOutput", {
-        input: formatNumber(totals.inputTokens),
-        output: formatNumber(totals.outputTokens),
-      }),
+      detail: <TokenBreakdown totals={totals} />,
     },
     {
       label: t("dashboard.metric.sessions"),
@@ -381,23 +754,28 @@ function MetricCards({
   ];
 
   return (
-    <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="*:data-[slot=card]:from-ring/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((card) => (
         <Card key={card.label} className="@container/card">
           <CardHeader>
             <CardDescription>{card.label}</CardDescription>
-            <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-              {loading ? "..." : formatNumber(card.value)}
+            <CardTitle className="text-2xl font-semibold tabular-nums @[300px]/card:text-3xl">
+              {unavailable ? "—" : loading ? "..." : formatNumber(card.value)}
             </CardTitle>
             <CardAction>
-              <Badge variant="outline">
+              <Badge
+                variant="outline"
+                data-live={live}
+                title={live ? t("common.liveTitle") : t("common.livePausedTitle")}
+                className={cn(!live && "text-muted-foreground")}
+              >
                 <card.icon className="size-3.5" />
-                {t("common.live")}
+                {live ? t("common.live") : t("common.livePaused")}
               </Badge>
             </CardAction>
           </CardHeader>
           <CardContent className="text-muted-foreground text-sm">
-            {card.detail}
+            {unavailable ? t("dashboard.sectionUnavailable") : card.detail}
           </CardContent>
         </Card>
       ))}
@@ -405,32 +783,51 @@ function MetricCards({
   );
 }
 
-function TokenChart({
+const TokenChart = React.memo(function TokenChart({
   rows,
   loading,
+  unavailable,
+  updating,
   range,
   onRangeChange,
 }: {
   rows: ChartRow[];
   loading: boolean;
+  unavailable: boolean;
+  /** Days of a new range or filter are still loading over the shown chart. */
+  updating: boolean;
   range: TokenChartRange;
   onRangeChange: (range: TokenChartRange) => void;
 }) {
-  const { t, formatNumber } = useI18n();
+  const { t, locale } = useI18n();
+  // Daily totals reach the billions once cached input is counted.
+  const compactNumber = React.useMemo(
+    () =>
+      new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }),
+    [locale],
+  );
   const hasUsage = React.useMemo(
-    () => rows.some((row) => row.input_tokens > 0 || row.total_tokens > 0),
+    () => rows.some((row) => row.total_tokens > 0),
     [rows],
   );
   const chartConfig = React.useMemo(
     () =>
       ({
-        total_tokens: {
-          label: t("dashboard.metric.totalTokens"),
-          color: "var(--primary)",
+        cache_read_tokens: {
+          label: t("dashboard.tokenChart.cacheReadTokens"),
+          color: "var(--usage-cache-read)",
+        },
+        cache_write_tokens: {
+          label: t("dashboard.tokenChart.cacheWriteTokens"),
+          color: "var(--usage-cache-write)",
         },
         input_tokens: {
           label: t("dashboard.tokenChart.inputTokens"),
-          color: "var(--chart-2)",
+          color: "var(--usage-input)",
+        },
+        output_tokens: {
+          label: t("dashboard.tokenChart.outputTokens"),
+          color: "var(--usage-output)",
         },
       }) satisfies ChartConfig,
     [t],
@@ -468,7 +865,11 @@ function TokenChart({
         </CardAction>
       </CardHeader>
       <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-        {loading ? (
+        {unavailable ? (
+          <div className="text-muted-foreground flex h-[250px] items-center justify-center text-sm">
+            {t("dashboard.sectionUnavailable")}
+          </div>
+        ) : loading ? (
           <div className="text-muted-foreground flex h-[250px] items-center justify-center text-sm">
             {t("dashboard.tokenChart.loading")}
           </div>
@@ -477,18 +878,25 @@ function TokenChart({
             {t("dashboard.tokenChart.empty")}
           </div>
         ) : (
-          <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
+          <ChartContainer
+            config={chartConfig}
+            aria-busy={updating}
+            className={cn(
+              "aspect-auto h-[250px] w-full transition-opacity",
+              updating && "opacity-60",
+            )}
+          >
             <AreaChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
               <defs>
-                <linearGradient id="fillTotalTokens" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="fillCachedInputTokens" x1="0" y1="0" x2="0" y2="1">
                   <stop
                     offset="5%"
-                    stopColor="var(--color-total_tokens)"
+                    stopColor="var(--color-cache_read_tokens)"
                     stopOpacity={0.8}
                   />
                   <stop
                     offset="95%"
-                    stopColor="var(--color-total_tokens)"
+                    stopColor="var(--color-cache_read_tokens)"
                     stopOpacity={0.1}
                   />
                 </linearGradient>
@@ -504,27 +912,69 @@ function TokenChart({
               <YAxis
                 tickLine={false}
                 axisLine={false}
-                width={78}
+                width={56}
                 tickMargin={8}
                 allowDecimals={false}
                 domain={[0, "auto"]}
-                tickFormatter={(value) => formatNumber(Number(value))}
+                tickFormatter={(value) => compactNumber.format(Number(value))}
               />
-              <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+              <ChartTooltip
+                cursor={false}
+                content={({ active, payload, label }) => (
+                  <ChartTooltipContent
+                    active={active}
+                    label={label}
+                    // List series in the legend's order rather than stack order.
+                    payload={[...(payload ?? [])].sort(
+                      (left, right) =>
+                        tooltipOrder.indexOf(String(left.dataKey)) -
+                        tooltipOrder.indexOf(String(right.dataKey)),
+                    )}
+                    className="min-w-[13rem]"
+                    formatter={(value, name, item) => (
+                      <TokenTooltipRow
+                        label={chartConfig[name as keyof typeof chartConfig]?.label}
+                        color={item.color}
+                        value={Number(value)}
+                        total={Number(
+                          (item.payload as ChartRow | undefined)?.total_tokens ?? 0,
+                        )}
+                      />
+                    )}
+                  />
+                )}
+              />
+              {/* Disjoint series stack to the daily total. */}
+              <Area
+                dataKey="output_tokens"
+                type="monotone"
+                fill="var(--color-output_tokens)"
+                fillOpacity={0.3}
+                stroke="var(--color-output_tokens)"
+                stackId="tokens"
+              />
               <Area
                 dataKey="input_tokens"
                 type="monotone"
                 fill="var(--color-input_tokens)"
-                fillOpacity={0.14}
+                fillOpacity={0.3}
                 stroke="var(--color-input_tokens)"
-                stackId="a"
+                stackId="tokens"
               />
               <Area
-                dataKey="total_tokens"
+                dataKey="cache_write_tokens"
                 type="monotone"
-                fill="url(#fillTotalTokens)"
-                stroke="var(--color-total_tokens)"
-                stackId="b"
+                fill="var(--color-cache_write_tokens)"
+                fillOpacity={0.3}
+                stroke="var(--color-cache_write_tokens)"
+                stackId="tokens"
+              />
+              <Area
+                dataKey="cache_read_tokens"
+                type="monotone"
+                fill="url(#fillCachedInputTokens)"
+                stroke="var(--color-cache_read_tokens)"
+                stackId="tokens"
               />
             </AreaChart>
           </ChartContainer>
@@ -532,62 +982,94 @@ function TokenChart({
       </CardContent>
     </Card>
   );
+});
+
+/** Page state for a table whose rows are paged by the backend. */
+export interface ServerPagination {
+  pageIndex: number;
+  pageSize: number;
+  /** Matching rows across all pages, when known. */
+  total: number | undefined;
+  hasNext: boolean;
+  onPageChange: (pageIndex: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
 }
 
 export function RawEventsTable({
   events,
   loading,
   error,
+  action,
+  pagination: serverPagination,
 }: {
-  events: UsageEvent[];
+  events: UsageEventListItem[];
   loading: boolean;
   error: Error | null;
+  /** Controls shown at the top right of the card, such as refresh. */
+  action?: React.ReactNode;
+  /** Backend paging; without it the given events are paged locally. */
+  pagination?: ServerPagination;
 }) {
-  const { t, formatNumber, formatDateTime } = useI18n();
-  const pagination = useTablePagination(events);
-  const [openTextEventId, setOpenTextEventId] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    setOpenTextEventId(null);
-  }, [events]);
-
+  const { t, locale, formatNumber, formatDateTime } = useI18n();
+  const localPagination = useTablePagination(events);
+  const pagination = serverPagination
+    ? serverTablePagination(events, serverPagination)
+    : localPagination;
+  const compactNumber = React.useMemo(
+    () =>
+      new Intl.NumberFormat(locale, {
+        notation: "compact",
+        maximumSignificantDigits: 3,
+      }),
+    [locale],
+  );
   return (
     <Card>
       <CardHeader>
         <CardTitle>{t("dashboard.recent.title")}</CardTitle>
         <CardDescription>{t("dashboard.recent.description")}</CardDescription>
+        {action ? <CardAction>{action}</CardAction> : null}
       </CardHeader>
       <CardContent>
         {error ? (
-          <div className="text-destructive py-10 text-center text-sm">
-            {error.message}
+          <div className="text-muted-foreground py-10 text-center text-sm">
+            {t("dashboard.sectionUnavailable")}
           </div>
         ) : loading ? (
           <div className="text-muted-foreground py-10 text-center text-sm">
             {t("dashboard.recent.loading")}
           </div>
         ) : (
-          <Table className="w-full min-w-[1280px] table-fixed">
+          <Table className="w-full min-w-[1100px] table-fixed">
+            {/* When, then the session and its turn together, then model and
+                agent; token count, event type, and device context last. */}
             <colgroup>
-              <col className="w-[14%]" />
-              <col className="w-[22%]" />
-              <col className="w-[10%]" />
-              <col className="w-[14%]" />
-              <col className="w-[8%]" />
               <col className="w-[15%]" />
               <col className="w-[10%]" />
-              <col className="w-[7%]" />
+              {/* Fits the whole turn label, up to "ターン 99999" with its
+                  arrow, even at the table's 1100px minimum width. */}
+              <col className="w-[13%]" />
+              <col className="w-[15%]" />
+              <col className="w-[12%]" />
+              <col className="w-[11%]" />
+              <col className="w-[8%]" />
+              <col className="w-[16%]" />
             </colgroup>
             <TableHeader>
               <TableRow>
                 <TableHead>{t("table.observed")}</TableHead>
                 <TableHead>{t("common.session")}</TableHead>
-                <TableHead>{t("common.agent")}</TableHead>
-                <TableHead>{t("dashboard.recent.platformHost")}</TableHead>
-                <TableHead>{t("common.event")}</TableHead>
+                <TableHead>{t("dashboard.recent.turn")}</TableHead>
                 <TableHead>{t("common.model")}</TableHead>
-                <TableHead>{t("table.text")}</TableHead>
-                <TableHead>{t("common.tokens")}</TableHead>
+                <TableHead>{t("common.agent")}</TableHead>
+                <TableHead className="leading-tight">
+                  <div>{t("common.tokens")}</div>
+                  <div className="text-muted-foreground text-xs font-normal">
+                    {t("dashboard.recent.tokenBreakdown")}
+                  </div>
+                </TableHead>
+                <TableHead>{t("common.event")}</TableHead>
+                <TableHead>{t("dashboard.recent.platformHost")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -602,7 +1084,6 @@ export function RawEventsTable({
                 </TableRow>
               ) : (
                 pagination.pageRows.map((event) => {
-                  const textPreview = recentEventTextPreview(event.text);
                   const sessionDetailUrl = `/sessions/${event.session_pk}`;
 
                   return (
@@ -613,16 +1094,39 @@ export function RawEventsTable({
                         </span>
                       </TableCell>
                       <TableCell className="overflow-hidden">
+                        <Link
+                          to={sessionDetailUrl}
+                          title={event.session_id}
+                          className="text-foreground hover:text-ring inline-flex max-w-full items-center gap-1 font-mono text-xs underline-offset-4 hover:underline"
+                        >
+                          <span className="min-w-0 truncate">
+                            {shortSessionId(event.session_id)}
+                          </span>
+                          <ExternalLink className="text-muted-foreground size-3 shrink-0" />
+                        </Link>
+                      </TableCell>
+                      <TableCell className="overflow-hidden">
                         <Button
                           asChild
-                          variant="link"
-                          className="h-auto w-full min-w-0 justify-start p-0 font-mono text-xs"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 max-w-full px-2 text-xs"
                         >
-                          <Link to={sessionDetailUrl} className="min-w-0">
-                            <span className="min-w-0 truncate">{event.session_id}</span>
-                            <ExternalLink className="size-3.5" />
+                          <Link
+                            to={`${sessionDetailUrl}?turn=${event.turn_index}`}
+                            title={t("dashboard.recent.openTurnTitle")}
+                          >
+                            <span className="truncate">
+                              {t("dashboard.recent.openTurn", {
+                                turn: event.turn_index,
+                              })}
+                            </span>
+                            <ArrowRight className="size-3.5 shrink-0" />
                           </Link>
                         </Button>
+                      </TableCell>
+                      <TableCell className="overflow-hidden">
+                        <span className="block truncate">{event.llm_model}</span>
                       </TableCell>
                       <TableCell className="overflow-hidden">
                         <div className="min-w-0">
@@ -636,13 +1140,22 @@ export function RawEventsTable({
                           ) : null}
                         </div>
                       </TableCell>
-                      <TableCell className="overflow-hidden">
-                        <div className="min-w-0">
-                          <div className="truncate">{event.platform ?? "-"}</div>
-                          <div className="text-muted-foreground truncate font-mono text-xs">
-                            {event.host_name || t("common.unknown")}
-                          </div>
+                      <TableCell className="tabular-nums">
+                        <div className="font-medium">
+                          {formatNumber(event.total_tokens)}
                         </div>
+                        {event.event_type === "request" ? (
+                          <div
+                            className="text-muted-foreground truncate text-xs"
+                            title={t("dashboard.recent.tokenBreakdownTitle", {
+                              input: formatNumber(event.input_tokens),
+                              cached: formatNumber(event.cache_read_tokens),
+                            })}
+                          >
+                            {compactNumber.format(event.input_tokens)} /{" "}
+                            {compactNumber.format(event.cache_read_tokens)}
+                          </div>
+                        ) : null}
                       </TableCell>
                       <TableCell className="overflow-hidden">
                         <Badge
@@ -656,55 +1169,12 @@ export function RawEventsTable({
                         </Badge>
                       </TableCell>
                       <TableCell className="overflow-hidden">
-                        <span className="block truncate">{event.llm_model}</span>
-                      </TableCell>
-                      <TableCell className="max-w-0 overflow-hidden whitespace-normal align-top">
-                        <div className="grid w-full min-w-0 max-w-full grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2">
-                          <Popover
-                            open={openTextEventId === event.id}
-                            onOpenChange={(open) =>
-                              setOpenTextEventId(open ? event.id : null)
-                            }
-                          >
-                            <PopoverTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="size-7 shrink-0"
-                                aria-label={
-                                  openTextEventId === event.id
-                                    ? t("dashboard.recent.hideText")
-                                    : t("dashboard.recent.showText")
-                                }
-                              >
-                                {openTextEventId === event.id ? (
-                                  <EyeOff className="size-4" />
-                                ) : (
-                                  <Eye className="size-4" />
-                                )}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent
-                              align="start"
-                              side="left"
-                              className="w-[min(560px,calc(100vw-2rem))] overflow-hidden p-0 data-[state=closed]:animate-none data-[state=open]:animate-none"
-                            >
-                              <RecentEventTextPreview
-                                textPreview={textPreview}
-                                sessionDetailUrl={sessionDetailUrl}
-                              />
-                            </PopoverContent>
-                          </Popover>
-                          <div className="min-w-0 max-w-full overflow-hidden">
-                            <div className="text-muted-foreground truncate leading-7">
-                              {t("dashboard.recent.hidden")}
-                            </div>
+                        <div className="min-w-0">
+                          <div className="truncate">{event.platform ?? "-"}</div>
+                          <div className="text-muted-foreground truncate font-mono text-xs">
+                            {event.host_name || t("common.unknown")}
                           </div>
                         </div>
-                      </TableCell>
-                      <TableCell className="font-medium tabular-nums">
-                        {formatNumber(event.total_tokens)}
                       </TableCell>
                     </TableRow>
                   );
@@ -714,7 +1184,18 @@ export function RawEventsTable({
           </Table>
         )}
       </CardContent>
-      {!loading && error === null ? <TablePagination pagination={pagination} /> : null}
+      {!loading && error === null ? (
+        <TablePagination
+          pagination={pagination}
+          summary={
+            serverPagination?.total !== undefined
+              ? t("pagination.totalEvents", {
+                  count: formatNumber(serverPagination.total),
+                })
+              : undefined
+          }
+        />
+      ) : null}
     </Card>
   );
 }
@@ -727,6 +1208,25 @@ interface TablePaginationState<T> {
   totalRows: number;
   setPageIndex: (pageIndex: number) => void;
   setPageSize: (pageSize: number) => void;
+}
+
+function serverTablePagination<T>(
+  rows: T[],
+  pagination: ServerPagination,
+): TablePaginationState<T> {
+  const pageCount =
+    pagination.total !== undefined
+      ? Math.max(1, Math.ceil(pagination.total / pagination.pageSize))
+      : pagination.pageIndex + (pagination.hasNext ? 2 : 1);
+  return {
+    pageRows: rows,
+    pageIndex: pagination.pageIndex,
+    pageSize: pagination.pageSize,
+    pageCount,
+    totalRows: pagination.total ?? rows.length,
+    setPageIndex: pagination.onPageChange,
+    setPageSize: pagination.onPageSizeChange,
+  };
 }
 
 function useTablePagination<T>(rows: T[]): TablePaginationState<T> {
@@ -763,7 +1263,14 @@ function useTablePagination<T>(rows: T[]): TablePaginationState<T> {
   };
 }
 
-function TablePagination<T>({ pagination }: { pagination: TablePaginationState<T> }) {
+function TablePagination<T>({
+  pagination,
+  summary,
+}: {
+  pagination: TablePaginationState<T>;
+  /** Replaces the default "rows returned" text. */
+  summary?: string;
+}) {
   const { t, formatNumber } = useI18n();
   const canGoBack = pagination.pageIndex > 0;
   const canGoForward = pagination.pageIndex < pagination.pageCount - 1;
@@ -771,9 +1278,10 @@ function TablePagination<T>({ pagination }: { pagination: TablePaginationState<T
   return (
     <CardFooter className="flex-col gap-4 border-t pt-4 sm:flex-row sm:justify-between">
       <div className="text-muted-foreground text-sm">
-        {t("pagination.rowsReturned", {
-          count: formatNumber(pagination.totalRows),
-        })}
+        {summary ??
+          t("pagination.rowsReturned", {
+            count: formatNumber(pagination.totalRows),
+          })}
       </div>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <div className="flex items-center gap-2">
@@ -853,23 +1361,15 @@ function TablePagination<T>({ pagination }: { pagination: TablePaginationState<T
   );
 }
 
-function StatusCard({ title, detail }: { title: string; detail: string }) {
-  return (
-    <Card className="border-destructive/40">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{detail}</CardDescription>
-      </CardHeader>
-    </Card>
-  );
-}
-
 interface UsageTotals {
   sessions: number;
   turns: number;
   requests: number;
   responses: number;
+  /** Input that was neither read from nor written to a cache. */
   inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   totalTokens: number;
 }
@@ -877,15 +1377,18 @@ interface UsageTotals {
 interface ChartRow {
   day: string;
   input_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  output_tokens: number;
   total_tokens: number;
 }
 
 interface TokenChartWindow {
   from: string;
   to: string;
-  startDay: string;
-  endDay: string;
   days: number;
+  /** Each local day in the window, oldest first; today ends now. */
+  dayWindows: UsageDayWindow[];
 }
 
 function summarizeRows(rows: SummaryRow[]): UsageTotals {
@@ -896,6 +1399,8 @@ function summarizeRows(rows: SummaryRow[]): UsageTotals {
       requests: totals.requests + row.requests,
       responses: totals.responses + row.responses,
       inputTokens: totals.inputTokens + row.input_tokens,
+      cacheReadTokens: totals.cacheReadTokens + row.cache_read_tokens,
+      cacheWriteTokens: totals.cacheWriteTokens + row.cache_write_tokens,
       outputTokens: totals.outputTokens + row.output_tokens,
       totalTokens: totals.totalTokens + row.total_tokens,
     }),
@@ -905,6 +1410,8 @@ function summarizeRows(rows: SummaryRow[]): UsageTotals {
       requests: 0,
       responses: 0,
       inputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
     },
@@ -916,10 +1423,13 @@ export function chartRowsByDay(
   dateWindow: TokenChartWindow,
 ): ChartRow[] {
   const grouped = new Map<string, ChartRow>();
-  for (const day of utcDayRange(dateWindow.startDay, dateWindow.endDay)) {
+  for (const { day } of dateWindow.dayWindows) {
     grouped.set(day, {
       day,
       input_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      output_tokens: 0,
       total_tokens: 0,
     });
   }
@@ -933,6 +1443,9 @@ export function chartRowsByDay(
       continue;
     }
     current.input_tokens += row.input_tokens;
+    current.cache_read_tokens += row.cache_read_tokens;
+    current.cache_write_tokens += row.cache_write_tokens;
+    current.output_tokens += row.output_tokens;
     current.total_tokens += row.total_tokens;
   }
 
@@ -945,17 +1458,28 @@ export function tokenChartDateWindow(
 ): TokenChartWindow {
   const days = tokenChartRangeDays(range);
   const end = new Date(now);
-  const start = new Date(
-    Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()),
-  );
-  start.setUTCDate(start.getUTCDate() - days + 1);
+  // Days follow the viewer's time zone; constructing each midnight from its
+  // calendar date keeps daylight-saving days at their real length.
+  const dayWindows = Array.from({ length: days }, (_, index) => {
+    const offset = index - days + 1;
+    const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() + offset);
+    const next = new Date(
+      end.getFullYear(),
+      end.getMonth(),
+      end.getDate() + offset + 1,
+    );
+    return {
+      day: formatLocalDay(start),
+      from: start.toISOString(),
+      to: (offset === 0 ? end : next).toISOString(),
+    };
+  });
 
   return {
-    from: start.toISOString(),
+    from: dayWindows[0].from,
     to: end.toISOString(),
-    startDay: formatUtcDay(start),
-    endDay: formatUtcDay(end),
     days,
+    dayWindows,
   };
 }
 
@@ -970,154 +1494,27 @@ function isTokenChartRange(value: string): value is TokenChartRange {
   return tokenChartRangeOptions.some((option) => option.value === value);
 }
 
-function utcDayRange(startDay: string, endDay: string): string[] {
-  const days: string[] = [];
-  const current = parseUtcDay(startDay);
-  const end = parseUtcDay(endDay);
-
-  while (current <= end) {
-    days.push(formatUtcDay(current));
-    current.setUTCDate(current.getUTCDate() + 1);
-  }
-
-  return days;
-}
-
-function parseUtcDay(value: string): Date {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day));
-}
-
-function formatUtcDay(date: Date): string {
-  return [
-    date.getUTCFullYear(),
-    pad2(date.getUTCMonth() + 1),
-    pad2(date.getUTCDate()),
-  ].join("-");
-}
-
-function countAgentProducts(rows: SummaryRow[]): number {
-  return new Set(
-    rows
-      .map((row) => row.agent_name)
-      .filter((agentName): agentName is string => Boolean(agentName))
-      .map(agentProductKey),
-  ).size;
-}
-
-function RecentEventTextPreview({
-  textPreview,
-  sessionDetailUrl,
-}: {
-  textPreview: {
-    text: string;
-    truncated: boolean;
-  };
-  sessionDetailUrl: string;
-}) {
-  const { t } = useI18n();
-  const previewRef = React.useRef<HTMLDivElement>(null);
-  const [previewOverflows, setPreviewOverflows] = React.useState(false);
-
-  React.useLayoutEffect(() => {
-    const preview = previewRef.current;
-    if (preview === null) {
-      return;
-    }
-
-    const updatePreviewOverflow = () => {
-      setPreviewOverflows(
-        preview.scrollWidth > preview.clientWidth ||
-          preview.scrollHeight > preview.clientHeight,
-      );
-    };
-
-    updatePreviewOverflow();
-
-    const resizeObserver =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(updatePreviewOverflow);
-    resizeObserver?.observe(preview);
-    window.addEventListener("resize", updatePreviewOverflow);
-
-    return () => {
-      resizeObserver?.disconnect();
-      window.removeEventListener("resize", updatePreviewOverflow);
-    };
-  }, [textPreview.text]);
-
-  const shouldShowSessionDetailLink = textPreview.truncated || previewOverflows;
-
-  return (
-    <>
-      <div ref={previewRef} className="truncate p-3 font-mono text-xs">
-        {textPreview.text}
-      </div>
-      {shouldShowSessionDetailLink ? (
-        <div className="bg-muted/40 text-muted-foreground border-t px-3 py-2 text-xs">
-          <div>{t("dashboard.recent.previewTruncated")}</div>
-          <Button asChild variant="link" className="mt-1 h-auto p-0 text-xs">
-            <Link to={sessionDetailUrl}>
-              {t("dashboard.recent.openSessionDetail")}
-              <ExternalLink className="size-3.5" />
-            </Link>
-          </Button>
-        </div>
-      ) : null}
-    </>
+function formatLocalDay(date: Date): string {
+  return [date.getFullYear(), pad2(date.getMonth() + 1), pad2(date.getDate())].join(
+    "-",
   );
 }
 
-function recentEventTextPreview(text: string | null): {
-  text: string;
-  truncated: boolean;
-} {
-  if (text === null || text.length === 0) {
-    return { text: "-", truncated: false };
-  }
-
-  if (text.length <= recentEventTextPreviewMaxCharacters) {
-    return { text, truncated: false };
-  }
-
-  return {
-    text: `${text.slice(0, recentEventTextPreviewMaxCharacters).trimEnd()}...`,
-    truncated: true,
-  };
+function countAgents(rows: SummaryRow[]): number {
+  return new Set(
+    rows
+      .map((row) => row.agent_name)
+      .filter((agentName): agentName is string => Boolean(agentName)),
+  ).size;
 }
 
 function createDefaultFilters(): FilterDraft {
-  const to = new Date();
-  to.setSeconds(0, 0);
-  const from = new Date(to);
-  from.setDate(from.getDate() - 7);
-
   return {
-    from: toDateTimeLocalInputValue(from),
-    to: toDateTimeLocalInputValue(to),
+    time: createTimeRange("7d"),
     ...defaultNonDateFilters,
   };
 }
 
-function toDateTimeLocalInputValue(date: Date): string {
-  return (
-    [date.getFullYear(), pad2(date.getMonth() + 1), pad2(date.getDate())].join("-") +
-    `T${pad2(date.getHours())}:${pad2(date.getMinutes())}`
-  );
-}
-
 function pad2(value: number): string {
   return value.toString().padStart(2, "0");
-}
-
-function toUtcIso(value: string): string | undefined {
-  if (value.length === 0) {
-    return undefined;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return undefined;
-  }
-  return date.toISOString();
 }

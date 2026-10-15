@@ -57,19 +57,20 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     [language],
   );
 
-  const formatNumber = React.useCallback(
-    (value: number) => new Intl.NumberFormat(locale).format(value),
-    [locale],
-  );
+  // Formatters are costly to build and these run for every table cell, so
+  // each locale builds them once.
+  const formatNumber = React.useMemo(() => {
+    const format = new Intl.NumberFormat(locale);
+    return (value: number) => format.format(value);
+  }, [locale]);
 
-  const formatDateTime = React.useCallback(
-    (value: string | Date) =>
-      new Intl.DateTimeFormat(locale, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(new Date(value)),
-    [locale],
-  );
+  const formatDateTime = React.useMemo(() => {
+    const format = new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    return (value: string | Date) => format.format(new Date(value));
+  }, [locale]);
 
   const value = React.useMemo<I18nContextValue>(
     () => ({

@@ -2,6 +2,7 @@
 
 @theme inline {
   --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -40,85 +41,104 @@
 }
 
 :root {
-  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-ui:
+    "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-code:
+    "Fragment Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  /* Violet-tinted neutrals shared with the Abyss product home page. */
+  --background: #f8f6fb;
+  --foreground: #211d26;
+  --card: #ffffff;
+  --card-foreground: #211d26;
+  --popover: #ffffff;
+  --popover-foreground: #211d26;
+  --primary: #21182c;
+  --primary-foreground: #ffffff;
+  --secondary: #efebf5;
+  --secondary-foreground: #211d26;
+  --muted: #efebf5;
+  --muted-foreground: #6f6a78;
+  --accent: #ece6f6;
+  --accent-foreground: #211d26;
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --border: #e5e0ec;
+  --input: #ddd6e7;
+  --ring: #6d4fc2;
+  /* Categorical order validated for adjacent-pair CVD and contrast. */
+  --chart-1: #6d4fc2;
+  --chart-2: #2f7fe0;
+  --chart-3: #0e9f8f;
+  --chart-4: #fa0555;
+  --chart-5: #e0a019;
+  /* Token usage composition colors, one hue per share. Validated per mode
+     for adjacent-pair CVD separation and surface contrast. */
+  --usage-cache-read: #6d4fc2;
+  --usage-cache-write: #fa0555;
+  --usage-input: #2f7fe0;
+  --usage-output: #0e9f8f;
+  --sidebar: #f3f0f8;
+  --sidebar-foreground: #211d26;
+  --sidebar-primary: #21182c;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e9e3f3;
+  --sidebar-accent-foreground: #211d26;
+  --sidebar-border: #e5e0ec;
+  --sidebar-ring: #6d4fc2;
 }
 
 html:lang(zh) {
   --font-ui:
-    "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI",
+    "DM Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI",
     "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
 }
 
 html:lang(ja) {
   --font-ui:
-    "Inter", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Noto Sans CJK JP",
+    "DM Sans", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Noto Sans CJK JP",
     sans-serif;
 }
 
+/* Dark mode follows the Abyss site's night palette: violet-black surfaces
+   at a constant hue-298 tint, stepping up in lightness from the sidebar frame
+   (the site background) to the content panel, cards, and popovers. The site's
+   lavender accent marks focus and selection. */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: #0e0a16;
+  --foreground: #f6f5fb;
+  --card: #15111e;
+  --card-foreground: #f6f5fb;
+  --popover: #1b1724;
+  --popover-foreground: #f6f5fb;
+  --primary: #f6f5fb;
+  --primary-foreground: #0f0a18;
+  --secondary: #1f1b29;
+  --secondary-foreground: #f6f5fb;
+  --muted: #1f1b29;
+  --muted-foreground: #a9a5b4;
+  --accent: #24202f;
+  --accent-foreground: #f6f5fb;
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --border: #2b2735;
+  --input: #363140;
+  --ring: #c4b5fd;
+  --chart-1: #8b6cf0;
+  --chart-2: #3b8ef0;
+  --chart-3: #12a594;
+  --chart-4: #fa0555;
+  --chart-5: #d4900f;
+  --usage-cache-read: #9346e8;
+  --usage-cache-write: #fa0555;
+  --usage-input: #3b8ef0;
+  --usage-output: #12a594;
+  --sidebar: #08050f;
+  --sidebar-foreground: #f6f5fb;
+  --sidebar-primary: #f6f5fb;
+  --sidebar-primary-foreground: #0f0a18;
+  --sidebar-accent: #1b1724;
+  --sidebar-accent-foreground: #f6f5fb;
+  --sidebar-border: #1f1b29;
+  --sidebar-ring: #c4b5fd;
 }
 
 @layer base {

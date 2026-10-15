@@ -8,10 +8,13 @@ describe("shared application layout styles", () => {
 
     expect(styleSource).toContain(".dashboard-sidebar-desktop");
     expect(styleSource).toContain(".dashboard-sidebar-container");
-    expect(styleSource).toContain(".dashboard-filter-grid");
-    expect(styleSource).toContain("repeat(7, minmax(0, 1fr))");
-    expect(styleSource).toContain(".session-search-filter-grid");
-    expect(styleSource).toContain("repeat(6, minmax(0, 1fr))");
+    // Both wide filter rows hold six fields, so neither ends in an empty column.
+    expect(styleSource).toMatch(
+      /\.dashboard-filter-grid \{\s*grid-template-columns: repeat\(6, minmax\(0, 1fr\)\);/,
+    );
+    expect(styleSource).toMatch(
+      /\.session-search-filter-grid \{\s*grid-template-columns: repeat\(6, minmax\(0, 1fr\)\);/,
+    );
     expect(styleSource).toContain("@media (min-width: 80rem)");
     expect(styleSource).not.toContain("@media (min-width: 1024px)");
     expect(styleSource).toContain(".session-search-query-input");

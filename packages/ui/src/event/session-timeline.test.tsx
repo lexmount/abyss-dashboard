@@ -85,25 +85,6 @@ describe("SessionTimeline", () => {
     ).not.toBe(0);
   });
 
-  it("marks estimated Claude Desktop token usage", () => {
-    const estimatedTimeline = structuredClone(timeline);
-    const metadata = estimatedTimeline.turns[0].events[0].metadata as Record<
-      string,
-      unknown
-    >;
-    estimatedTimeline.turns[0].events[0].metadata = {
-      ...metadata,
-      token_usage_estimated: true,
-      token_usage_source: "estimated_visible_content",
-    };
-
-    renderTimeline(true, estimatedTimeline);
-
-    expect(
-      screen.getByTitle("Token count estimated from visible content"),
-    ).toHaveTextContent("≈ 12 tokens");
-  });
-
   it("renders authorized image attachments and usage-only placeholders", () => {
     renderTimeline(true);
 
@@ -158,7 +139,6 @@ const labels: SessionTimelineLabels = {
   callId: "Call ID",
   deviceContext: "Device context",
   ended: (time) => ` · Ended ${time}`,
-  estimatedTokens: "Token count estimated from visible content",
   image: "Image",
   imageContentHidden: "Image content hidden by audit policy",
   imageLabel: (index) => `Image ${index}`,

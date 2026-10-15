@@ -1,25 +1,44 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import {
+  keepPreviousData,
+  type Query,
+  useIsFetching,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import * as React from "react";
 import { useSearchParams } from "react-router-dom";
-import { searchSessions, type SessionSearchQuery } from "@/api/usage";
+import {
+  filterValueList,
+  listSessions,
+  searchSessions,
+  type SessionSearchQuery,
+} from "@/api/usage";
 import {
   SessionSearchForm,
   type SessionSearchFilters,
 } from "@/app/sessions/session-search-form";
+import { SessionList } from "@/app/sessions/session-list";
 import { SessionSearchResults } from "@/app/sessions/session-search-results";
 import { BaseLayout } from "@/components/layouts/base-layout";
-import { Card, CardContent, CardHeader, CardTitle } from "@lexmount.com/abyss-ui";
+import { QueryErrorCard } from "@/components/query-error";
+import { RefreshControl } from "@/components/refresh-control";
+import { Card, CardContent } from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
+import {
+  createTimeRange,
+  isTimeRangePreset,
+  resolveTimeRange,
+  type TimeRange,
+} from "@/lib/time-range";
+
+const sessionListPageSize = 20;
 
 const defaultFilters: SessionSearchFilters = {
   q: "",
-  from: "",
-  to: "",
-  agentName: "",
-  provider: "",
-  model: "",
-  eventType: "all",
+  time: createTimeRange("any"),
+  agentNames: [],
+  providers: [],
+  models: [],
 };
 
 export default function SessionsPage() {
@@ -38,10 +57,45 @@ export default function SessionsPage() {
     enabled: hasQuery,
     placeholderData: keepPreviousData,
   });
+  // Without a keyword the page lists every session in the filter scope.
+  const listQuery = useQuery({
+    queryKey: [
+      "session-list",
+      appliedFilters.time,
+      appliedFilters.agentNames,
+      appliedFilters.providers,
+      appliedFilters.models,
+      page,
+    ],
+    queryFn: () =>
+      listSessions({
+        ...resolveTimeRange(appliedFilters.time),
+        agentName: appliedFilters.agentNames,
+        provider: appliedFilters.providers,
+        model: appliedFilters.models,
+        page,
+        pageSize: sessionListPageSize,
+      }),
+    enabled: !hasQuery,
+    placeholderData: keepPreviousData,
+  });
 
   React.useEffect(() => {
     setDraft(appliedFilters);
   }, [appliedFilters]);
+
+  // Refetching re-resolves relative time ranges, so the list reaches now.
+  const queryClient = useQueryClient();
+  const refreshing = useIsFetching({ predicate: isSessionsPageQuery }) > 0;
+  const refresh = (
+    <RefreshControl
+      refreshing={refreshing}
+      updatedAt={hasQuery ? searchQuery.dataUpdatedAt : listQuery.dataUpdatedAt}
+      onRefresh={() => {
+        void queryClient.invalidateQueries({ predicate: isSessionsPageQuery });
+      }}
+    />
+  );
 
   const applySearch = (): void => {
     setSearchParams(paramsFromFilters(draft, 1));
@@ -60,46 +114,45 @@ export default function SessionsPage() {
       <div className="@container/main space-y-6 px-4 lg:px-6">
         <SessionSearchForm
           draft={draft}
-          searching={searchQuery.isFetching}
+          searching={hasQuery ? searchQuery.isFetching : listQuery.isFetching}
           onDraftChange={setDraft}
           onSubmit={applySearch}
           onReset={resetSearch}
         />
 
-        {!hasQuery ? <SearchIntroduction /> : null}
+        {!hasQuery ? (
+          listQuery.isError ? (
+            <QueryErrorCard
+              error={listQuery.error}
+              retrying={listQuery.isFetching}
+              onRetry={() => void listQuery.refetch()}
+            />
+          ) : (
+            <SessionList
+              response={listQuery.data}
+              loading={listQuery.isFetching}
+              onPageChange={changePage}
+              action={refresh}
+            />
+          )
+        ) : null}
         {hasQuery && searchQuery.isLoading ? <SearchLoading /> : null}
         {searchQuery.isError ? (
-          <Card className="border-destructive/40">
-            <CardHeader>
-              <CardTitle>{t("sessions.search.errorTitle")}</CardTitle>
-            </CardHeader>
-            <CardContent className="text-muted-foreground text-sm">
-              {searchQuery.error.message}
-            </CardContent>
-          </Card>
+          <QueryErrorCard
+            error={searchQuery.error}
+            retrying={searchQuery.isFetching}
+            onRetry={() => void searchQuery.refetch()}
+          />
         ) : null}
         {searchQuery.data ? (
-          <SessionSearchResults response={searchQuery.data} onPageChange={changePage} />
+          <SessionSearchResults
+            response={searchQuery.data}
+            onPageChange={changePage}
+            action={refresh}
+          />
         ) : null}
       </div>
     </BaseLayout>
-  );
-}
-
-function SearchIntroduction() {
-  const { t } = useI18n();
-  return (
-    <Card>
-      <CardContent className="text-muted-foreground flex flex-col items-center gap-3 py-12 text-center">
-        <Search className="size-8" />
-        <div className="text-foreground font-medium">
-          {t("sessions.search.introductionTitle")}
-        </div>
-        <div className="max-w-2xl text-sm">
-          {t("sessions.search.introductionDescription")}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -115,15 +168,12 @@ function SearchLoading() {
 }
 
 export function filtersFromParams(params: URLSearchParams): SessionSearchFilters {
-  const eventType = params.get("event_type");
   return {
     q: params.get("q") ?? "",
-    from: params.get("from") ?? "",
-    to: params.get("to") ?? "",
-    agentName: params.get("agent_name") ?? "",
-    provider: params.get("llm_provider") ?? "",
-    model: params.get("llm_model") ?? "",
-    eventType: eventType === "request" || eventType === "response" ? eventType : "all",
+    time: timeRangeFromParams(params),
+    agentNames: params.getAll("agent_name"),
+    providers: params.getAll("llm_provider"),
+    models: params.getAll("llm_model"),
   };
 }
 
@@ -133,13 +183,22 @@ export function paramsFromFilters(
 ): URLSearchParams {
   const params = new URLSearchParams();
   appendParam(params, "q", filters.q);
-  appendParam(params, "from", filters.from);
-  appendParam(params, "to", filters.to);
-  appendParam(params, "agent_name", filters.agentName);
-  appendParam(params, "llm_provider", filters.provider);
-  appendParam(params, "llm_model", filters.model);
-  if (filters.eventType !== "all") {
-    params.set("event_type", filters.eventType);
+  if (filters.time.preset !== "any") {
+    params.set("range", filters.time.preset);
+  }
+  if (filters.time.preset === "custom") {
+    appendParam(params, "from", filters.time.from);
+    appendParam(params, "to", filters.time.to);
+  }
+  // Each chosen value repeats its key, matching the backend API.
+  for (const agentName of filterValueList(filters.agentNames)) {
+    params.append("agent_name", agentName);
+  }
+  for (const provider of filterValueList(filters.providers)) {
+    params.append("llm_provider", provider);
+  }
+  for (const model of filterValueList(filters.models)) {
+    params.append("llm_model", model);
   }
   if (page > 1) {
     params.set("page", page.toString());
@@ -150,23 +209,25 @@ export function paramsFromFilters(
 function apiQuery(filters: SessionSearchFilters, page: number): SessionSearchQuery {
   return {
     q: filters.q,
-    from: isoDateTime(filters.from),
-    to: isoDateTime(filters.to),
-    agentName: filters.agentName || undefined,
-    provider: filters.provider || undefined,
-    model: filters.model || undefined,
-    eventType: filters.eventType === "all" ? undefined : filters.eventType,
+    ...resolveTimeRange(filters.time),
+    agentName: filters.agentNames,
+    provider: filters.providers,
+    model: filters.models,
     page,
     pageSize: 20,
   };
 }
 
-function isoDateTime(value: string): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+function timeRangeFromParams(params: URLSearchParams): TimeRange {
+  const range = params.get("range");
+  const from = params.get("from") ?? "";
+  const to = params.get("to") ?? "";
+  // Links created before presets existed carry only from/to date-times.
+  const preset = isTimeRangePreset(range) ? range : from || to ? "custom" : "any";
+  const time = createTimeRange(preset);
+  return preset === "custom"
+    ? { preset, from: from || time.from, to: to || time.to }
+    : time;
 }
 
 function appendParam(params: URLSearchParams, key: string, value: string): void {
@@ -181,4 +242,14 @@ function positiveInteger(value: string | null): number | undefined {
   }
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+const sessionsPageQueryRoots = new Set([
+  "session-list",
+  "session-search",
+  "usage-models",
+]);
+
+function isSessionsPageQuery(query: Query): boolean {
+  return sessionsPageQueryRoots.has(String(query.queryKey[0]));
 }

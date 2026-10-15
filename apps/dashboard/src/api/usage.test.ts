@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  fetchDailyTokenUsage,
+  fetchDayTokenUsage,
   fetchRawEvents,
   fetchSessionTimeline,
+  fetchSessionTrajectory,
+  fetchUsageEvent,
   fetchUsageSummary,
   searchSessions,
 } from "@/api/usage";
@@ -48,32 +50,40 @@ describe("usage API", () => {
     expect(url.searchParams.get("limit")).toBe("500");
   });
 
-  it("requests daily token usage with token-only summary fields", async () => {
+  it("sums one local day's usage from its own bounded summary", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       void input;
-      return Promise.resolve(
-        jsonResponse({
-          rows: [{ day: "2026-07-01", input_tokens: 12, total_tokens: 34 }],
-          next_page_token: null,
-        }),
-      );
+      const row = {
+        input_tokens: 1,
+        output_tokens: 2,
+        cache_read_tokens: 3,
+        cache_write_tokens: 4,
+        total_tokens: 10,
+      };
+      return Promise.resolve(jsonResponse({ rows: [row, row], next_page_token: null }));
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await fetchDailyTokenUsage({ agentName: "codex" });
+    const row = await fetchDayTokenUsage(
+      { agentName: "codex" },
+      { day: "2026-07-02", from: "2026-07-02T07:00:00Z", to: "2026-07-02T16:00:00Z" },
+    );
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     const url = requestUrl(fetchMock.mock.calls[0]?.[0]);
     expect(url.pathname).toBe("/api/v1/agent-usage/summary");
-    expect(url.searchParams.has("scope")).toBe(false);
-    expect(url.searchParams.get("group_by")).toBe("day");
+    expect(url.searchParams.get("group_by")).toBe("event_type");
     expect(url.searchParams.get("fields")).toBe("token_usage");
     expect(url.searchParams.get("agent_name")).toBe("codex");
-    expect(url.searchParams.has("user_filter")).toBe(false);
-    expect(url.searchParams.has("limit")).toBe(false);
-    expect(response.rows[0]).toEqual({
-      day: "2026-07-01",
-      input_tokens: 12,
-      total_tokens: 34,
+    expect(url.searchParams.get("from")).toBe("2026-07-02T07:00:00Z");
+    expect(url.searchParams.get("to")).toBe("2026-07-02T16:00:00Z");
+    expect(row).toEqual({
+      day: "2026-07-02",
+      input_tokens: 2,
+      output_tokens: 4,
+      cache_read_tokens: 6,
+      cache_write_tokens: 8,
+      total_tokens: 20,
     });
   });
 
@@ -91,6 +101,29 @@ describe("usage API", () => {
     expect(url.searchParams.has("scope")).toBe(false);
     expect(url.searchParams.get("session_id")).toBe("session-1");
     expect(url.searchParams.get("limit")).toBe("100");
+    // Lists ask for events without their request bodies.
+    expect(url.searchParams.get("fields")).toBe("list");
+  });
+
+  it("repeats a filter key for each chosen value and skips blank ones", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      void input;
+      return Promise.resolve(jsonResponse({ events: [], next_page_token: null }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchRawEvents({
+      agentName: ["claude-code", "codex"],
+      sessionId: ["session-1", " "],
+      provider: [],
+      model: ["gpt-5", "claude-opus"],
+    });
+
+    const url = requestUrl(fetchMock.mock.calls[0]?.[0]);
+    expect(url.searchParams.getAll("agent_name")).toEqual(["claude-code", "codex"]);
+    expect(url.searchParams.getAll("session_id")).toEqual(["session-1"]);
+    expect(url.searchParams.has("llm_provider")).toBe(false);
+    expect(url.searchParams.getAll("llm_model")).toEqual(["gpt-5", "claude-opus"]);
   });
 
   it("requests a session timeline by session primary key", async () => {
@@ -119,6 +152,24 @@ describe("usage API", () => {
 
     const url = requestUrl(fetchMock.mock.calls[0]?.[0]);
     expect(url.pathname).toBe("/api/v1/agent-usage/sessions/session%20pk");
+  });
+
+  it("requests a session trajectory and one event by primary key", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      void input;
+      return Promise.resolve(jsonResponse({}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchSessionTrajectory("session pk");
+    await fetchUsageEvent("event pk");
+
+    expect(requestUrl(fetchMock.mock.calls[0]?.[0]).pathname).toBe(
+      "/api/v1/agent-usage/sessions/session%20pk/trajectory",
+    );
+    expect(requestUrl(fetchMock.mock.calls[1]?.[0]).pathname).toBe(
+      "/api/v1/agent-usage/events/event%20pk",
+    );
   });
 
   it("builds the session search request from traditional search filters", async () => {
