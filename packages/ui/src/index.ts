@@ -24,6 +24,11 @@ export * from "./components/toggle";
 export * from "./components/toggle-group";
 export * from "./components/tooltip";
 export * from "./event/session-event-inspector";
+export {
+  conversationOf,
+  type Conversation,
+  type ConversationEntry,
+} from "./event/event-content";
 export * from "./event/session-timeline";
 export * from "./event/session-trajectory";
 export * from "./layout/dashboard-shell";

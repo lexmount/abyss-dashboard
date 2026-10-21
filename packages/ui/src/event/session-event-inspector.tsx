@@ -3,7 +3,14 @@ import * as React from "react";
 import { Badge } from "../components/badge";
 import { Button } from "../components/button";
 import { cn } from "../utils";
-import { toolContentSegments, type ToolContentSegment } from "./event-content";
+import {
+  conversationOf,
+  leadingInstructionCount,
+  recordedHeaders,
+  type Conversation,
+  type ConversationEntry,
+  type RecordedHeader,
+} from "./event-content";
 import type { SessionImageAttachment } from "./session-timeline";
 
 const INSPECTOR_DEFAULT_WIDTH_PX = 520;
@@ -19,10 +26,8 @@ const INSPECTOR_RESIZE_STEP_PX = 16;
 export interface SessionEventDetail {
   id: string;
   event_type: string;
-  turn_index: number;
   llm_model: string;
   observed_at: string;
-  text: string | null;
   metadata: unknown;
   attachments: SessionImageAttachment[];
 }
@@ -36,7 +41,6 @@ export interface SessionEventInspectorLabels {
   title: string;
   request: string;
   response: string;
-  turn: (index: number) => string;
   close: string;
   resize: string;
   loading: string;
@@ -44,57 +48,94 @@ export interface SessionEventInspectorLabels {
   copy: string;
   noText: string;
   tabContent: string;
-  tabTools: string;
   tabAttachments: string;
+  tabRequestHeaders: string;
+  tabResponseHeaders: string;
   tabMetadata: string;
   tabProperties: string;
-  noTools: string;
   toolCall: string;
   toolResult: string;
   callId: string;
-  toolContentHidden: string;
   imageContentHidden: string;
   imageLabel: (index: number) => string;
   openImage: (label: string) => string;
+  /** Marks a header value shown as base64 because it was not UTF-8. */
+  base64: string;
+  roleSystem: string;
+  roleDeveloper: string;
+  roleUser: string;
+  roleAssistant: string;
+  roleReasoning: string;
+  roleUnknown: string;
+  /** The system and developer entries a conversation starts with. */
+  systemPrompt: string;
+  /** Expands a collapsed entry; `count` is its formatted length in characters. */
+  showMore: (count: string) => string;
+  showLess: string;
+  /** Notes a conversation the collector could not decode completely. */
+  incomplete: (completeness: string) => string;
+}
+
+/**
+ * A tab the host adds after the content tab, such as what it worked out about
+ * the event from the rest of the session.
+ */
+export interface SessionEventInspectorTab {
+  id: string;
+  label: string;
+  content: React.ReactNode;
 }
 
 export interface SessionEventInspectorProps {
   detail: SessionEventDetailState;
-  onClose: () => void;
+  /** The panel's heading; `labels.title` when absent. */
+  heading?: string;
+  /** Tabs shown right after the content tab. */
+  extraTabs?: readonly SessionEventInspectorTab[];
+  /**
+   * `panel` (default) is a resizable side panel with its own header and close
+   * button. `embedded` shows only the tabs, for a host that already shows the
+   * event's side, model, and time, such as a card in a list.
+   */
+  variant?: "panel" | "embedded";
+  /** Shows a close button in the panel header. */
+  onClose?: () => void;
   attachmentUrl: (attachmentId: string) => string;
   formatDateTime: (value: string) => string;
   formatNumber: (value: number) => string;
   labels: SessionEventInspectorLabels;
+  className?: string;
 }
 
-type InspectorTab =
-  "content" | "tools" | "attachments" | "metadata" | "properties";
-
-/** Resizable side panel showing one raw event with every recorded field. */
+/** One raw event with every recorded field, as a side panel or embedded. */
 export function SessionEventInspector({
   detail,
+  heading,
+  extraTabs = [],
+  variant = "panel",
   onClose,
   attachmentUrl,
   formatDateTime,
   formatNumber,
   labels,
+  className,
 }: SessionEventInspectorProps) {
   const [width, setWidth] = React.useState(INSPECTOR_DEFAULT_WIDTH_PX);
-  const [tab, setTab] = React.useState<InspectorTab>("content");
+  // The tab chosen last stays as the panel shows other events.
+  const [chosenTab, setTab] = React.useState("content");
   const event = detail.status === "ready" ? detail.event : null;
-  const segments = React.useMemo(
-    () => (event ? toolContentSegments(event.metadata) : []),
+  const headers = React.useMemo(
+    () => (event ? recordedHeaders(event.metadata) : []),
+    [event],
+  );
+  const conversation = React.useMemo(
+    () => (event ? conversationOf(event.metadata) : null),
     [event],
   );
   const request = event?.event_type === "request";
-  const tabs: { id: InspectorTab; label: string }[] = [
+  const tabs: { id: string; label: string }[] = [
     { id: "content", label: labels.tabContent },
-    {
-      id: "tools",
-      label: event
-        ? `${labels.tabTools} (${formatNumber(segments.length)})`
-        : labels.tabTools,
-    },
+    ...extraTabs.map(({ id, label }) => ({ id: extraTabId(id), label })),
     ...(event && event.attachments.length > 0
       ? [
           {
@@ -103,14 +144,113 @@ export function SessionEventInspector({
           },
         ]
       : []),
+    ...(headers.length > 0
+      ? [
+          {
+            id: "headers" as const,
+            label: `${request ? labels.tabRequestHeaders : labels.tabResponseHeaders} (${formatNumber(headers.length)})`,
+          },
+        ]
+      : []),
     { id: "metadata", label: labels.tabMetadata },
     { id: "properties", label: labels.tabProperties },
   ];
+  // A tab the shown event does not have, such as attachments chosen on an
+  // earlier event, shows the content instead.
+  const tab = tabs.some((item) => item.id === chosenTab)
+    ? chosenTab
+    : "content";
+  const extraTab = extraTabs.find(({ id }) => extraTabId(id) === tab);
+
+  const embedded = variant === "embedded";
+  const tabList = (
+    <div role="tablist" className="flex gap-1 overflow-x-auto border-b px-2">
+      {tabs.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          role="tab"
+          aria-selected={tab === item.id}
+          onClick={() => setTab(item.id)}
+          className={cn(
+            "-mb-px shrink-0 border-b-2 px-2.5 py-2 text-xs",
+            tab === item.id
+              ? "border-primary font-medium"
+              : "text-muted-foreground hover:text-foreground border-transparent",
+          )}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+  const tabPanel = (
+    <div
+      // Another event starts at the top of its tab.
+      key={event?.id}
+      role="tabpanel"
+      // Embedded, a long body scrolls inside its own box so a list of events
+      // keeps a bounded height per event.
+      className={cn(
+        "overflow-auto",
+        embedded ? "max-h-[70vh]" : "min-h-0 flex-1",
+      )}
+    >
+      {extraTab ? (
+        extraTab.content
+      ) : detail.status === "loading" ? (
+        <div className="text-muted-foreground p-4 text-sm">
+          {labels.loading}
+        </div>
+      ) : detail.status === "error" ? (
+        <div className="text-destructive p-4 text-sm">
+          {labels.error(detail.message)}
+        </div>
+      ) : tab === "content" ? (
+        conversation ? (
+          <ConversationPanel
+            conversation={conversation}
+            formatNumber={formatNumber}
+            labels={labels}
+          />
+        ) : (
+          <div className="text-muted-foreground p-4 text-sm italic">
+            {labels.noText}
+          </div>
+        )
+      ) : tab === "attachments" ? (
+        <AttachmentsPanel
+          attachments={detail.event.attachments}
+          attachmentUrl={attachmentUrl}
+          formatNumber={formatNumber}
+          labels={labels}
+        />
+      ) : tab === "headers" ? (
+        <HeadersPanel headers={headers} labels={labels} />
+      ) : tab === "metadata" ? (
+        <MetadataPanel metadata={detail.event.metadata} />
+      ) : (
+        <PropertiesPanel event={detail.event} formatNumber={formatNumber} />
+      )}
+    </div>
+  );
+
+  if (embedded) {
+    return (
+      <div className={cn("flex min-w-0 flex-col", className)}>
+        {tabList}
+        {tabPanel}
+      </div>
+    );
+  }
 
   return (
     <aside
       aria-label={labels.title}
-      className="bg-background flex min-w-0 flex-col max-lg:absolute max-lg:inset-0 max-lg:z-10 lg:relative lg:w-(--event-inspector-width) lg:shrink-0 lg:border-l"
+      className={cn(
+        "bg-background flex min-w-0 flex-col max-lg:absolute max-lg:inset-0 max-lg:z-10 lg:relative lg:w-(--event-inspector-width) lg:shrink-0 lg:border-l",
+        className,
+      )}
       style={{ "--event-inspector-width": `${width}px` } as React.CSSProperties}
     >
       <ResizeHandle label={labels.resize} width={width} onResize={setWidth} />
@@ -122,7 +262,7 @@ export function SessionEventInspector({
         ) : null}
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">
-            {event ? labels.turn(event.turn_index) : labels.title}
+            {heading ?? labels.title}
           </div>
           {event ? (
             <div className="text-muted-foreground truncate text-xs">
@@ -130,63 +270,27 @@ export function SessionEventInspector({
             </div>
           ) : null}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8"
-          aria-label={labels.close}
-          onClick={onClose}
-        >
-          <X className="size-4" />
-        </Button>
-      </div>
-      <div role="tablist" className="flex gap-1 overflow-x-auto border-b px-2">
-        {tabs.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === item.id}
-            onClick={() => setTab(item.id)}
-            className={cn(
-              "-mb-px shrink-0 border-b-2 px-2.5 py-2 text-xs",
-              tab === item.id
-                ? "border-primary font-medium"
-                : "text-muted-foreground hover:text-foreground border-transparent",
-            )}
+        {onClose ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            aria-label={labels.close}
+            onClick={onClose}
           >
-            {item.label}
-          </button>
-        ))}
+            <X className="size-4" />
+          </Button>
+        ) : null}
       </div>
-      <div role="tabpanel" className="min-h-0 flex-1 overflow-auto">
-        {detail.status === "loading" ? (
-          <div className="text-muted-foreground p-4 text-sm">
-            {labels.loading}
-          </div>
-        ) : detail.status === "error" ? (
-          <div className="text-destructive p-4 text-sm">
-            {labels.error(detail.message)}
-          </div>
-        ) : tab === "content" ? (
-          <TextPanel text={detail.event.text} labels={labels} />
-        ) : tab === "tools" ? (
-          <ToolsPanel segments={segments} labels={labels} />
-        ) : tab === "attachments" ? (
-          <AttachmentsPanel
-            attachments={detail.event.attachments}
-            attachmentUrl={attachmentUrl}
-            formatNumber={formatNumber}
-            labels={labels}
-          />
-        ) : tab === "metadata" ? (
-          <MetadataPanel metadata={detail.event.metadata} />
-        ) : (
-          <PropertiesPanel event={detail.event} formatNumber={formatNumber} />
-        )}
-      </div>
+      {tabList}
+      {tabPanel}
     </aside>
   );
+}
+
+/** A host's tab id, apart from the built-in ones. */
+function extraTabId(id: string): string {
+  return `extra:${id}`;
 }
 
 function ResizeHandle({
@@ -280,28 +384,158 @@ function ResizeHandle({
   );
 }
 
-function TextPanel({
-  text,
+/** Characters and lines an entry shows before "show more". */
+const ENTRY_PREVIEW_CHARS = 1000;
+const ENTRY_PREVIEW_LINES = 20;
+
+/** The start of a long text, or null when the whole text is short enough. */
+function entryPreview(text: string): string | null {
+  let end = Math.min(text.length, ENTRY_PREVIEW_CHARS);
+  let lines = 1;
+  for (let index = 0; index < end; index += 1) {
+    if (text.charCodeAt(index) === 10 && ++lines > ENTRY_PREVIEW_LINES) {
+      end = index;
+      break;
+    }
+  }
+  return end < text.length ? text.slice(0, end) : null;
+}
+
+/** The conversation's entries in recorded order, one per protocol block. */
+function ConversationPanel({
+  conversation,
+  formatNumber,
   labels,
 }: {
-  text: string | null;
+  conversation: Conversation;
+  formatNumber: (value: number) => string;
   labels: SessionEventInspectorLabels;
 }) {
-  if (!text?.trim()) {
-    return (
-      <div className="text-muted-foreground p-4 text-sm italic">
-        {labels.noText}
-      </div>
-    );
-  }
+  const { entries, completeness } = conversation;
+  const instructions = leadingInstructionCount(entries);
+  const copyText = entries.map((entry) => entry.text).join("\n\n");
   return (
     <div className="relative">
-      <CopyButton text={text} label={labels.copy} />
-      <pre className="p-3 pr-12 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">
-        {text}
-      </pre>
+      {copyText.trim() ? (
+        <CopyButton text={copyText} label={labels.copy} />
+      ) : null}
+      {completeness !== null && completeness !== "complete" ? (
+        <div className="text-muted-foreground px-3 pt-3 pr-12 text-xs">
+          {labels.incomplete(completeness)}
+        </div>
+      ) : null}
+      {entries.length === 0 ? (
+        <div className="text-muted-foreground p-4 text-sm italic">
+          {labels.noText}
+        </div>
+      ) : (
+        <ol className="divide-y">
+          {entries.map((entry, index) => (
+            <ConversationEntryItem
+              key={index}
+              entry={entry}
+              instruction={index < instructions}
+              formatNumber={formatNumber}
+              labels={labels}
+            />
+          ))}
+        </ol>
+      )}
     </div>
   );
+}
+
+function ConversationEntryItem({
+  entry,
+  instruction,
+  formatNumber,
+  labels,
+}: {
+  entry: ConversationEntry;
+  /** Part of the system prompt the conversation starts with. */
+  instruction: boolean;
+  formatNumber: (value: number) => string;
+  labels: SessionEventInspectorLabels;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+  const preview = React.useMemo(() => entryPreview(entry.text), [entry.text]);
+  const tool = entry.role === "tool_call" || entry.role === "tool_result";
+  return (
+    <li className="px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 pr-10 text-xs">
+        <Badge variant={instruction ? "secondary" : "outline"}>
+          {entryLabel(entry.role, instruction, labels)}
+        </Badge>
+        {entry.name !== null ? (
+          <span className="font-medium">{entry.name}</span>
+        ) : null}
+        {entry.callId !== null ? (
+          <span className="text-muted-foreground font-mono">
+            {labels.callId}: {entry.callId}
+          </span>
+        ) : null}
+      </div>
+      {entry.text ? (
+        <>
+          <pre
+            className={cn(
+              "mt-1.5 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap",
+              tool && "bg-muted/30 rounded-md border p-2",
+            )}
+          >
+            {preview !== null && !expanded ? `${preview}…` : entry.text}
+          </pre>
+          {preview !== null ? (
+            <button
+              type="button"
+              className="text-ring mt-1 text-xs underline-offset-4 hover:underline"
+              onClick={() => setExpanded((current) => !current)}
+            >
+              {expanded
+                ? labels.showLess
+                : labels.showMore(formatNumber(entry.text.length))}
+            </button>
+          ) : null}
+        </>
+      ) : (
+        <div className="text-muted-foreground mt-1 text-xs italic">
+          {labels.noText}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function entryLabel(
+  role: string,
+  instruction: boolean,
+  labels: SessionEventInspectorLabels,
+): string {
+  if (instruction) {
+    return role === "developer"
+      ? `${labels.systemPrompt} · ${labels.roleDeveloper}`
+      : labels.systemPrompt;
+  }
+  switch (role) {
+    case "system":
+      return labels.roleSystem;
+    case "developer":
+      return labels.roleDeveloper;
+    case "user":
+      return labels.roleUser;
+    case "assistant":
+      return labels.roleAssistant;
+    case "reasoning":
+      return labels.roleReasoning;
+    case "tool_call":
+      return labels.toolCall;
+    case "tool_result":
+      return labels.toolResult;
+    case "unknown":
+      return labels.roleUnknown;
+    default:
+      return role;
+  }
 }
 
 function CopyButton({ text, label }: { text: string; label: string }) {
@@ -318,50 +552,6 @@ function CopyButton({ text, label }: { text: string; label: string }) {
     >
       <Copy className="size-3.5" />
     </Button>
-  );
-}
-
-function ToolsPanel({
-  segments,
-  labels,
-}: {
-  segments: ToolContentSegment[];
-  labels: SessionEventInspectorLabels;
-}) {
-  if (segments.length === 0) {
-    return (
-      <div className="text-muted-foreground p-4 text-sm">{labels.noTools}</div>
-    );
-  }
-  // Collapsed disclosures keep long accumulated tool histories cheap to render.
-  return (
-    <div className="space-y-2 p-3">
-      {segments.map((segment, index) => (
-        <details
-          key={segment.itemId ?? segment.callId ?? `${segment.type}-${index}`}
-          className="bg-muted/20 rounded-md border"
-        >
-          <summary className="flex cursor-pointer flex-wrap items-center gap-2 px-3 py-2 text-xs">
-            <Badge variant="outline">
-              {segment.type === "tool_call"
-                ? labels.toolCall
-                : labels.toolResult}
-            </Badge>
-            {segment.name ? (
-              <span className="font-medium">{segment.name}</span>
-            ) : null}
-            {segment.callId ? (
-              <span className="text-muted-foreground font-mono">
-                {labels.callId}: {segment.callId}
-              </span>
-            ) : null}
-          </summary>
-          <pre className="border-t p-3 font-mono text-xs break-all whitespace-pre-wrap">
-            {segment.content ?? labels.toolContentHidden}
-          </pre>
-        </details>
-      ))}
-    </div>
   );
 }
 
@@ -421,6 +611,49 @@ function AttachmentsPanel({
   );
 }
 
+/** Headers exactly as recorded, in order and with duplicates kept. */
+function HeadersPanel({
+  headers,
+  labels,
+}: {
+  headers: RecordedHeader[];
+  labels: SessionEventInspectorLabels;
+}) {
+  // Header names cannot contain spaces or parentheses, so the copied marker
+  // cannot be mistaken for part of a name.
+  const text = headers
+    .map((header) =>
+      "value" in header
+        ? `${header.name}: ${header.value}`
+        : `${header.name} (base64): ${header.valueBase64}`,
+    )
+    .join("\n");
+  return (
+    <div className="relative">
+      <CopyButton text={text} label={labels.copy} />
+      <ol className="space-y-0.5 p-3 pr-12 font-mono text-xs leading-relaxed">
+        {headers.map((header, index) => (
+          <li key={index} className="break-all whitespace-pre-wrap">
+            {"value" in header ? (
+              `${header.name}: ${header.value}`
+            ) : (
+              <>
+                {`${header.name}: ${header.valueBase64}`}{" "}
+                <Badge
+                  variant="outline"
+                  className="px-1 py-0 align-middle font-sans text-[10px]"
+                >
+                  {labels.base64}
+                </Badge>
+              </>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function MetadataPanel({ metadata }: { metadata: unknown }) {
   const json = React.useMemo(
     () => JSON.stringify(metadata, null, 2),
@@ -465,4 +698,4 @@ function PropertiesPanel({
 }
 
 /** Fields shown in their own tabs rather than as properties. */
-const nonScalarFields = new Set(["text", "metadata", "attachments"]);
+const nonScalarFields = new Set(["metadata", "attachments"]);

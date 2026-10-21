@@ -33,6 +33,7 @@ export function SessionStreamsView({
   onSelectSegment,
   onSelectEvent,
   formatTime,
+  inspector,
 }: {
   sessionPk: string;
   streams: SessionStreamsResponse;
@@ -42,6 +43,8 @@ export function SessionStreamsView({
   onSelectSegment: (head: string) => void;
   onSelectEvent: (eventPk: string) => void;
   formatTime: (value: string) => string;
+  /** The event inspector, shown beside the cards while an event is open. */
+  inspector: React.ReactNode;
 }) {
   const { t } = useI18n();
   const layout = React.useMemo(() => streamLayout(streams.segments), [streams]);
@@ -61,17 +64,24 @@ export function SessionStreamsView({
           className="max-h-[calc(100svh-5rem)]"
         />
       </Card>
-      {selected === null ? null : (
-        <SegmentCards
-          key={selected}
-          sessionPk={sessionPk}
-          head={selected}
-          ordinalOf={layout.ordinalOf}
-          selectedEventId={selectedEventId}
-          onSelectSegment={onSelectSegment}
-          onSelectEvent={onSelectEvent}
-        />
-      )}
+      <div className="flex min-w-0 items-start gap-4">
+        {selected === null ? null : (
+          <SegmentCards
+            key={selected}
+            sessionPk={sessionPk}
+            head={selected}
+            ordinalOf={layout.ordinalOf}
+            selectedEventId={selectedEventId}
+            onSelectSegment={onSelectSegment}
+            onSelectEvent={onSelectEvent}
+          />
+        )}
+        {inspector ? (
+          <div className="sticky top-4 flex h-[calc(100svh-2rem)] shrink-0">
+            {inspector}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -112,7 +122,7 @@ function SegmentCards({
     );
   }
   return (
-    <div className="min-w-0 space-y-3">
+    <div className="min-w-0 flex-1 space-y-3">
       {query.isLoading ? (
         <Card>
           <CardContent className="text-muted-foreground py-10 text-center text-sm">
@@ -124,6 +134,7 @@ function SegmentCards({
         <section key={exchange.id} className="space-y-2">
           <ExchangeLine
             exchange={exchange}
+            segment={query.data?.pages[0]?.segment ?? head}
             ordinalOf={ordinalOf}
             onSelectSegment={onSelectSegment}
           />
@@ -163,15 +174,19 @@ function SegmentCards({
  */
 function ExchangeLine({
   exchange,
+  segment,
   ordinalOf,
   onSelectSegment,
 }: {
   exchange: SegmentExchange;
+  /** Head of the segment the exchange is shown in. */
+  segment: string;
   ordinalOf: ReadonlyMap<string, number>;
   onSelectSegment: (head: string) => void;
 }) {
   const { t } = useI18n();
-  const baseSegment = exchange.base_segment;
+  // Only a base in another segment gets a link there.
+  const baseSegment = exchange.base_segment === segment ? null : exchange.base_segment;
   const segmentNumber = baseSegment === null ? undefined : ordinalOf.get(baseSegment);
   return (
     <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pt-2 text-xs">

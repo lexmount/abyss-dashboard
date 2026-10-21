@@ -204,9 +204,20 @@ function TimelineRowContent({
           ) : null}
         </span>
       </span>
-      {parent === undefined ? null : (
+      {/* The segment's new user words on one line, the backend's start of
+          them on hover; without any, where the segment comes from. */}
+      {segment.label ? (
+        <span
+          className="text-muted-foreground mt-0.5 block truncate text-xs"
+          title={segment.label.text}
+        >
+          {segment.label.text}
+        </span>
+      ) : (
         <span className="text-muted-foreground mt-0.5 block text-xs">
-          {t("sessions.streams.continuesSegment", { number: parent + 1 })}
+          {parent === undefined
+            ? t("sessions.streams.noUserInput")
+            : t("sessions.streams.continuesSegment", { number: parent + 1 })}
         </span>
       )}
     </>

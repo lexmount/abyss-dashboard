@@ -64,10 +64,7 @@ export interface EventListResponse {
  * request bodies, often hundreds of kilobytes per event, and a list shows none
  * of them.
  */
-export type UsageEventListItem = Omit<
-  UsageEvent,
-  "text" | "text_sha256" | "metadata" | "attachments"
->;
+export type UsageEventListItem = Omit<UsageEvent, "metadata" | "attachments">;
 
 export interface UsageEvent {
   id: string;
@@ -85,8 +82,6 @@ export interface UsageEvent {
   llm_provider: string;
   llm_model: string;
   event_type: string;
-  text: string | null;
-  text_sha256: string | null;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
@@ -325,6 +320,18 @@ export interface StreamSegment {
   start: string;
   end: string;
   exchange_count: number;
+  /** The new user words of the segment's first request. */
+  label: EntryLabel | null;
+}
+
+/** Where a request's new user words are, and how they begin. */
+export interface EntryLabel {
+  event_pk: string;
+  entry_index: number;
+  /** At most the first 50 UTF-16 code units of the entry's text. */
+  text: string;
+  /** Length of the entry's whole text in UTF-16 code units. */
+  length: number;
 }
 
 export function fetchSessionStreams(
@@ -339,6 +346,8 @@ export function fetchSessionStreams(
 export interface SessionHeaderResponse {
   session_pk: string;
   session_id: string;
+  /** The new user words of the session's first request. */
+  title: EntryLabel | null;
   agents: { name: string; version: string | null }[];
   start: string;
   end: string;

@@ -415,7 +415,6 @@ const EntryBlock = React.memo(function EntryBlock({
   const prose = entry.role === "user" || entry.role === "assistant";
   const long = React.useMemo(() => prose && isLong(text), [prose, text]);
   const Chevron = expanded ? ChevronDown : ChevronRight;
-  const ring = selected && "ring-ring/60 ring-2";
   // The entry opens its event; the controls inside it act on their own.
   const stop = (event: React.SyntheticEvent) => event.stopPropagation();
   const toggle = (event: React.SyntheticEvent) => {
@@ -453,7 +452,6 @@ const EntryBlock = React.memo(function EntryBlock({
           className={cn(
             "cursor-pointer rounded-lg border transition-colors outline-none",
             expanded ? "bg-card" : "bg-muted/30 hover:bg-muted/60",
-            ring,
           )}
         >
           <div className="flex flex-wrap items-center gap-2 px-2.5 py-2 text-xs">
@@ -540,7 +538,6 @@ const EntryBlock = React.memo(function EntryBlock({
           {...selectable}
           className={cn(
             "border-ring/20 bg-ring/[0.06] cursor-pointer rounded-lg border px-3.5 py-2.5 outline-none",
-            ring,
           )}
         >
           <div className="text-ring text-xs font-medium">{label}</div>
@@ -559,8 +556,6 @@ const EntryBlock = React.memo(function EntryBlock({
         {...selectable}
         className={cn(
           "hover:bg-muted/40 cursor-pointer rounded-lg px-1 py-1 outline-none",
-          selected && "bg-ring/[0.06]",
-          ring,
         )}
       >
         <div className="text-muted-foreground mb-1.5 text-xs font-medium">{label}</div>
