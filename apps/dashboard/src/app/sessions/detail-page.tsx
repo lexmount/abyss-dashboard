@@ -1,52 +1,51 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   SessionEventInspector,
-  SessionTrajectory,
   type SessionEventDetailState,
   type SessionEventInspectorLabels,
-  type SessionTrajectoryLabels,
 } from "@lexmount.com/abyss-ui";
-import { ArrowLeft, Bot, Check, Copy, Info } from "lucide-react";
+import { ArrowLeft, Bot, Check, Copy } from "lucide-react";
 import * as React from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
-  fetchSessionTrajectory,
+  fetchSessionHeader,
+  fetchSessionStreams,
   fetchUsageEvent,
   usageAttachmentUrl,
-  type SessionInfo,
+  type SessionHeaderResponse,
 } from "@/api/usage";
 import { apiErrorKind } from "@/api/http";
 import { BaseLayout } from "@/components/layouts/base-layout";
 import { QueryErrorCard } from "@/components/query-error";
-import { SessionPurposeBadge } from "@/components/session-purpose-badge";
-import { Badge, Button } from "@lexmount.com/abyss-ui";
-import { Popover, PopoverContent, PopoverTrigger } from "@lexmount.com/abyss-ui";
+import { Badge } from "@lexmount.com/abyss-ui";
 import { Card, CardContent } from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 import { cn } from "@/lib/utils";
+import { SessionStreamsView } from "./session-streams-view";
 
 const eventSearchParam = "event";
-const turnSearchParam = "turn";
-/** Search text, carried over from a session search and kept as it changes. */
-const querySearchParam = "q";
+/** Head of the open segment. */
+const segmentSearchParam = "segment";
 
 export default function SessionDetailPage() {
   const { t, locale, formatDateTime, formatNumber } = useI18n();
-  const { sessionPk } = useParams<{ sessionPk: string }>();
+  const { sessionPk = "" } = useParams<{ sessionPk: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedEventId = searchParams.get(eventSearchParam);
-  const turnParam = Number.parseInt(searchParams.get(turnSearchParam) ?? "", 10);
-  const focusedTurn = Number.isNaN(turnParam) ? null : turnParam;
-  const initialQuery = searchParams.get(querySearchParam) ?? undefined;
+  const segment = searchParams.get(segmentSearchParam);
 
-  const trajectoryQuery = useQuery({
-    queryKey: ["session-trajectory", sessionPk],
-    queryFn: () => fetchSessionTrajectory(sessionPk ?? ""),
-    enabled: Boolean(sessionPk),
+  const headerQuery = useQuery({
+    queryKey: ["session-header", sessionPk],
+    queryFn: () => fetchSessionHeader(sessionPk),
+    enabled: sessionPk !== "",
   });
-  const trajectory = trajectoryQuery.data;
-  const session = trajectory?.session;
+  const streamsQuery = useQuery({
+    queryKey: ["session-streams", sessionPk],
+    queryFn: () => fetchSessionStreams(sessionPk),
+    enabled: sessionPk !== "",
+  });
+  const header = headerQuery.data;
   const eventQuery = useQuery({
     queryKey: ["usage-event", selectedEventId],
     queryFn: () => fetchUsageEvent(selectedEventId ?? ""),
@@ -67,7 +66,7 @@ export default function SessionDetailPage() {
           }
           return next;
         },
-        { replace: name === eventSearchParam || name === querySearchParam },
+        { replace: name === eventSearchParam },
       );
     },
     [setSearchParams],
@@ -76,7 +75,7 @@ export default function SessionDetailPage() {
   const summaryRef = React.useRef<HTMLDivElement>(null);
   useFoldSidebarOnScroll(summaryRef);
 
-  // Every trajectory row and turn shows a time, so the formatter is built once.
+  // Every segment and card shows a time, so the formatter is built once.
   const formatTime = React.useMemo(() => {
     const format = new Intl.DateTimeFormat(locale, { timeStyle: "medium" });
     return (value: string) => format.format(new Date(value));
@@ -87,11 +86,11 @@ export default function SessionDetailPage() {
     : eventQuery.data
       ? { status: "ready", event: eventQuery.data }
       : { status: "loading" };
-
-  const turnCount = trajectory
-    ? new Set(trajectory.events.map((event) => event.turn_index)).size
-    : null;
-  const models = trajectory?.events.map((event) => event.llm_model) ?? [];
+  const failed = headerQuery.isError
+    ? headerQuery
+    : streamsQuery.isError
+      ? streamsQuery
+      : null;
 
   return (
     <BaseLayout>
@@ -104,31 +103,26 @@ export default function SessionDetailPage() {
             <ArrowLeft className="size-3.5" />
             {t("sessions.back")}
           </Link>
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <SessionIdentity session={session} />
-            {session ? (
-              <SessionDetails session={session} formatDateTime={formatDateTime} />
-            ) : null}
-          </div>
-          {session ? (
-            <SessionStats session={session} turnCount={turnCount} models={models} />
+          <SessionIdentity header={header} />
+          {header ? (
+            <SessionStats header={header} formatDateTime={formatDateTime} />
           ) : null}
         </div>
 
-        {trajectoryQuery.isError ? (
+        {failed ? (
           <QueryErrorCard
-            error={trajectoryQuery.error}
+            error={failed.error}
             title={
-              apiErrorKind(trajectoryQuery.error) === "notFound"
+              apiErrorKind(failed.error) === "notFound"
                 ? t("sessions.detail.notFound")
                 : undefined
             }
-            retrying={trajectoryQuery.isFetching}
-            onRetry={() => void trajectoryQuery.refetch()}
+            retrying={failed.isFetching}
+            onRetry={() => void failed.refetch()}
           />
         ) : null}
 
-        {trajectoryQuery.isLoading ? (
+        {streamsQuery.isLoading ? (
           <Card>
             <CardContent className="text-muted-foreground py-10 text-center text-sm">
               {t("sessions.detail.loading")}
@@ -136,37 +130,31 @@ export default function SessionDetailPage() {
           </Card>
         ) : null}
 
-        {trajectory ? (
-          <SessionTrajectory
-            className="h-[calc(100svh-5.75rem)] min-h-[28rem]"
-            items={trajectory.items}
-            events={trajectory.events}
+        {streamsQuery.data ? (
+          <SessionStreamsView
+            sessionPk={sessionPk}
+            streams={streamsQuery.data}
+            segment={segment}
             selectedEventId={selectedEventId}
+            onSelectSegment={(head) => updateParam(segmentSearchParam, head)}
             onSelectEvent={(eventPk) => updateParam(eventSearchParam, eventPk)}
-            focusedTurn={focusedTurn}
-            onFocusTurn={(turnIndex) =>
-              updateParam(turnSearchParam, turnIndex?.toString() ?? null)
-            }
             formatTime={formatTime}
-            formatNumber={formatNumber}
-            labels={trajectoryLabels(t)}
-            initialQuery={initialQuery}
-            onQueryChange={(query) => updateParam(querySearchParam, query || null)}
-            inspector={
-              selectedEventId === null ? null : (
-                <SessionEventInspector
-                  key={selectedEventId}
-                  detail={detail}
-                  onClose={() => updateParam(eventSearchParam, null)}
-                  attachmentUrl={usageAttachmentUrl}
-                  formatDateTime={formatDateTime}
-                  formatNumber={formatNumber}
-                  labels={inspectorLabels(t)}
-                />
-              )
-            }
           />
         ) : null}
+
+        {selectedEventId === null ? null : (
+          <div className="bg-background fixed inset-y-0 right-0 z-40 w-[min(40rem,100vw)] border-l shadow-xl">
+            <SessionEventInspector
+              key={selectedEventId}
+              detail={detail}
+              onClose={() => updateParam(eventSearchParam, null)}
+              attachmentUrl={usageAttachmentUrl}
+              formatDateTime={formatDateTime}
+              formatNumber={formatNumber}
+              labels={inspectorLabels(t)}
+            />
+          </div>
+        )}
       </div>
     </BaseLayout>
   );
@@ -253,56 +241,6 @@ function useFoldSidebarOnScroll(summaryRef: React.RefObject<HTMLElement | null>)
   }, [summaryRef]);
 }
 
-function trajectoryLabels(t: ReturnType<typeof useI18n>["t"]): SessionTrajectoryLabels {
-  return {
-    text: t("sessions.trajectory.text"),
-    system: t("sessions.trajectory.system"),
-    developer: t("sessions.trajectory.developer"),
-    user: t("sessions.trajectory.user"),
-    assistant: t("sessions.trajectory.assistant"),
-    reasoning: t("sessions.trajectory.reasoning"),
-    toolCall: t("sessions.detail.toolCall"),
-    toolResult: t("sessions.detail.toolResult"),
-    compaction: t("sessions.trajectory.compaction"),
-    compactionPrompt: t("sessions.trajectory.compactionPrompt"),
-    compactionSummary: t("sessions.trajectory.compactionSummary"),
-    input: t("sessions.trajectory.input"),
-    output: t("sessions.trajectory.output"),
-    noOutput: t("sessions.trajectory.noOutput"),
-    showMore: t("sessions.trajectory.showMore"),
-    showLess: t("sessions.trajectory.showLess"),
-    openEvent: t("sessions.trajectory.openEvent"),
-    turn: (index) => t("sessions.detail.turn", { index }),
-    characters: (count) => t("sessions.event.characters", { count }),
-    summary: (items, toolCalls) =>
-      t("sessions.trajectory.summary", { items, toolCalls }),
-    empty: t("sessions.trajectory.empty"),
-    allTurns: t("sessions.trajectory.allTurns"),
-    turnList: t("sessions.trajectory.turnList"),
-    toolCount: (count) => t("sessions.trajectory.toolCount", { count }),
-    toolsOnly: (names) => t("sessions.trajectory.toolsOnly", { names }),
-    search: t("sessions.trajectory.search"),
-    searchPosition: (current, total) =>
-      t("sessions.trajectory.searchPosition", { current, total }),
-    searchNoMatches: t("sessions.trajectory.searchNoMatches"),
-    searchPrevious: t("sessions.trajectory.searchPrevious"),
-    searchNext: t("sessions.trajectory.searchNext"),
-    searchClear: t("sessions.trajectory.searchClear"),
-    searchTurnMatches: (count) => t("sessions.trajectory.searchTurnMatches", { count }),
-    eventRequest: t("common.request"),
-    eventResponse: t("common.response"),
-    tokens: t("common.tokens"),
-    inputTokens: t("sessions.trajectory.inputTokens"),
-    outputTokens: t("sessions.trajectory.outputTokens"),
-    cacheReadTokens: t("sessions.trajectory.cacheReadTokens"),
-    cacheWriteTokens: t("sessions.trajectory.cacheWriteTokens"),
-    reasoningTokens: t("sessions.trajectory.reasoningTokens"),
-    tokensUnavailable: t("sessions.trajectory.tokensUnavailable"),
-    unknownModel: t("sessions.trajectory.unknownModel"),
-    noNewContent: t("sessions.trajectory.noNewContent"),
-  };
-}
-
 function inspectorLabels(
   t: ReturnType<typeof useI18n>["t"],
 ): SessionEventInspectorLabels {
@@ -333,8 +271,9 @@ function inspectorLabels(
   };
 }
 
-function SessionIdentity({ session }: { session: SessionInfo | undefined }) {
+function SessionIdentity({ header }: { header: SessionHeaderResponse | undefined }) {
   const { t } = useI18n();
+  const agent = header?.agents[0];
   return (
     <div className="flex min-w-0 items-center gap-3.5">
       <div className="bg-ring/10 text-ring ring-ring/20 flex size-11 shrink-0 items-center justify-center rounded-xl ring-1">
@@ -342,42 +281,19 @@ function SessionIdentity({ session }: { session: SessionInfo | undefined }) {
       </div>
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <h1
-            className="truncate text-xl font-semibold tracking-tight"
-            title={session?.title ?? undefined}
-          >
-            {session
-              ? (session.title ?? agentDisplayName(session.agent_name))
-              : t("sessions.detail.title")}
+          <h1 className="truncate text-xl font-semibold tracking-tight">
+            {agent ? agentDisplayName(agent.name) : t("sessions.detail.title")}
           </h1>
-          {session?.agent_version && !session.title ? (
+          {agent?.version ? (
             <Badge variant="outline" className="font-mono text-[11px]">
-              v{session.agent_version}
+              v{agent.version}
             </Badge>
           ) : null}
-          <SessionPurposeBadge purpose={session?.purpose ?? null} />
         </div>
-        {session ? (
+        {header ? (
           <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1 font-mono text-xs">
-            {session.title ? (
-              <span className="shrink-0 font-sans">
-                {agentDisplayName(session.agent_name)}
-                {session.agent_version ? ` v${session.agent_version}` : ""} ·
-              </span>
-            ) : null}
-            <span className="truncate">{session.session_id}</span>
-            <CopyButton
-              value={session.session_id}
-              label={t("sessions.detail.copyId")}
-            />
-            {session.parent_session_pk ? (
-              <Link
-                to={`/sessions/${session.parent_session_pk}`}
-                className="text-foreground hover:text-ring shrink-0 font-sans underline-offset-4 hover:underline"
-              >
-                {t("sessions.detail.parentSession")}
-              </Link>
-            ) : null}
+            <span className="truncate">{header.session_id}</span>
+            <CopyButton value={header.session_id} label={t("sessions.detail.copyId")} />
           </div>
         ) : null}
       </div>
@@ -416,53 +332,41 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 
 /** Headline facts about the session in one strip. */
 function SessionStats({
-  session,
-  turnCount,
-  models,
+  header,
+  formatDateTime,
 }: {
-  session: SessionInfo;
-  turnCount: number | null;
-  models: string[];
+  header: SessionHeaderResponse;
+  formatDateTime: (value: string) => string;
 }) {
-  const { t, formatDateTime, formatNumber } = useI18n();
-  const modelSummary = React.useMemo(() => primaryModel(models), [models]);
+  const { t, formatNumber } = useI18n();
   const stats = [
-    {
-      label: t("sessions.detail.startedAt"),
-      value: formatDateTime(session.started_at),
-    },
+    { label: t("sessions.detail.startedAt"), value: formatDateTime(header.start) },
     {
       label: t("sessions.detail.duration"),
-      value: session.ended_at
-        ? formatDuration(session.started_at, session.ended_at, t)
-        : t("sessions.detail.ongoing"),
+      value: formatDuration(header.start, header.end, t),
     },
+    { label: t("sessions.detail.turnCount"), value: formatNumber(header.turn_count) },
     {
-      label: t("sessions.detail.turnCount"),
-      value: turnCount === null ? "—" : formatNumber(turnCount),
+      label: t("sessions.streams.counts"),
+      value: t("sessions.streams.countsValue", {
+        segments: formatNumber(header.segment_count),
+        exchanges: formatNumber(header.exchange_count),
+      }),
     },
+    { label: t("common.tokens"), value: formatNumber(header.tokens.total) },
     {
       label: t("sessions.detail.model"),
-      value: modelSummary
-        ? modelSummary.others > 0
-          ? `${modelSummary.name} +${modelSummary.others}`
-          : modelSummary.name
-        : "—",
-      title: [...new Set(models)].join("\n"),
+      value: header.models.join(", ") || "—",
+      title: header.models.join("\n"),
       mono: true,
     },
   ];
   return (
-    <dl className="bg-card grid grid-cols-2 overflow-hidden rounded-xl border shadow-xs md:grid-cols-4">
+    <dl className="bg-card grid grid-cols-2 overflow-hidden rounded-xl border shadow-xs md:grid-cols-6">
       {stats.map((stat, index) => (
         <div
           key={stat.label}
-          className={cn(
-            "min-w-0 px-4 py-3",
-            index % 2 === 1 && "border-l",
-            index >= 2 && "max-md:border-t",
-            index === 2 && "md:border-l",
-          )}
+          className={cn("min-w-0 px-4 py-3", index > 0 && "md:border-l")}
         >
           <dt className="text-muted-foreground text-xs">{stat.label}</dt>
           <dd
@@ -480,23 +384,6 @@ function SessionStats({
   );
 }
 
-/** The most frequent model, plus how many other models the session used. */
-function primaryModel(models: string[]): { name: string; others: number } | null {
-  const counts = new Map<string, number>();
-  for (const model of models) {
-    if (model) {
-      counts.set(model, (counts.get(model) ?? 0) + 1);
-    }
-  }
-  let best: string | null = null;
-  for (const [model, count] of counts) {
-    if (best === null || count > (counts.get(best) ?? 0)) {
-      best = model;
-    }
-  }
-  return best === null ? null : { name: best, others: counts.size - 1 };
-}
-
 function formatDuration(
   startedAt: string,
   endedAt: string,
@@ -512,55 +399,4 @@ function formatDuration(
   return hours > 0
     ? t("sessions.detail.durationHours", { hours, minutes: minutes % 60 })
     : t("sessions.detail.durationMinutes", { minutes });
-}
-
-/** Every session field, verbatim, including collector-provided metadata. */
-function SessionDetails({
-  session,
-  formatDateTime,
-}: {
-  session: SessionInfo;
-  formatDateTime: (value: string) => string;
-}) {
-  const { t } = useI18n();
-  const { metadata, ...fields } = session;
-  const entries: [string, string][] = Object.entries(fields).map(([key, value]) => [
-    key,
-    value === null
-      ? "—"
-      : key === "started_at" || key === "ended_at"
-        ? formatDateTime(String(value))
-        : String(value),
-  ]);
-  if (metadata !== null && typeof metadata === "object") {
-    for (const [key, value] of Object.entries(metadata)) {
-      entries.push([
-        `metadata.${key}`,
-        typeof value === "string" ? value : JSON.stringify(value),
-      ]);
-    }
-  }
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Info className="size-4" />
-          {t("sessions.detail.details")}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[28rem] max-w-[calc(100vw-2rem)] p-0">
-        <div className="border-b px-4 py-2.5 text-sm font-medium">
-          {t("sessions.detail.details")}
-        </div>
-        <dl className="grid max-h-80 grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 overflow-auto p-4 text-xs">
-          {entries.map(([key, value]) => (
-            <React.Fragment key={key}>
-              <dt className="text-muted-foreground font-mono">{key}</dt>
-              <dd className="font-mono break-all">{value}</dd>
-            </React.Fragment>
-          ))}
-        </dl>
-      </PopoverContent>
-    </Popover>
-  );
 }
