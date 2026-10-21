@@ -81,7 +81,7 @@ to `abyss-backend`:
 install -m 0600 /dev/null "$HOME/.abyss/backend.token"
 printf '%s\n' "$ABYSS_API_TOKEN" > "$HOME/.abyss/backend.token"
 
-npx --yes @lexmount.com/abyss-dashboard@0.1.0 \
+npx --yes @lexmount.com/abyss-dashboard@0.2.0 \
   --backend http://127.0.0.1:8080 \
   --token-file "$HOME/.abyss/backend.token"
 ```
@@ -135,7 +135,7 @@ release authentication, and consumer CI configuration.
 ## Dashboard package releases
 
 The executable dashboard package is released independently from the shared UI
-package. Publish a GitHub Release with a `dashboard-v0.1.0`-style tag matching
+package. Publish a GitHub Release with a `dashboard-v0.2.0`-style tag matching
 the version in `apps/dashboard/package.json`. The
 `.github/workflows/publish-dashboard.yml` workflow verifies the complete packed
 artifact and publishes it to npmjs with OIDC Trusted Publishing and provenance.
@@ -143,6 +143,6 @@ artifact and publishes it to npmjs with OIDC Trusted Publishing and provenance.
 Before creating a dashboard release, run:
 
 ```bash
-npm run check:dashboard-release -- dashboard-v0.1.0
+npm run check:dashboard-release -- dashboard-v0.2.0
 npm pack --dry-run -w @lexmount.com/abyss-dashboard
 ```
