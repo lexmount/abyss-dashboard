@@ -308,6 +308,150 @@ export function fetchSessionTrajectory(
   );
 }
 
+/** Segments of one session, without their exchanges or any content. */
+export interface SessionStreamsResponse {
+  session_pk: string;
+  segments: StreamSegment[];
+}
+
+export interface StreamSegment {
+  /** Id of the segment's first exchange, which identifies the segment. */
+  head: string;
+  kind: "root" | "turn" | "branch";
+  /** Head of the segment holding the first exchange's base. */
+  parent: string | null;
+  /** Id of the first exchange's base. */
+  forked_from: string | null;
+  start: string;
+  end: string;
+  exchange_count: number;
+}
+
+export function fetchSessionStreams(
+  sessionPk: string,
+): Promise<SessionStreamsResponse> {
+  return fetchJson<SessionStreamsResponse>(
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/streams`,
+  );
+}
+
+/** Agents, time span, counts, and token totals of one session. */
+export interface SessionHeaderResponse {
+  session_pk: string;
+  session_id: string;
+  agents: { name: string; version: string | null }[];
+  start: string;
+  end: string;
+  event_count: number;
+  exchange_count: number;
+  turn_count: number;
+  segment_count: number;
+  tokens: TokenCounts;
+  providers: string[];
+  models: string[];
+}
+
+export interface TokenCounts {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  reasoning: number;
+  total: number;
+}
+
+export function fetchSessionHeader(sessionPk: string): Promise<SessionHeaderResponse> {
+  return fetchJson<SessionHeaderResponse>(
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/header`,
+  );
+}
+
+/** Which entries of a conversation to give, and how much of each text. */
+export interface PreviewWindow {
+  /** Runs such as `0-2,-5`; all entries without it. */
+  entries?: string;
+  /** Most UTF-16 code units of each text; whole texts without it. */
+  textPreview?: number;
+}
+
+/** The chosen part of one event's conversation. */
+export interface ConversationPreview {
+  event_pk: string;
+  completeness: string | null;
+  entries_total: number;
+  chunks: { from: number; entries: ConversationEntry[] }[];
+  omitted_entries: number;
+  omitted_bytes: number;
+  attachments: UsageEventAttachment[];
+}
+
+/** One entry as the collector reported it. */
+export interface ConversationEntry {
+  role: string;
+  text?: string;
+  call_id?: string;
+  name?: string;
+  item_id?: string;
+  /** Full length in UTF-16 code units of a text cut to the preview. */
+  text_length?: number;
+}
+
+/** One segment's exchanges from the asked one on. */
+export interface SegmentResponse {
+  session_pk: string;
+  segment: string;
+  exchanges: SegmentExchange[];
+  next: string | null;
+}
+
+export interface SegmentExchange {
+  id: string;
+  request_pk: string | null;
+  response_pk: string | null;
+  base: string | null;
+  base_segment: string | null;
+  rule: "pointer" | "last_output" | "results_only" | null;
+  no_base_reason: string | null;
+  new_from: number | null;
+  starts_turn: boolean;
+  requested_at: string | null;
+  responded_at: string | null;
+  model: string | null;
+  request_tokens: TokenCounts | null;
+  response_tokens: TokenCounts | null;
+  request: ConversationPreview | null;
+  response: ConversationPreview | null;
+}
+
+function windowParams(window: PreviewWindow, params = new URLSearchParams()) {
+  if (window.entries !== undefined) params.set("entries", window.entries);
+  if (window.textPreview !== undefined)
+    params.set("text_preview", window.textPreview.toString());
+  return params;
+}
+
+export function fetchSessionSegment(
+  sessionPk: string,
+  head: string,
+  window: PreviewWindow,
+  after?: string,
+): Promise<SegmentResponse> {
+  const params = windowParams(window);
+  if (after !== undefined) params.set("after", after);
+  return fetchJson<SegmentResponse>(
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/segments/${encodeURIComponent(head)}?${params}`,
+  );
+}
+
+export function fetchEventConversation(
+  eventPk: string,
+  window: PreviewWindow = {},
+): Promise<ConversationPreview> {
+  return fetchJson<ConversationPreview>(
+    `/api/v1/agent-usage/events/${encodeURIComponent(eventPk)}/conversation?${windowParams(window)}`,
+  );
+}
+
 export function fetchUsageEvent(eventPk: string): Promise<UsageEvent> {
   return fetchJson<UsageEvent>(
     `/api/v1/agent-usage/events/${encodeURIComponent(eventPk)}`,
