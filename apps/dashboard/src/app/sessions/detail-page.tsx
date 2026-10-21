@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   SessionEventInspector,
   type SessionEventDetailState,
-  type SessionEventInspectorLabels,
 } from "@lexmount.com/abyss-ui";
 import { ArrowLeft, Bot, Check, Copy } from "lucide-react";
 import * as React from "react";
@@ -17,10 +16,10 @@ import {
 import { apiErrorKind } from "@/api/http";
 import { BaseLayout } from "@/components/layouts/base-layout";
 import { QueryErrorCard } from "@/components/query-error";
-import { Badge } from "@lexmount.com/abyss-ui";
 import { Card, CardContent } from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
+import { eventInspectorLabels } from "@/lib/inspector-labels";
 import { cn } from "@/lib/utils";
 import { SessionStreamsView } from "./session-streams-view";
 
@@ -139,22 +138,21 @@ export default function SessionDetailPage() {
             onSelectSegment={(head) => updateParam(segmentSearchParam, head)}
             onSelectEvent={(eventPk) => updateParam(eventSearchParam, eventPk)}
             formatTime={formatTime}
+            inspector={
+              selectedEventId === null ? null : (
+                <SessionEventInspector
+                  key={selectedEventId}
+                  detail={detail}
+                  onClose={() => updateParam(eventSearchParam, null)}
+                  attachmentUrl={usageAttachmentUrl}
+                  formatDateTime={formatDateTime}
+                  formatNumber={formatNumber}
+                  labels={eventInspectorLabels(t)}
+                />
+              )
+            }
           />
         ) : null}
-
-        {selectedEventId === null ? null : (
-          <div className="bg-background fixed inset-y-0 right-0 z-40 w-[min(40rem,100vw)] border-l shadow-xl">
-            <SessionEventInspector
-              key={selectedEventId}
-              detail={detail}
-              onClose={() => updateParam(eventSearchParam, null)}
-              attachmentUrl={usageAttachmentUrl}
-              formatDateTime={formatDateTime}
-              formatNumber={formatNumber}
-              labels={inspectorLabels(t)}
-            />
-          </div>
-        )}
       </div>
     </BaseLayout>
   );
@@ -241,39 +239,11 @@ function useFoldSidebarOnScroll(summaryRef: React.RefObject<HTMLElement | null>)
   }, [summaryRef]);
 }
 
-function inspectorLabels(
-  t: ReturnType<typeof useI18n>["t"],
-): SessionEventInspectorLabels {
-  return {
-    title: t("sessions.event.title"),
-    request: t("common.request"),
-    response: t("common.response"),
-    turn: (index) => t("sessions.detail.turn", { index }),
-    close: t("sessions.event.close"),
-    resize: t("sessions.event.resize"),
-    loading: t("sessions.event.loading"),
-    error: (message) => t("sessions.event.error", { message }),
-    copy: t("sessions.event.copy"),
-    noText: t("sessions.event.noText"),
-    tabContent: t("sessions.event.tabContent"),
-    tabTools: t("sessions.event.tabTools"),
-    tabAttachments: t("sessions.event.tabAttachments"),
-    tabMetadata: t("sessions.event.tabMetadata"),
-    tabProperties: t("sessions.event.tabProperties"),
-    noTools: t("sessions.event.noTools"),
-    toolCall: t("sessions.detail.toolCall"),
-    toolResult: t("sessions.detail.toolResult"),
-    callId: t("sessions.detail.callId"),
-    toolContentHidden: t("sessions.detail.toolContentHidden"),
-    imageContentHidden: t("sessions.detail.imageContentHidden"),
-    imageLabel: (index) => t("sessions.detail.imageLabel", { index }),
-    openImage: (label) => t("sessions.detail.openImage", { label }),
-  };
-}
-
 function SessionIdentity({ header }: { header: SessionHeaderResponse | undefined }) {
   const { t } = useI18n();
   const agent = header?.agents[0];
+  // The first request's user words, else the session id.
+  const title = header?.title?.text ?? header?.session_id;
   return (
     <div className="flex min-w-0 items-center gap-3.5">
       <div className="bg-ring/10 text-ring ring-ring/20 flex size-11 shrink-0 items-center justify-center rounded-xl ring-1">
@@ -281,17 +251,18 @@ function SessionIdentity({ header }: { header: SessionHeaderResponse | undefined
       </div>
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <h1 className="truncate text-xl font-semibold tracking-tight">
-            {agent ? agentDisplayName(agent.name) : t("sessions.detail.title")}
+          <h1 className="truncate text-xl font-semibold tracking-tight" title={title}>
+            {title ?? t("sessions.detail.title")}
           </h1>
-          {agent?.version ? (
-            <Badge variant="outline" className="font-mono text-[11px]">
-              v{agent.version}
-            </Badge>
-          ) : null}
         </div>
         {header ? (
           <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1 font-mono text-xs">
+            {agent ? (
+              <span className="shrink-0 font-sans">
+                {agentDisplayName(agent.name)}
+                {agent.version ? ` v${agent.version}` : ""} ·
+              </span>
+            ) : null}
             <span className="truncate">{header.session_id}</span>
             <CopyButton value={header.session_id} label={t("sessions.detail.copyId")} />
           </div>

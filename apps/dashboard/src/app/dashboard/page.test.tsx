@@ -564,8 +564,6 @@ const baseUsageEvent: UsageEvent = {
   llm_provider: "openai",
   llm_model: "gpt-5",
   event_type: "request",
-  text: "hello",
-  text_sha256: null,
   input_tokens: 1,
   output_tokens: 2,
   cache_read_tokens: 0,

@@ -1,5 +1,95 @@
-/** Readers for collector metadata shared by session timeline presentations. */
+/** Readers for collector metadata shown with an event. */
 
+/**
+ * One HTTP header as the collector recorded it: `value` when the bytes were
+ * UTF-8, otherwise `valueBase64`.
+ */
+export type RecordedHeader =
+  { name: string; value: string } | { name: string; valueBase64: string };
+
+/**
+ * The headers in `metadata.headers` (a request's headers on a request event, a
+ * response's on a response event), in recorded order with duplicates kept.
+ * Names and values are passed through untouched.
+ */
+export function recordedHeaders(metadata: unknown): RecordedHeader[] {
+  if (!isRecord(metadata) || !Array.isArray(metadata.headers)) {
+    return [];
+  }
+
+  return metadata.headers.flatMap((entry): RecordedHeader[] => {
+    if (!isRecord(entry) || typeof entry.name !== "string") {
+      return [];
+    }
+    if (typeof entry.value === "string") {
+      return [{ name: entry.name, value: entry.value }];
+    }
+    if (typeof entry.value_base64 === "string") {
+      return [{ name: entry.name, valueBase64: entry.value_base64 }];
+    }
+    return [];
+  });
+}
+
+/**
+ * One protocol block of a request or response, in its recorded place. `text`
+ * is a tool call's arguments or a tool result's output for those roles.
+ */
+export interface ConversationEntry {
+  /** system, developer, user, assistant, reasoning, tool_call, tool_result, or unknown. */
+  role: string;
+  text: string;
+  callId: string | null;
+  name: string | null;
+}
+
+export interface Conversation {
+  entries: ConversationEntry[];
+  /** Whether the body was decoded completely, as the collector reported it. */
+  completeness: string | null;
+}
+
+/**
+ * `metadata.conversation` when it holds `entries`, in recorded order; null
+ * for events recorded before conversations had entries.
+ */
+export function conversationOf(metadata: unknown): Conversation | null {
+  if (!isRecord(metadata) || !isRecord(metadata.conversation)) {
+    return null;
+  }
+  const { entries, completeness } = metadata.conversation;
+  if (!Array.isArray(entries)) {
+    return null;
+  }
+  return {
+    // An entry that is not an object stays, as an unknown one, so every
+    // entry keeps the index the backend gives it.
+    entries: entries.map((entry): ConversationEntry =>
+      isRecord(entry)
+        ? {
+            role: typeof entry.role === "string" ? entry.role : "unknown",
+            text: typeof entry.text === "string" ? entry.text : "",
+            callId: typeof entry.call_id === "string" ? entry.call_id : null,
+            name: typeof entry.name === "string" ? entry.name : null,
+          }
+        : { role: "unknown", text: "", callId: null, name: null },
+    ),
+    completeness: typeof completeness === "string" ? completeness : null,
+  };
+}
+
+/**
+ * How many entries from the start are system or developer entries: the
+ * system prompt, which providers always place first.
+ */
+export function leadingInstructionCount(entries: ConversationEntry[]): number {
+  const index = entries.findIndex(
+    (entry) => entry.role !== "system" && entry.role !== "developer",
+  );
+  return index === -1 ? entries.length : index;
+}
+
+/** Tool segments of the retired `metadata.content_segments`, read by the old timeline. */
 export interface ToolContentSegment {
   type: "tool_call" | "tool_result";
   itemId: string | null;
