@@ -104,18 +104,18 @@ export function SessionSearchResults({
 }
 
 /**
- * Opens a session with the search carried over, at a hit's turn when given.
- * Hits are raw events and the session shows merged content, so the session
- * finds the text again itself, starting in that turn.
+ * Opens a session with the search carried over, at a hit's event when
+ * given: the session shows that event's segment and starts the search at the
+ * event's first hit, without opening the event.
  */
 export function sessionSearchLink(
   sessionPk: string,
   query: string,
-  turnIndex?: number,
+  eventPk?: string,
 ): string {
   const params = new URLSearchParams();
-  if (turnIndex !== undefined) {
-    params.set("turn", turnIndex.toString());
+  if (eventPk !== undefined) {
+    params.set("event", eventPk);
   }
   params.set("q", query);
   return `/sessions/${encodeURIComponent(sessionPk)}?${params}`;
@@ -134,7 +134,7 @@ function SessionResultCard({
   const { t, formatDateTime, formatNumber } = useI18n();
   return (
     <Card className="transition-colors hover:border-primary/40">
-      {/* The header opens the session; each hit opens it at the hit's turn. */}
+      {/* The header opens the session; each hit opens it at the hit's event. */}
       <Link
         to={sessionSearchLink(result.session_pk, query)}
         className={`${linkFocus} rounded-t-xl`}
@@ -177,6 +177,7 @@ function SessionResultCard({
             <Badge variant="outline">
               {t("sessions.search.matches", {
                 count: formatNumber(result.match_count),
+                new: formatNumber(result.new_match_count),
               })}
             </Badge>
           </div>
@@ -186,7 +187,7 @@ function SessionResultCard({
         {result.matches.map((match) => (
           <Link
             key={match.event_pk}
-            to={sessionSearchLink(result.session_pk, query, match.turn_index)}
+            to={sessionSearchLink(result.session_pk, query, match.event_pk)}
             className={`${linkFocus} bg-muted/20 hover:bg-muted/40 rounded-lg border p-3 transition-colors`}
           >
             <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -195,6 +196,10 @@ function SessionResultCard({
                   ? t("common.request")
                   : t("common.response")}
               </Badge>
+              {/* Every hit of the event is in the context it carried over. */}
+              {match.new ? null : (
+                <Badge variant="outline">{t("sessions.search.context")}</Badge>
+              )}
               <span className="text-sm font-medium">
                 {t("sessions.detail.turn", { index: match.turn_index })}
               </span>

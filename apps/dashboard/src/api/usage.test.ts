@@ -7,6 +7,7 @@ import {
   fetchUsageEvent,
   fetchUsageSummary,
   searchSessions,
+  searchWithinSession,
 } from "@/api/usage";
 
 describe("usage API", () => {
@@ -209,6 +210,22 @@ describe("usage API", () => {
     expect(url.searchParams.get("event_type")).toBe("response");
     expect(url.searchParams.get("page")).toBe("2");
     expect(url.searchParams.get("page_size")).toBe("20");
+  });
+
+  it("searches within one session by its primary key with the query alone", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      void input;
+      return Promise.resolve(
+        jsonResponse({ query: "a b", texts: [], hits: [], truncated: false }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await searchWithinSession("session/1", "a b&c");
+
+    const url = requestUrl(fetchMock.mock.calls[0]?.[0]);
+    expect(url.pathname).toBe("/api/v1/agent-usage/sessions/session%2F1/search");
+    expect([...url.searchParams]).toEqual([["q", "a b&c"]]);
   });
 });
 

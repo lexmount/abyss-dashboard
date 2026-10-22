@@ -7,10 +7,20 @@ import {
   type ConversationEntry,
   type ConversationPreview,
   type SegmentExchange,
+  type TextRange,
   type TokenCounts,
 } from "@/api/usage";
 import { useI18n } from "@/hooks/use-i18n";
+import {
+  collapseWhitespace,
+  occurrenceCount,
+  occurrencesBetween,
+  type EntryMatches,
+  type EventMatches,
+  type StreamOccurrence,
+} from "@/lib/stream-search";
 import { cn } from "@/lib/utils";
+import { Highlighted } from "./stream-search-box";
 
 /**
  * How long a conversation a card loaded in full stays cached once nothing
@@ -35,19 +45,30 @@ type Translate = ReturnType<typeof useI18n>["t"];
  * One side of an exchange: its header, then the entries its preview gives,
  * with the ones left out between them. The card loads the event's whole
  * conversation once the reader asks for an entry left out or a text cut
- * short. Clicking the header or an entry opens the event in the inspector.
- * A request marks where its new part begins.
+ * short, or once the search's occurrence being viewed is in an entry left
+ * out or past the start of a text the preview gives. Clicking the header or
+ * an entry opens the event in the inspector. A request marks where its new
+ * part begins. While the session is searched, the entries mark the query.
  */
 export const ExchangeCard = React.memo(function ExchangeCard({
   side,
   exchange,
   selected,
+  query,
+  matches,
+  activeMatch,
   onOpenEvent,
 }: {
   side: "request" | "response";
   exchange: SegmentExchange;
   /** The card's event is open in the inspector. */
   selected: boolean;
+  /** The session's search, or empty. */
+  query: string;
+  /** Where the search found the query in the card's event, if anywhere. */
+  matches: EventMatches | undefined;
+  /** The occurrence being viewed, when it is in this card's event. */
+  activeMatch: StreamOccurrence | null;
   onOpenEvent: (eventPk: string) => void;
 }) {
   const { t } = useI18n();
@@ -56,10 +77,13 @@ export const ExchangeCard = React.memo(function ExchangeCard({
   const eventPk = (request ? exchange.request_pk : exchange.response_pk) ?? null;
   const at = (request ? exchange.requested_at : exchange.responded_at) ?? null;
   const [wholeAsked, setWholeAsked] = React.useState(false);
+  // The occurrence being viewed is beyond the preview, so the whole is read.
+  const beyond =
+    activeMatch !== null && preview ? !inPreview(activeMatch, preview) : false;
   const wholeQuery = useQuery({
     queryKey: ["event-conversation", eventPk],
     queryFn: () => fetchEventConversation(eventPk ?? ""),
-    enabled: eventPk !== null && wholeAsked,
+    enabled: eventPk !== null && (wholeAsked || beyond),
     // Persisted events never change.
     staleTime: Infinity,
     gcTime: conversationCacheMs,
@@ -114,6 +138,9 @@ export const ExchangeCard = React.memo(function ExchangeCard({
               newFrom={request ? exchange.new_from : null}
               selected={selected}
               whole={whole}
+              query={query}
+              matches={matches}
+              activeMatch={activeMatch}
               onSelect={open}
             />
           )}
@@ -122,6 +149,31 @@ export const ExchangeCard = React.memo(function ExchangeCard({
     </article>
   );
 });
+
+/**
+ * Whether an occurrence is in what a preview gives: in one of its entries
+ * and, in a text cut short, within the start the preview has. The backend
+ * cuts a text short of a surrogate pair it would split, and no occurrence
+ * ends inside a pair, so an occurrence is past the cut exactly when it ends
+ * after the start's length.
+ */
+function inPreview(
+  occurrence: StreamOccurrence,
+  preview: ConversationPreview,
+): boolean {
+  for (const chunk of preview.chunks) {
+    const entry = chunk.entries[occurrence.entryIndex - chunk.from];
+    if (occurrence.entryIndex < chunk.from || !entry) {
+      continue;
+    }
+    return (
+      occurrence.field !== "text" ||
+      entry.text_length === undefined ||
+      occurrence.range[1] <= (entry.text ?? "").length
+    );
+  }
+  return false;
+}
 
 /** How a card gets the entries and texts its preview leaves out. */
 interface WholeText {
@@ -134,7 +186,7 @@ interface WholeText {
 
 /**
  * The side, model, tokens, and time of a card's event; it stays at the top
- * of the viewport while the card scrolls by.
+ * of the viewport, below the session's search, while the card scrolls by.
  */
 function CardHeader({
   side,
@@ -155,7 +207,7 @@ function CardHeader({
   const request = side === "request";
   const tokens = (request ? exchange.request_tokens : exchange.response_tokens) ?? null;
   return (
-    <div className="bg-card sticky top-0 z-10 border-b">
+    <div className="bg-card sticky top-11 z-10 border-b">
       <button
         type="button"
         aria-pressed={selected}
@@ -255,6 +307,9 @@ function EntryList({
   newFrom,
   selected,
   whole,
+  query,
+  matches,
+  activeMatch,
   onSelect,
 }: {
   preview: ConversationPreview;
@@ -262,13 +317,23 @@ function EntryList({
   newFrom: number | null;
   selected: boolean;
   whole: WholeText;
+  query: string;
+  matches: EventMatches | undefined;
+  activeMatch: StreamOccurrence | null;
   onSelect: () => void;
 }) {
   const items: React.ReactNode[] = [];
   let next = 0;
   const gap = (from: number, to: number) => {
     if (to > from) {
-      items.push(<LeftOut key={`gap:${from}`} count={to - from} whole={whole} />);
+      items.push(
+        <LeftOut
+          key={`gap:${from}`}
+          count={to - from}
+          matches={query ? occurrencesBetween(matches, from, to) : 0}
+          whole={whole}
+        />,
+      );
     }
   };
   for (const chunk of preview.chunks) {
@@ -281,8 +346,12 @@ function EntryList({
       items.push(
         <EntryBlock
           key={index}
+          index={index}
           entry={entry}
           whole={entry.text_length === undefined ? null : whole}
+          query={query}
+          matches={matches?.get(index)}
+          active={activeMatch?.entryIndex === index ? activeMatch : null}
           selected={selected}
           onSelect={onSelect}
         />,
@@ -312,8 +381,20 @@ function NewPartMark() {
   );
 }
 
-/** Entries the preview leaves out, and a control that loads them. */
-function LeftOut({ count, whole }: { count: number; whole: WholeText }) {
+/**
+ * Entries the preview leaves out, with how many of the search's occurrences
+ * they hold, and a control that loads them.
+ */
+function LeftOut({
+  count,
+  matches,
+  whole,
+}: {
+  count: number;
+  /** Occurrences of the search in the entries left out. */
+  matches: number;
+  whole: WholeText;
+}) {
   const { t, formatNumber } = useI18n();
   return (
     <div className="py-1">
@@ -325,9 +406,17 @@ function LeftOut({ count, whole }: { count: number; whole: WholeText }) {
         <button
           type="button"
           onClick={whole.load}
-          className="text-muted-foreground hover:text-foreground hover:bg-muted/60 w-full rounded-lg border border-dashed px-2.5 py-1.5 text-left text-xs"
+          className={cn(
+            "text-muted-foreground hover:text-foreground hover:bg-muted/60 w-full rounded-lg border border-dashed px-2.5 py-1.5 text-left text-xs",
+            matches > 0 && "border-ring/50",
+          )}
         >
-          {t("sessions.streams.omitted", { count: formatNumber(count) })}
+          {matches > 0
+            ? t("sessions.streams.omittedMatches", {
+                count: formatNumber(count),
+                matches: formatNumber(matches),
+              })
+            : t("sessions.streams.omitted", { count: formatNumber(count) })}
         </button>
       )}
     </div>
@@ -383,38 +472,61 @@ function collapsedStart(text: string): string {
   return text.slice(0, end);
 }
 
-/** A text on one line, for the summary of a collapsed entry. */
-function oneLine(text: string): string {
-  return text.slice(0, 1000).replace(/\s+/g, " ").trim().slice(0, 300);
+/**
+ * A text on one line, for the summary of a collapsed entry, with the
+ * search's ranges moved along.
+ */
+function oneLine(
+  text: string,
+  ranges: readonly TextRange[] | undefined,
+): { text: string; ranges: TextRange[] | undefined } {
+  return collapseWhitespace(text.slice(0, 1000), ranges, 300);
 }
 
 /**
  * One conversation entry. User input and replies read as text, the long ones
  * showing their first lines until expanded. Every other entry, such as
  * instructions, reasoning, and tool calls and results, starts collapsed to
- * one line. An entry whose text the preview cut short shows that start when
- * open, with the rest loading or there to load; the reader expanding it
- * loads the rest. Clicking the entry opens its event.
+ * one line. An entry with a search hit opens until the reader closes it. An
+ * entry whose text the preview cut short shows that start when open, with
+ * the rest loading or there to load; the reader expanding it loads the rest.
+ * Clicking the entry opens its event.
  */
 const EntryBlock = React.memo(function EntryBlock({
+  index,
   entry,
   whole,
+  query,
+  matches,
+  active,
   selected,
   onSelect,
 }: {
+  /** Position of the entry in its event's conversation. */
+  index: number;
   entry: ConversationEntry;
   /** How to get the whole text, when `entry.text` is only its start. */
   whole: WholeText | null;
+  /** The session's search, or empty. */
+  query: string;
+  /** Where the search found the query in this entry, if anywhere. */
+  matches: EntryMatches | undefined;
+  /** The occurrence being viewed, when it is in this entry. */
+  active: Pick<StreamOccurrence, "field" | "occurrence"> | null;
   /** The entry's event is open in the inspector. */
   selected: boolean;
   onSelect: () => void;
 }) {
   const { t, formatNumber } = useI18n();
-  const [expanded, setExpanded] = React.useState(false);
+  const hit = query.length > 0 && occurrenceCount(matches) > 0;
+  const [expanded, toggleExpanded] = useHitToggle(false, hit ? query : null);
   const text = entry.text ?? "";
   const prose = entry.role === "user" || entry.role === "assistant";
   const long = React.useMemo(() => prose && isLong(text), [prose, text]);
   const Chevron = expanded ? ChevronDown : ChevronRight;
+  const activeField = (field: StreamOccurrence["field"]) =>
+    active?.field === field ? active.occurrence : undefined;
+  const ring = active ? "ring-ring ring-2" : null;
   // The entry opens its event; the controls inside it act on their own.
   const stop = (event: React.SyntheticEvent) => event.stopPropagation();
   const toggle = (event: React.SyntheticEvent) => {
@@ -422,13 +534,14 @@ const EntryBlock = React.memo(function EntryBlock({
     if (!expanded) {
       whole?.load();
     }
-    setExpanded(!expanded);
+    toggleExpanded();
   };
   const selectable = {
     role: "button",
     tabIndex: 0,
     "aria-pressed": selected,
     "data-role": entry.role,
+    "data-entry-index": index,
     onClick: onSelect,
     onKeyDown: (event: React.KeyboardEvent) => {
       if (event.target === event.currentTarget && event.key === "Enter") {
@@ -452,6 +565,7 @@ const EntryBlock = React.memo(function EntryBlock({
           className={cn(
             "cursor-pointer rounded-lg border transition-colors outline-none",
             expanded ? "bg-card" : "bg-muted/30 hover:bg-muted/60",
+            ring,
           )}
         >
           <div className="flex flex-wrap items-center gap-2 px-2.5 py-2 text-xs">
@@ -470,10 +584,16 @@ const EntryBlock = React.memo(function EntryBlock({
             </button>
             <span className="text-muted-foreground shrink-0">{label}</span>
             {entry.name ? (
-              <span className="shrink-0 font-medium">{entry.name}</span>
+              <span className="shrink-0 font-medium">
+                <Highlighted
+                  text={entry.name}
+                  ranges={matches?.name}
+                  active={activeField("name")}
+                />
+              </span>
             ) : null}
             <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[11px]">
-              {tool && !expanded ? oneLine(text) : ""}
+              {tool && !expanded ? <Summary text={text} ranges={matches?.text} /> : ""}
             </span>
             <span className="text-muted-foreground shrink-0 tabular-nums">
               {t("sessions.event.characters", {
@@ -491,11 +611,16 @@ const EntryBlock = React.memo(function EntryBlock({
                       : t("sessions.trajectory.output")
                   }
                   text={text}
+                  ranges={matches?.text}
+                  active={activeField("text")}
                 />
               ) : (
-                <pre className="max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap">
-                  {text}
-                </pre>
+                <SearchScrollBox
+                  className="max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap"
+                  text={text}
+                  ranges={matches?.text}
+                  active={activeField("text")}
+                />
               )}
               {rest}
             </div>
@@ -512,7 +637,11 @@ const EntryBlock = React.memo(function EntryBlock({
         long && !expanded && "line-clamp-6",
       )}
     >
-      {long && !expanded ? collapsedStart(text) : text}
+      <Highlighted
+        text={long && !expanded ? collapsedStart(text) : text}
+        ranges={matches?.text}
+        active={activeField("text")}
+      />
     </div>
   ) : (
     <div className="text-muted-foreground text-xs italic">
@@ -538,6 +667,7 @@ const EntryBlock = React.memo(function EntryBlock({
           {...selectable}
           className={cn(
             "border-ring/20 bg-ring/[0.06] cursor-pointer rounded-lg border px-3.5 py-2.5 outline-none",
+            ring,
           )}
         >
           <div className="text-ring text-xs font-medium">{label}</div>
@@ -556,6 +686,7 @@ const EntryBlock = React.memo(function EntryBlock({
         {...selectable}
         className={cn(
           "hover:bg-muted/40 cursor-pointer rounded-lg px-1 py-1 outline-none",
+          ring,
         )}
       >
         <div className="text-muted-foreground mb-1.5 text-xs font-medium">{label}</div>
@@ -597,18 +728,101 @@ function RestOfText({ length, whole }: { length: number; whole: WholeText }) {
   );
 }
 
+/** A collapsed tool call's or result's text on one line, with its hits marked. */
+function Summary({
+  text,
+  ranges,
+}: {
+  text: string;
+  ranges: readonly TextRange[] | undefined;
+}) {
+  const line = React.useMemo(() => oneLine(text, ranges), [text, ranges]);
+  return <Highlighted text={line.text} ranges={line.ranges} />;
+}
+
 /** A tool call's input or a tool result's output, under its label. */
-function ContentBlock({ label, text }: { label: string; text: string }) {
+function ContentBlock({
+  label,
+  text,
+  ranges,
+  active,
+}: {
+  label: string;
+  text: string;
+  ranges: readonly TextRange[] | undefined;
+  /** Index of the occurrence being viewed within this text, if any. */
+  active?: number;
+}) {
   return (
     <div className="bg-muted/40 overflow-hidden rounded-md border">
       <div className="text-muted-foreground border-b px-3 py-1 text-[11px] font-medium tracking-wide uppercase">
         {label}
       </div>
-      <pre className="max-h-96 overflow-auto p-3 font-mono text-xs break-all whitespace-pre-wrap">
-        {text}
-      </pre>
+      <SearchScrollBox
+        className="max-h-96 overflow-auto p-3 font-mono text-xs break-all whitespace-pre-wrap"
+        text={text}
+        ranges={ranges}
+        active={active}
+      />
     </div>
   );
+}
+
+/**
+ * A scrolling text box that, once the search has found hits in it, opens on
+ * the hit being viewed or else on its first hit, so hits deep in long text
+ * are not out of sight; also when the text grows from its start to the whole.
+ */
+function SearchScrollBox({
+  className,
+  text,
+  ranges,
+  active,
+}: {
+  className: string;
+  text: string;
+  /** The search's hits in the text. */
+  ranges: readonly TextRange[] | undefined;
+  active?: number;
+}) {
+  const ref = React.useRef<HTMLPreElement>(null);
+  React.useLayoutEffect(() => {
+    const box = ref.current;
+    if (!box || !ranges?.length) {
+      return;
+    }
+    const target =
+      box.querySelector<HTMLElement>("[data-active-match]") ??
+      box.querySelector<HTMLElement>("mark");
+    if (target) {
+      const boxRect = box.getBoundingClientRect();
+      const rect = target.getBoundingClientRect();
+      box.scrollTop += rect.top - boxRect.top - (box.clientHeight - rect.height) / 2;
+    }
+  }, [text, ranges, active]);
+  return (
+    <pre ref={ref} className={className}>
+      <Highlighted text={text} ranges={ranges} active={active} />
+    </pre>
+  );
+}
+
+/**
+ * A toggle the reader controls. While `hitQuery` names the search an entry
+ * has a hit for, the toggle is on unless the reader turned it off during that
+ * search; the reader's own choice comes back once the search moves on.
+ */
+function useHitToggle(
+  initial: boolean,
+  hitQuery: string | null,
+): [boolean, () => void] {
+  const [chosen, setChosen] = React.useState(initial);
+  const [offFor, setOffFor] = React.useState<string | null>(null);
+  if (hitQuery !== null) {
+    const on = offFor !== hitQuery;
+    return [on, () => setOffFor(on ? hitQuery : null)];
+  }
+  return [chosen, () => setChosen((current) => !current)];
 }
 
 /** An entry's role in words; a role this page does not know shows as sent. */
