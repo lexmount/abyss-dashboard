@@ -80,4 +80,21 @@ describe("BaseLayout", () => {
     expect(within(drawer).getByRole("link", { name: "Agent 看板" })).toBeVisible();
     expect(within(drawer).getByRole("link", { name: "会话" })).toBeVisible();
   });
+
+  it("collapses to the icon rail on a page that asks for it", () => {
+    render(
+      <MemoryRouter initialEntries={["/sessions/s-1"]}>
+        <I18nProvider>
+          <SidebarConfigProvider>
+            <BaseLayout sidebar={{ collapsible: "icon" }}>内容</BaseLayout>
+          </SidebarConfigProvider>
+        </I18nProvider>
+      </MemoryRouter>,
+    );
+
+    const sidebar = document.querySelector('[data-slot="sidebar"]');
+    expect(sidebar).toHaveAttribute("data-state", "expanded");
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
+    expect(sidebar).toHaveAttribute("data-collapsible", "icon");
+  });
 });

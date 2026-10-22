@@ -139,8 +139,9 @@ export default function SessionDetailPage() {
     },
   });
 
+  // Below the summary the reader is in the exchanges, which get the room: the
+  // sidebar folds to its icon rail, so the navigation stays at hand.
   const summaryRef = React.useRef<HTMLDivElement>(null);
-  useFoldSidebarOnScroll(summaryRef);
 
   // Every segment and card shows a time, so the formatter is built once.
   const formatTime = React.useMemo(() => {
@@ -165,7 +166,7 @@ export default function SessionDetailPage() {
         : null;
 
   return (
-    <BaseLayout>
+    <BaseLayout sidebar={{ collapsible: "icon" }} foldSidebarWhileAway={summaryRef}>
       <div className="space-y-5 px-4 lg:px-6">
         <div ref={summaryRef} className="grid gap-4">
           <Link
@@ -458,87 +459,6 @@ function useStreamSearch({
     step,
     view,
   };
-}
-
-/**
- * Folds the sidebar away as the session summary scrolls out of view: the
- * sidebar slides out and the content widens with it, in step with the
- * scroll. A sidebar left half folded when scrolling stops eases to its nearer
- * end. The sidebar's own open state is untouched.
- */
-function useFoldSidebarOnScroll(summaryRef: React.RefObject<HTMLElement | null>) {
-  React.useEffect(() => {
-    const summary = summaryRef.current;
-    const wrapper = summary?.closest<HTMLElement>('[data-slot="sidebar-wrapper"]');
-    if (!summary || !wrapper) return;
-    // Queried each time: the desktop sidebar remounts across the mobile
-    // breakpoint.
-    const parts = () =>
-      wrapper.querySelectorAll<HTMLElement>(
-        ':scope > [data-slot="sidebar"] > [data-slot="sidebar-gap"], :scope > [data-slot="sidebar"] > [data-slot="sidebar-container"], :scope > [data-slot="sidebar-inset"]',
-      );
-
-    // Fully folded once the summary is gone, or at the end of the page if
-    // that comes first. Measured only when sizes change, so reading it while
-    // scrolling never forces a layout.
-    let distance = 0;
-    const measure = () => {
-      distance = Math.min(
-        summary.getBoundingClientRect().bottom + window.scrollY,
-        document.documentElement.scrollHeight - window.innerHeight,
-      );
-    };
-    const progress = () =>
-      distance > 0 ? Math.min(Math.max(window.scrollY / distance, 0), 1) : 0;
-
-    let frame = 0;
-    let idle = 0;
-    const render = (fold: number, mode: "tracking" | "settling") => {
-      for (const part of parts()) {
-        part.setAttribute("data-sidebar-fold", mode);
-        part.style.setProperty("--sidebar-fold", fold.toFixed(3));
-      }
-    };
-    const clear = () => {
-      for (const part of parts()) {
-        part.removeAttribute("data-sidebar-fold");
-        part.style.removeProperty("--sidebar-fold");
-      }
-    };
-    const update = () => {
-      frame = 0;
-      const p = progress();
-      // Responds at once, then eases into the fully folded end.
-      render(1 - (1 - p) * (1 - p), "tracking");
-    };
-    const settle = () => {
-      const p = progress();
-      // Back at the top, hand the sidebar back to its own toggle animation.
-      if (p === 0) clear();
-      else if (p < 1) render(p < 0.5 ? 0 : 1, "settling");
-    };
-    const onScroll = () => {
-      if (!frame) frame = window.requestAnimationFrame(update);
-      window.clearTimeout(idle);
-      idle = window.setTimeout(settle, 160);
-    };
-
-    // Only remeasure: folding itself resizes the summary, and reacting to
-    // that would undo a settle.
-    const resize = new ResizeObserver(measure);
-    resize.observe(summary);
-    resize.observe(document.documentElement);
-    measure();
-    if (window.scrollY > 0) update();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      resize.disconnect();
-      window.removeEventListener("scroll", onScroll);
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(idle);
-      clear();
-    };
-  }, [summaryRef]);
 }
 
 function SessionIdentity({ header }: { header: SessionHeaderResponse | undefined }) {
