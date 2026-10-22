@@ -539,7 +539,8 @@ function SessionStats({
     },
     {
       label: t("sessions.detail.turnCount"),
-      value: formatNumber(header.segment_count),
+      // Requests that open a turn, as the session list counts them.
+      value: formatNumber(header.turn_count),
     },
     {
       label: t("sessions.detail.exchangeCount"),
