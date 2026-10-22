@@ -1,4 +1,4 @@
-import type { StreamSegment } from "@/api/usage";
+import type { StreamSegment } from "./types";
 
 /** How many lane colors the timeline cycles through. */
 export const laneColorCount = 5;
@@ -148,7 +148,9 @@ export function streamLayout(segments: readonly StreamSegment[]): StreamLayout {
   return {
     rows,
     lanes,
-    ordinalOf: new Map(segments.map((segment, ordinal) => [segment.head, ordinal])),
+    ordinalOf: new Map(
+      segments.map((segment, ordinal) => [segment.head, ordinal]),
+    ),
   };
 }
 
@@ -168,7 +170,10 @@ function subtreeSizes(
   // Children come after their parents, so walking backwards sums them first.
   for (let position = segments.length - 1; position >= 0; position -= 1) {
     const segment = segments[position];
-    const subtree = { exchanges: segment.exchange_count, end: Date.parse(segment.end) };
+    const subtree = {
+      exchanges: segment.exchange_count,
+      end: Date.parse(segment.end),
+    };
     for (const child of childrenOf.get(segment.head) ?? []) {
       const below = subtrees.get(child);
       if (below) {

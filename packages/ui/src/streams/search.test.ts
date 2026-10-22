@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SessionTextSearchResponse } from "@/api/usage";
+import type { SessionTextSearchResponse } from "./types";
 import {
   collapseWhitespace,
   highlightSegments,
@@ -8,7 +8,7 @@ import {
   occurrencesBetween,
   sessionMatches,
   streamOccurrences,
-} from "./stream-search";
+} from "./search";
 
 // Hits in the backend's order: by observation time, which interleaves the
 // two segments. Segment "b" (exchange 2) carried context before its new part.
@@ -123,7 +123,10 @@ const result: SessionTextSearchResponse = {
 describe("sessionMatches", () => {
   it("gives each hit the ranges of its text", () => {
     const matches = sessionMatches(result);
-    expect(matches.get("s1")?.get(0)).toEqual({ name: [[0, 7]], text: [[0, 7]] });
+    expect(matches.get("s1")?.get(0)).toEqual({
+      name: [[0, 7]],
+      text: [[0, 7]],
+    });
     expect(matches.get("r2")?.get(1)).toEqual({
       name: [],
       text: [
@@ -190,7 +193,9 @@ describe("streamOccurrences", () => {
   });
 
   it("finds nothing without hits", () => {
-    expect(streamOccurrences(["a"], { ...result, texts: [], hits: [] })).toEqual([]);
+    expect(
+      streamOccurrences(["a"], { ...result, texts: [], hits: [] }),
+    ).toEqual([]);
   });
 
   it("lands on an event's first new occurrence, else its first", () => {
@@ -261,7 +266,9 @@ describe("highlightSegments", () => {
   });
 
   it("leaves text untouched without ranges", () => {
-    expect(highlightSegments("plain", [])).toEqual([{ text: "plain", range: null }]);
+    expect(highlightSegments("plain", [])).toEqual([
+      { text: "plain", range: null },
+    ]);
   });
 });
 
