@@ -8,6 +8,7 @@ import {
   type SessionStreamsResponse,
 } from "@/api/usage";
 import { useI18n } from "@/hooks/use-i18n";
+import type { SessionMatches, StreamOccurrence } from "@/lib/stream-search";
 import { streamLayout } from "@/lib/streams";
 import { ExchangeCard, previewCharacters } from "./exchange-card";
 import { StreamTimeline } from "./stream-timeline";
@@ -22,6 +23,26 @@ const CARD_WINDOW: PreviewWindow = { entries: "0-2", textPreview: previewCharact
 const shortId = (id: string) => id.slice(0, 14);
 
 /**
+ * Frames a match being revealed is looked for, while its segment and card
+ * load and, past the preview, its event is read in full.
+ */
+const revealFrames = 600;
+
+/** The session's search as the cards and the timeline show it. */
+export interface SessionSearchView {
+  /** The settled search text. */
+  query: string;
+  /** Where the search found the query, once it has. */
+  matches: SessionMatches | null;
+  /** Occurrences per segment head, once the search has found them. */
+  segmentMatches: ReadonlyMap<string, number> | null;
+  /** The occurrence being viewed. */
+  active: StreamOccurrence | null;
+  /** Each new value asks for the occurrence being viewed to be scrolled to. */
+  revealRequest: number;
+}
+
+/**
  * A session's segments on the left and the exchanges of the chosen one on
  * the right, each exchange a request card and a response card.
  */
@@ -33,6 +54,7 @@ export function SessionStreamsView({
   onSelectSegment,
   onSelectEvent,
   formatTime,
+  search,
   inspector,
 }: {
   sessionPk: string;
@@ -43,16 +65,19 @@ export function SessionStreamsView({
   onSelectSegment: (head: string) => void;
   onSelectEvent: (eventPk: string) => void;
   formatTime: (value: string) => string;
+  search: SessionSearchView;
   /** The event inspector, shown beside the cards while an event is open. */
   inspector: React.ReactNode;
 }) {
   const { t } = useI18n();
   const layout = React.useMemo(() => streamLayout(streams.segments), [streams]);
   const selected = segment ?? streams.segments[0]?.head ?? null;
+  const cardsRef = React.useRef<HTMLDivElement>(null);
+  useRevealMatch(cardsRef, search.active, search.revealRequest);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
-      <Card className="overflow-hidden p-0 lg:sticky lg:top-4 lg:self-start">
+      <Card className="overflow-hidden p-0 lg:sticky lg:top-14 lg:self-start">
         <div className="text-muted-foreground border-b px-3 py-2 text-xs">
           {t("sessions.streams.summary", { segments: streams.segments.length })}
         </div>
@@ -61,10 +86,11 @@ export function SessionStreamsView({
           selected={selected}
           onSelect={onSelectSegment}
           formatTime={formatTime}
-          className="max-h-[calc(100svh-5rem)]"
+          matches={search.segmentMatches}
+          className="max-h-[calc(100svh-8rem)]"
         />
       </Card>
-      <div className="flex min-w-0 items-start gap-4">
+      <div ref={cardsRef} className="flex min-w-0 items-start gap-4">
         {selected === null ? null : (
           <SegmentCards
             key={selected}
@@ -72,12 +98,13 @@ export function SessionStreamsView({
             head={selected}
             ordinalOf={layout.ordinalOf}
             selectedEventId={selectedEventId}
+            search={search}
             onSelectSegment={onSelectSegment}
             onSelectEvent={onSelectEvent}
           />
         )}
         {inspector ? (
-          <div className="sticky top-4 flex h-[calc(100svh-2rem)] shrink-0">
+          <div className="sticky top-14 flex h-[calc(100svh-4.5rem)] shrink-0">
             {inspector}
           </div>
         ) : null}
@@ -86,12 +113,65 @@ export function SessionStreamsView({
   );
 }
 
+/**
+ * Scrolls to the occurrence being viewed each time it is asked to: to its
+ * card until the card shows the match, then the match to the middle of the
+ * viewport. Checking each frame lets the segment and the card load, and the
+ * event be read in full, before the match is there.
+ */
+function useRevealMatch(
+  containerRef: React.RefObject<HTMLElement | null>,
+  active: StreamOccurrence | null,
+  revealRequest: number,
+) {
+  const revealed = React.useRef(revealRequest);
+  React.useEffect(() => {
+    if (active === null || revealed.current === revealRequest) {
+      return;
+    }
+    revealed.current = revealRequest;
+    let frame = 0;
+    let frames = 0;
+    let centered = 0;
+    let scrolledToCard = false;
+    const look = () => {
+      const container = containerRef.current;
+      const mark = container?.querySelector<HTMLElement>("[data-active-match]");
+      if (mark) {
+        const rect = mark.getBoundingClientRect();
+        const offset = rect.top + rect.height / 2 - window.innerHeight / 2;
+        if (Math.abs(offset) > 1) {
+          centered = 0;
+          window.scrollTo({ top: window.scrollY + offset, behavior: "instant" });
+        } else if (++centered >= 2) {
+          return;
+        }
+      } else if (!scrolledToCard) {
+        const card = container?.querySelector<HTMLElement>(
+          `article[data-event-id="${CSS.escape(active.eventPk)}"]`,
+        );
+        if (card) {
+          scrolledToCard = true;
+          const top = card.getBoundingClientRect().top + window.scrollY - 64;
+          window.scrollTo({ top, behavior: "instant" });
+        }
+      }
+      if (++frames < revealFrames) {
+        frame = window.requestAnimationFrame(look);
+      }
+    };
+    look();
+    return () => window.cancelAnimationFrame(frame);
+  }, [containerRef, active, revealRequest]);
+}
+
 /** The exchanges of one segment, all at once. */
 function SegmentCards({
   sessionPk,
   head,
   ordinalOf,
   selectedEventId,
+  search,
   onSelectSegment,
   onSelectEvent,
 }: {
@@ -99,6 +179,7 @@ function SegmentCards({
   head: string;
   ordinalOf: ReadonlyMap<string, number>;
   selectedEventId: string | null;
+  search: SessionSearchView;
   onSelectSegment: (head: string) => void;
   onSelectEvent: (eventPk: string) => void;
 }) {
@@ -144,6 +225,13 @@ function SegmentCards({
                 side={side}
                 exchange={exchange}
                 selected={eventPk !== null && eventPk === selectedEventId}
+                query={search.query}
+                matches={eventPk === null ? undefined : search.matches?.get(eventPk)}
+                activeMatch={
+                  eventPk !== null && search.active?.eventPk === eventPk
+                    ? search.active
+                    : null
+                }
                 onOpenEvent={onSelectEvent}
               />
             );

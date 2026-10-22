@@ -10,8 +10,10 @@ import {
   fetchSessionHeader,
   fetchSessionStreams,
   fetchUsageEvent,
+  searchWithinSession,
   usageAttachmentUrl,
   type SessionHeaderResponse,
+  type SessionStreamsResponse,
 } from "@/api/usage";
 import { apiErrorKind } from "@/api/http";
 import { BaseLayout } from "@/components/layouts/base-layout";
@@ -20,12 +22,23 @@ import { Card, CardContent } from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 import { eventInspectorLabels } from "@/lib/inspector-labels";
+import {
+  landingOccurrence,
+  matchesBySegment,
+  sessionMatches,
+  streamOccurrences,
+  type StreamOccurrence,
+} from "@/lib/stream-search";
 import { cn } from "@/lib/utils";
-import { SessionStreamsView } from "./session-streams-view";
+import { SessionStreamsView, type SessionSearchView } from "./session-streams-view";
+import { StreamSearchBox, useDebounced } from "./stream-search-box";
 
 const eventSearchParam = "event";
 /** Head of the open segment. */
 const segmentSearchParam = "segment";
+/** Search text, carried over from a session search and kept as it changes. */
+const querySearchParam = "q";
+const searchDebounceMs = 150;
 
 export default function SessionDetailPage() {
   const { t, locale, formatDateTime, formatNumber } = useI18n();
@@ -33,6 +46,22 @@ export default function SessionDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedEventId = searchParams.get(eventSearchParam);
   const segment = searchParams.get(segmentSearchParam);
+  // A search carried over from the sessions page names the event of its hit:
+  // the page opens in that event's segment and starts the search there,
+  // without opening the event.
+  const [landingEventPk, setLandingEventPk] = React.useState(() =>
+    searchParams.has(querySearchParam) && !searchParams.has(segmentSearchParam)
+      ? selectedEventId
+      : null,
+  );
+  // Once the URL no longer names it, the event is an event like any other.
+  if (landingEventPk !== null && selectedEventId !== landingEventPk) {
+    setLandingEventPk(null);
+  }
+  const inspectedEventId =
+    landingEventPk !== null && selectedEventId === landingEventPk
+      ? null
+      : selectedEventId;
 
   const headerQuery = useQuery({
     queryKey: ["session-header", sessionPk],
@@ -46,30 +75,72 @@ export default function SessionDetailPage() {
   });
   const header = headerQuery.data;
   const eventQuery = useQuery({
-    queryKey: ["usage-event", selectedEventId],
-    queryFn: () => fetchUsageEvent(selectedEventId ?? ""),
-    enabled: selectedEventId !== null,
+    queryKey: ["usage-event", inspectedEventId],
+    queryFn: () => fetchUsageEvent(inspectedEventId ?? ""),
+    enabled: inspectedEventId !== null,
     // Persisted events never change, so a loaded event stays valid.
     staleTime: Infinity,
   });
 
-  const updateParam = React.useCallback(
-    (name: string, value: string | null) => {
+  // Navigations land in a later render, so a change made before the last one
+  // has landed builds on that one rather than on the shown URL: the search's
+  // text and the segment of the hit it shows can be written one right after
+  // the other.
+  const pendingParams = React.useRef<URLSearchParams | null>(null);
+  React.useEffect(() => {
+    pendingParams.current = null;
+  }, [searchParams]);
+  const updateParams = React.useCallback(
+    (values: Record<string, string | null>, { replace = false } = {}) => {
       setSearchParams(
         (current) => {
-          const next = new URLSearchParams(current);
-          if (value === null) {
-            next.delete(name);
-          } else {
-            next.set(name, value);
+          const next = new URLSearchParams(pendingParams.current ?? current);
+          for (const [name, value] of Object.entries(values)) {
+            if (value === null) {
+              next.delete(name);
+            } else {
+              next.set(name, value);
+            }
           }
+          pendingParams.current = next;
           return next;
         },
-        { replace: name === eventSearchParam },
+        { replace },
       );
     },
     [setSearchParams],
   );
+  const updateParam = React.useCallback(
+    (name: string, value: string | null) =>
+      updateParams({ [name]: value }, { replace: name === eventSearchParam }),
+    [updateParams],
+  );
+
+  const shownSegment = segment ?? streamsQuery.data?.segments[0]?.head ?? null;
+  const search = useStreamSearch({
+    sessionPk,
+    streams: streamsQuery.data,
+    initialQuery: searchParams.get(querySearchParam) ?? "",
+    landingEventPk,
+    onQueryChange: (query) =>
+      updateParams({ [querySearchParam]: query || null }, { replace: true }),
+    // A match in another segment shows that segment.
+    onReveal: (occurrence) => {
+      if (occurrence.segment !== shownSegment) {
+        updateParams({ [segmentSearchParam]: occurrence.segment }, { replace: true });
+      }
+    },
+    // The event a search opened on gives way to the segment of its hit.
+    onLanded: (head) => {
+      updateParams(
+        {
+          [eventSearchParam]: null,
+          ...(head === null ? {} : { [segmentSearchParam]: head }),
+        },
+        { replace: true },
+      );
+    },
+  });
 
   const summaryRef = React.useRef<HTMLDivElement>(null);
   useFoldSidebarOnScroll(summaryRef);
@@ -130,32 +201,208 @@ export default function SessionDetailPage() {
         ) : null}
 
         {streamsQuery.data ? (
-          <SessionStreamsView
-            sessionPk={sessionPk}
-            streams={streamsQuery.data}
-            segment={segment}
-            selectedEventId={selectedEventId}
-            onSelectSegment={(head) => updateParam(segmentSearchParam, head)}
-            onSelectEvent={(eventPk) => updateParam(eventSearchParam, eventPk)}
-            formatTime={formatTime}
-            inspector={
-              selectedEventId === null ? null : (
-                <SessionEventInspector
-                  key={selectedEventId}
-                  detail={detail}
-                  onClose={() => updateParam(eventSearchParam, null)}
-                  attachmentUrl={usageAttachmentUrl}
-                  formatDateTime={formatDateTime}
-                  formatNumber={formatNumber}
-                  labels={eventInspectorLabels(t)}
-                />
-              )
-            }
-          />
+          <div>
+            {/* The search spans the whole session, so it sits above the
+                timeline and the cards, and stays in view as the page scrolls. */}
+            <div className="bg-background sticky top-0 z-20 pb-3">
+              <StreamSearchBox
+                query={search.query}
+                onQueryChange={search.setQuery}
+                status={search.status}
+                position={search.position}
+                total={search.total}
+                truncated={search.truncated}
+                onStep={search.step}
+              />
+            </div>
+            <SessionStreamsView
+              sessionPk={sessionPk}
+              streams={streamsQuery.data}
+              segment={segment}
+              selectedEventId={inspectedEventId}
+              onSelectSegment={(head) => updateParam(segmentSearchParam, head)}
+              onSelectEvent={(eventPk) => updateParam(eventSearchParam, eventPk)}
+              formatTime={formatTime}
+              search={search.view}
+              inspector={
+                inspectedEventId === null ? null : (
+                  <SessionEventInspector
+                    key={inspectedEventId}
+                    detail={detail}
+                    onClose={() => updateParam(eventSearchParam, null)}
+                    attachmentUrl={usageAttachmentUrl}
+                    formatDateTime={formatDateTime}
+                    formatNumber={formatNumber}
+                    labels={eventInspectorLabels(t)}
+                  />
+                )
+              }
+            />
+          </div>
         ) : null}
       </div>
     </BaseLayout>
   );
+}
+
+/**
+ * The search within a session: the text typed, where the backend finds it
+ * once it has settled, and the occurrence being viewed. Stepping reveals an
+ * occurrence; a new search starts at its first one, and the search the page
+ * opened with on an event starts in that event, when it has a hit: at its
+ * first hit in what the event added, or else its first in the context.
+ */
+function useStreamSearch({
+  sessionPk,
+  streams,
+  initialQuery,
+  landingEventPk,
+  onQueryChange,
+  onReveal,
+  onLanded,
+}: {
+  sessionPk: string;
+  streams: SessionStreamsResponse | undefined;
+  initialQuery: string;
+  /** The event the page opened on with its search, or null. */
+  landingEventPk: string | null;
+  /** Reports the settled search text, so the page can keep it in its URL. */
+  onQueryChange: (query: string) => void;
+  /** Shows the segment an occurrence is in. */
+  onReveal: (occurrence: StreamOccurrence) => void;
+  /** The search opened on an event has started, in the segment given if any. */
+  onLanded: (segment: string | null) => void;
+}) {
+  const { t } = useI18n();
+  const [query, setQuery] = React.useState(initialQuery);
+  const searchQuery = useDebounced(query.trim(), searchDebounceMs);
+  const searching = searchQuery.length > 0;
+
+  // The settled text is reported only when it changes, not for the text the
+  // page opened with.
+  const callbacks = React.useRef({ onQueryChange, onReveal, onLanded });
+  React.useEffect(() => {
+    callbacks.current = { onQueryChange, onReveal, onLanded };
+  });
+  const reportedQuery = React.useRef(searchQuery);
+  React.useEffect(() => {
+    if (reportedQuery.current !== searchQuery) {
+      reportedQuery.current = searchQuery;
+      callbacks.current.onQueryChange(searchQuery);
+    }
+  }, [searchQuery]);
+
+  // New exchanges search again.
+  const exchangeCount = streams?.segments.reduce(
+    (sum, segment) => sum + segment.exchange_count,
+    0,
+  );
+  const resultQuery = useQuery({
+    queryKey: ["session-search", sessionPk, searchQuery, exchangeCount],
+    queryFn: ({ signal }) => searchWithinSession(sessionPk, searchQuery, { signal }),
+    enabled: searching && streams !== undefined,
+    staleTime: Infinity,
+  });
+  const result = searching ? resultQuery.data : undefined;
+  const matches = React.useMemo(
+    () => (result ? sessionMatches(result) : null),
+    [result],
+  );
+  const segments = React.useMemo(
+    () => streams?.segments.map((segment) => segment.head) ?? [],
+    [streams],
+  );
+  const occurrences = React.useMemo(
+    () => (result ? streamOccurrences(segments, result) : []),
+    [result, segments],
+  );
+  const segmentMatches = React.useMemo(
+    () => (result ? matchesBySegment(occurrences) : null),
+    [result, occurrences],
+  );
+
+  const [activeIndex, setActiveIndex] = React.useState(-1);
+  const [revealRequest, setRevealRequest] = React.useState(0);
+  const show = React.useCallback((occurrence: StreamOccurrence) => {
+    callbacks.current.onReveal(occurrence);
+    setRevealRequest((current) => current + 1);
+  }, []);
+
+  // Where a search starts, once its occurrences are known.
+  const opening = React.useRef({ query: initialQuery.trim(), eventPk: landingEventPk });
+  const started = React.useRef<string | null>(null);
+  const ready = result !== undefined;
+  React.useEffect(() => {
+    if (!searching) {
+      started.current = null;
+      setActiveIndex(-1);
+      return;
+    }
+    if (!ready || started.current === searchQuery) {
+      return;
+    }
+    started.current = searchQuery;
+    const { query: openedWith, eventPk } = opening.current;
+    opening.current = { query: "", eventPk: null };
+    if (openedWith === searchQuery && eventPk !== null) {
+      // Without a match in the event, the view stays until the reader steps.
+      const first = landingOccurrence(occurrences, eventPk);
+      setActiveIndex(first);
+      callbacks.current.onLanded(first === -1 ? null : occurrences[first].segment);
+      if (first !== -1) {
+        setRevealRequest((current) => current + 1);
+      }
+      return;
+    }
+    setActiveIndex(occurrences.length > 0 ? 0 : -1);
+    if (occurrences.length > 0) {
+      show(occurrences[0]);
+    }
+  }, [searching, ready, searchQuery, occurrences, show]);
+
+  const total = occurrences.length;
+  const active = occurrences[activeIndex] ?? null;
+  const step = (delta: number) => {
+    if (total === 0) {
+      return;
+    }
+    const next =
+      active === null
+        ? delta > 0
+          ? 0
+          : total - 1
+        : (activeIndex + delta + total) % total;
+    setActiveIndex(next);
+    show(occurrences[next]);
+  };
+
+  const status = !searching
+    ? null
+    : resultQuery.isError
+      ? t(`error.${apiErrorKind(resultQuery.error)}.title`)
+      : !ready
+        ? t("sessions.streams.searchLoading")
+        : null;
+  const view = React.useMemo(
+    (): SessionSearchView => ({
+      query: result ? searchQuery : "",
+      matches,
+      segmentMatches,
+      active,
+      revealRequest,
+    }),
+    [result, searchQuery, matches, segmentMatches, active, revealRequest],
+  );
+  return {
+    query,
+    setQuery,
+    status,
+    position: active === null ? 0 : activeIndex + 1,
+    total,
+    truncated: result?.truncated ?? false,
+    step,
+    view,
+  };
 }
 
 /**

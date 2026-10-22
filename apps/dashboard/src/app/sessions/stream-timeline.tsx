@@ -14,13 +14,15 @@ const dotYPx = 17;
  * The session's segments, one row each, with the streams they form drawn in
  * the gutter: a continuation stays in its lane, the longest branch of a fork
  * goes straight on while the others bend out into lanes of their own.
- * Selecting a row shows that segment.
+ * Selecting a row shows that segment. While the session is searched, each
+ * segment shows its matches, and the ones without any fade.
  */
 export function StreamTimeline({
   layout,
   selected,
   onSelect,
   formatTime,
+  matches = null,
   className,
 }: {
   layout: StreamLayout;
@@ -28,6 +30,8 @@ export function StreamTimeline({
   selected: string | null;
   onSelect: (head: string) => void;
   formatTime: (value: string) => string;
+  /** Search occurrences per segment head while searching, else null. */
+  matches?: ReadonlyMap<string, number> | null;
   className?: string;
 }) {
   const { t, formatDateTime, formatNumber } = useI18n();
@@ -128,13 +132,19 @@ export function StreamTimeline({
                 aria-selected={isSelected}
                 data-segment={row.segment.head}
                 onClick={() => onSelect(row.segment.head)}
-                className={rowClass(isSelected)}
+                className={cn(
+                  rowClass(isSelected),
+                  matches && !matches.has(row.segment.head) && "opacity-45",
+                )}
                 style={{ paddingLeft: gutter.indent }}
               >
                 <TimelineRowContent
                   row={row}
                   ordinalOf={layout.ordinalOf}
                   selected={isSelected}
+                  matchCount={
+                    matches === null ? null : (matches.get(row.segment.head) ?? 0)
+                  }
                   formatTime={formatTime}
                   formatDateTime={formatDateTime}
                   formatNumber={formatNumber}
@@ -162,6 +172,7 @@ function TimelineRowContent({
   row,
   ordinalOf,
   selected,
+  matchCount,
   formatTime,
   formatDateTime,
   formatNumber,
@@ -169,6 +180,8 @@ function TimelineRowContent({
   row: TimelineRow;
   ordinalOf: ReadonlyMap<string, number>;
   selected: boolean;
+  /** Search occurrences in the segment while searching, else null. */
+  matchCount: number | null;
   formatTime: (value: string) => string;
   formatDateTime: (value: string) => string;
   formatNumber: (value: number) => string;
@@ -192,11 +205,19 @@ function TimelineRowContent({
           {formatTime(segment.start)}
         </span>
         <span className="ml-auto flex flex-wrap justify-end gap-1">
-          <Pill>
-            {t("sessions.streams.exchanges", {
-              count: formatNumber(segment.exchange_count),
-            })}
-          </Pill>
+          {matchCount !== null && matchCount > 0 ? (
+            <Pill className="bg-ring/15 text-ring font-medium">
+              {t("sessions.streams.searchMatches", { count: formatNumber(matchCount) })}
+            </Pill>
+          ) : null}
+          {/* While searching, the hits take the exchange count's place. */}
+          {matchCount === null ? (
+            <Pill>
+              {t("sessions.streams.exchanges", {
+                count: formatNumber(segment.exchange_count),
+              })}
+            </Pill>
+          ) : null}
           {row.forks > 0 ? (
             <Pill className="border-ring/40 text-ring border bg-transparent font-medium">
               {t("sessions.streams.forks", { count: formatNumber(row.forks) })}

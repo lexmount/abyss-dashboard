@@ -168,7 +168,10 @@ export interface SessionSearchResult {
   ended_at: string | null;
   providers: string[];
   models: string[];
+  /** Matching events in the session, of which `matches` shows some. */
   match_count: number;
+  /** Matching events with at least one hit in what they added. */
+  new_match_count: number;
   matches: SessionSearchMatch[];
 }
 
@@ -180,6 +183,12 @@ export interface SessionSearchMatch {
   llm_provider: string;
   llm_model: string;
   observed_at: string;
+  /**
+   * The event has a hit in what it added: anywhere in a response, or from a
+   * request's `new_from` on. Otherwise its hits are all in the context it
+   * carried over.
+   */
+  new: boolean;
   fragments: SearchFragment[];
 }
 
@@ -535,6 +544,49 @@ export function searchSessions(
     params.set("page_size", query.pageSize.toString());
   }
   return fetchJson<SessionSearchResponse>(`/api/v1/agent-usage/search?${params}`);
+}
+
+/** A span of a text, start inclusive and end exclusive, in UTF-16 code units. */
+export type TextRange = [start: number, end: number];
+
+/** Where a search within one session found its text. */
+export interface SessionTextSearchResponse {
+  query: string;
+  /** Each distinct text with the query in it, and where in it. */
+  texts: { id: number; ranges: TextRange[] }[];
+  /**
+   * Each entry field holding one of those texts, by `observed_at`, then
+   * event, entry, and the name before the text.
+   */
+  hits: SessionTextSearchHit[];
+  /** The search found more hits than it gives. */
+  truncated: boolean;
+}
+
+export interface SessionTextSearchHit {
+  event_pk: string;
+  /** Position of the entry in its event's conversation. */
+  entry_index: number;
+  /** The entry's tool name or its text. */
+  field: "name" | "text";
+  /** The hit is in what its event added rather than the context it carried. */
+  new: boolean;
+  text_id: number;
+  /** Head of the segment the event's exchange is in, or null for none. */
+  segment: string | null;
+}
+
+/** Searches the text of one session's entries. */
+export function searchWithinSession(
+  sessionPk: string,
+  query: string,
+  { signal }: { signal?: AbortSignal } = {},
+): Promise<SessionTextSearchResponse> {
+  const params = new URLSearchParams({ q: query });
+  return fetchJson<SessionTextSearchResponse>(
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/search?${params}`,
+    { signal },
+  );
 }
 
 export function usageAttachmentUrl(attachmentId: string): string {
