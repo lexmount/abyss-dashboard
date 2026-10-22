@@ -1,15 +1,24 @@
 "use client";
 
 import * as React from "react";
-import { DashboardShell, useSidebarConfig } from "@lexmount.com/abyss-ui";
+import {
+  DashboardShell,
+  useSidebarConfig,
+  type SidebarConfig,
+} from "@lexmount.com/abyss-ui";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
+import { FoldSidebarWhileAway } from "@/components/layouts/fold-sidebar";
 
 interface BaseLayoutProps {
   children: React.ReactNode;
   title?: string;
   description?: string;
   headerAction?: React.ReactNode;
+  /** How this page's sidebar collapses. */
+  sidebar?: { collapsible?: SidebarConfig["collapsible"] };
+  /** While this element is out of view, the sidebar folds away. */
+  foldSidebarWhileAway?: React.RefObject<HTMLElement | null>;
 }
 
 export function BaseLayout({
@@ -17,17 +26,20 @@ export function BaseLayout({
   title,
   description,
   headerAction,
+  sidebar,
+  foldSidebarWhileAway,
 }: BaseLayoutProps) {
   const { config } = useSidebarConfig();
+  const collapsible = sidebar?.collapsible ?? config.collapsible;
 
   return (
     <DashboardShell
       side={config.side}
-      collapsible={config.collapsible}
+      collapsible={collapsible}
       sidebar={
         <AppSidebar
           variant={config.variant}
-          collapsible={config.collapsible}
+          collapsible={collapsible}
           side={config.side}
         />
       }
@@ -36,6 +48,9 @@ export function BaseLayout({
       description={description}
       headerAction={headerAction}
     >
+      {foldSidebarWhileAway ? (
+        <FoldSidebarWhileAway target={foldSidebarWhileAway} />
+      ) : null}
       {children}
     </DashboardShell>
   );

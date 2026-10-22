@@ -211,46 +211,6 @@ html {
   background: var(--background);
 }
 
-/* Scroll-folded sidebar. A page sets --sidebar-fold (0..1) on the sidebar
-   gap, the sidebar container and the inset, so the sidebar panel slides out
-   and the content widens with it as one piece. The property does not
-   inherit, which keeps each change to these three elements instead of the
-   whole page. A short transition smooths the scroll input; "settling" eases
-   a half-folded sidebar to its nearer end. Only an expanded sidebar folds. */
-@property --sidebar-fold {
-  syntax: "<number>";
-  inherits: false;
-  initial-value: 0;
-}
-
-[data-sidebar-fold] {
-  transition: --sidebar-fold 0.12s ease-out;
-}
-
-[data-sidebar-fold="settling"] {
-  transition: --sidebar-fold 0.4s cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-[data-state="expanded"] > [data-slot="sidebar-gap"][data-sidebar-fold] {
-  width: calc(var(--sidebar-width) * (1 - var(--sidebar-fold)));
-}
-
-[data-state="expanded"] > [data-slot="sidebar-container"][data-sidebar-fold] {
-  transform: translateX(calc(var(--sidebar-fold) * -100%));
-}
-
-[data-state="expanded"][data-side="right"]
-  > [data-slot="sidebar-container"][data-sidebar-fold] {
-  transform: translateX(calc(var(--sidebar-fold) * 100%));
-}
-
-@media (min-width: 768px) {
-  [data-state="expanded"][data-variant="inset"]
-    ~ [data-slot="sidebar-inset"][data-sidebar-fold] {
-    margin-left: calc(0.5rem * var(--sidebar-fold));
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-new(root) {
     animation: none;
@@ -265,10 +225,6 @@ html {
   }
 
   .mode-toggle-button::before {
-    transition: none;
-  }
-
-  [data-sidebar-fold] {
     transition: none;
   }
 }

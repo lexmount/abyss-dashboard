@@ -249,6 +249,10 @@ function SegmentCards({
           </CardContent>
         </Card>
       ) : null}
+      {/* Exchanges off screen skip layout and paint, so a change in the column's
+          width (the sidebar opening or collapsing) relays out only the ones in
+          view. Until first shown an exchange counts as 450px tall, about the
+          average; then it keeps its real height. */}
       {exchanges.map((exchange) => (
         <section
           key={exchange.id}
@@ -256,7 +260,7 @@ function SegmentCards({
           data-anchored={
             (!hasAnchoredCard && exchange.id === anchoredExchangeId) || undefined
           }
-          className="data-[anchored]:ring-ring/60 space-y-2 data-[anchored]:rounded-xl data-[anchored]:ring-2"
+          className="data-[anchored]:ring-ring/60 space-y-2 [contain-intrinsic-size:auto_450px] [content-visibility:auto] data-[anchored]:rounded-xl data-[anchored]:ring-2"
         >
           <ExchangeLine
             exchange={exchange}

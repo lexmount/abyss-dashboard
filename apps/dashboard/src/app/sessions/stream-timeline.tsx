@@ -108,6 +108,8 @@ export function StreamTimeline({
     event.preventDefault();
   };
 
+  // Contained, so moving the whole box (the sidebar opening or collapsing
+  // shifts it) does not walk its rows, of which a large session has thousands.
   return (
     <div
       ref={boxRef}
@@ -116,7 +118,7 @@ export function StreamTimeline({
       tabIndex={0}
       onKeyDown={onKeyDown}
       className={cn(
-        "bg-muted/30 focus-visible:ring-ring/40 overflow-auto px-1.5 py-2 outline-none focus-visible:ring-2 focus-visible:ring-inset",
+        "bg-muted/30 focus-visible:ring-ring/40 overflow-auto px-1.5 py-2 outline-none contain-content focus-visible:ring-2 focus-visible:ring-inset",
         className,
       )}
     >
