@@ -193,9 +193,8 @@ function TimelineRowContent({
     <>
       <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
         <span className={cn("font-medium whitespace-nowrap", selected && "text-ring")}>
-          {t("sessions.streams.segment", {
-            kind: t(`sessions.streams.kind.${segment.kind}`),
-            number: row.ordinal + 1,
+          {t("sessions.event.segmentNumber", {
+            number: formatNumber(row.ordinal + 1),
           })}
         </span>
         <span
@@ -216,11 +215,6 @@ function TimelineRowContent({
               {t("sessions.streams.exchanges", {
                 count: formatNumber(segment.exchange_count),
               })}
-            </Pill>
-          ) : null}
-          {row.forks > 0 ? (
-            <Pill className="border-ring/40 text-ring border bg-transparent font-medium">
-              {t("sessions.streams.forks", { count: formatNumber(row.forks) })}
             </Pill>
           ) : null}
         </span>

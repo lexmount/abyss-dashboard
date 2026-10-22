@@ -51,6 +51,8 @@ export function SessionStreamsView({
   streams,
   segment,
   selectedEventId,
+  anchoredEventId,
+  anchoredExchangeId,
   onSelectSegment,
   onSelectEvent,
   formatTime,
@@ -62,6 +64,10 @@ export function SessionStreamsView({
   segment: string | null;
   /** The event open in the inspector, highlighted in the list. */
   selectedEventId: string | null;
+  /** Stable event anchor to highlight and scroll to after its cards load. */
+  anchoredEventId: string | null;
+  /** Exchange fallback for an event grouped with another event on the same side. */
+  anchoredExchangeId: string | null;
   onSelectSegment: (head: string) => void;
   onSelectEvent: (eventPk: string) => void;
   formatTime: (value: string) => string;
@@ -98,6 +104,8 @@ export function SessionStreamsView({
             head={selected}
             ordinalOf={layout.ordinalOf}
             selectedEventId={selectedEventId}
+            anchoredEventId={anchoredEventId}
+            anchoredExchangeId={anchoredExchangeId}
             search={search}
             onSelectSegment={onSelectSegment}
             onSelectEvent={onSelectEvent}
@@ -124,7 +132,7 @@ function useRevealMatch(
   active: StreamOccurrence | null,
   revealRequest: number,
 ) {
-  const revealed = React.useRef(revealRequest);
+  const revealed = React.useRef<number | null>(null);
   React.useEffect(() => {
     if (active === null || revealed.current === revealRequest) {
       return;
@@ -171,6 +179,8 @@ function SegmentCards({
   head,
   ordinalOf,
   selectedEventId,
+  anchoredEventId,
+  anchoredExchangeId,
   search,
   onSelectSegment,
   onSelectEvent,
@@ -179,6 +189,10 @@ function SegmentCards({
   head: string;
   ordinalOf: ReadonlyMap<string, number>;
   selectedEventId: string | null;
+  /** Stable event anchor to highlight and scroll to after its cards load. */
+  anchoredEventId: string | null;
+  /** Exchange fallback for an event grouped with another event on the same side. */
+  anchoredExchangeId: string | null;
   search: SessionSearchView;
   onSelectSegment: (head: string) => void;
   onSelectEvent: (eventPk: string) => void;
@@ -189,6 +203,33 @@ function SegmentCards({
     queryFn: () => fetchSessionSegment(sessionPk, head, CARD_WINDOW),
   });
   const exchanges = query.data?.exchanges ?? [];
+  const contentRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (anchoredEventId === null || !query.data) return;
+    const container = contentRef.current;
+    const card =
+      container?.querySelector<HTMLElement>(
+        `article[data-event-id="${CSS.escape(anchoredEventId)}"]`,
+      ) ??
+      (anchoredExchangeId === null
+        ? null
+        : container?.querySelector<HTMLElement>(
+            `section[data-exchange-id="${CSS.escape(anchoredExchangeId)}"]`,
+          ));
+    if (!card) return;
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({
+        top: card.getBoundingClientRect().top + window.scrollY - 64,
+        behavior: "instant",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [anchoredEventId, anchoredExchangeId, query.data]);
+  const hasAnchoredCard = exchanges.some(
+    (exchange) =>
+      exchange.request_pk === anchoredEventId ||
+      exchange.response_pk === anchoredEventId,
+  );
 
   if (query.isError) {
     return (
@@ -200,7 +241,7 @@ function SegmentCards({
     );
   }
   return (
-    <div className="min-w-0 flex-1 space-y-3">
+    <div ref={contentRef} className="min-w-0 flex-1 space-y-3">
       {query.isLoading ? (
         <Card>
           <CardContent className="text-muted-foreground py-10 text-center text-sm">
@@ -209,7 +250,14 @@ function SegmentCards({
         </Card>
       ) : null}
       {exchanges.map((exchange) => (
-        <section key={exchange.id} className="space-y-2">
+        <section
+          key={exchange.id}
+          data-exchange-id={exchange.id}
+          data-anchored={
+            (!hasAnchoredCard && exchange.id === anchoredExchangeId) || undefined
+          }
+          className="data-[anchored]:ring-ring/60 space-y-2 data-[anchored]:rounded-xl data-[anchored]:ring-2"
+        >
           <ExchangeLine
             exchange={exchange}
             segment={query.data?.segment ?? head}
@@ -224,7 +272,9 @@ function SegmentCards({
                 key={side}
                 side={side}
                 exchange={exchange}
-                selected={eventPk !== null && eventPk === selectedEventId}
+                selected={
+                  eventPk !== null && eventPk === (selectedEventId ?? anchoredEventId)
+                }
                 query={search.query}
                 matches={eventPk === null ? undefined : search.matches?.get(eventPk)}
                 activeMatch={
@@ -245,7 +295,7 @@ function SegmentCards({
 /**
  * Where an exchange sits in its stream: the exchange it continues and by
  * which rule, with a link to that exchange's segment when it is another one,
- * or why it continues none; and whether its request opens a turn.
+ * or why it continues none.
  */
 function ExchangeLine({
   exchange,
@@ -268,9 +318,6 @@ function ExchangeLine({
       <span className="text-foreground font-mono" title={exchange.id}>
         {shortId(exchange.id)}
       </span>
-      {exchange.starts_turn ? (
-        <span className="text-ring font-medium">{t("sessions.streams.newTurn")}</span>
-      ) : null}
       {exchange.base === null ? (
         <span>
           {t("sessions.streams.noBase", { reason: exchange.no_base_reason ?? "" })}

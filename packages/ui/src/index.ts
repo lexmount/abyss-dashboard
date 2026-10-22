@@ -29,7 +29,5 @@ export {
   type Conversation,
   type ConversationEntry,
 } from "./event/event-content";
-export * from "./event/session-timeline";
-export * from "./event/session-trajectory";
 export * from "./layout/dashboard-shell";
 export * from "./layout/sidebar-config";

@@ -2,8 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchDayTokenUsage,
   fetchRawEvents,
-  fetchSessionTimeline,
-  fetchSessionTrajectory,
+  fetchEventLocation,
   fetchUsageEvent,
   fetchUsageSummary,
   searchSessions,
@@ -127,49 +126,21 @@ describe("usage API", () => {
     expect(url.searchParams.getAll("llm_model")).toEqual(["gpt-5", "claude-opus"]);
   });
 
-  it("requests a session timeline by session primary key", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      void input;
-      return Promise.resolve(
-        jsonResponse({
-          session: {
-            session_pk: "session pk",
-            user_id: "user-1",
-            device_context_id: "device-1",
-            agent_name: "codex",
-            agent_version: null,
-            session_id: "session-1",
-            started_at: "2026-06-25T00:00:00Z",
-            ended_at: null,
-            metadata: {},
-          },
-          turns: [],
-        }),
-      );
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    await fetchSessionTimeline("session pk");
-
-    const url = requestUrl(fetchMock.mock.calls[0]?.[0]);
-    expect(url.pathname).toBe("/api/v1/agent-usage/sessions/session%20pk");
-  });
-
-  it("requests a session trajectory and one event by primary key", async () => {
+  it("resolves a stable event link and requests its raw event by primary key", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       void input;
       return Promise.resolve(jsonResponse({}));
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await fetchSessionTrajectory("session pk");
-    await fetchUsageEvent("event pk");
+    await fetchEventLocation("event/1");
+    await fetchUsageEvent("event/1");
 
     expect(requestUrl(fetchMock.mock.calls[0]?.[0]).pathname).toBe(
-      "/api/v1/agent-usage/sessions/session%20pk/trajectory",
+      "/api/v1/agent-usage/events/event%2F1/location",
     );
     expect(requestUrl(fetchMock.mock.calls[1]?.[0]).pathname).toBe(
-      "/api/v1/agent-usage/events/event%20pk",
+      "/api/v1/agent-usage/events/event%2F1",
     );
   });
 

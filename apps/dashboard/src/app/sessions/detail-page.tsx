@@ -7,11 +7,13 @@ import { ArrowLeft, Bot, Check, Copy } from "lucide-react";
 import * as React from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
+  fetchEventLocation,
   fetchSessionHeader,
   fetchSessionStreams,
   fetchUsageEvent,
   searchWithinSession,
   usageAttachmentUrl,
+  type EventStreamLocation,
   type SessionHeaderResponse,
   type SessionStreamsResponse,
 } from "@/api/usage";
@@ -22,6 +24,7 @@ import { Card, CardContent } from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 import { eventInspectorLabels } from "@/lib/inspector-labels";
+import { entryLabelText } from "@/lib/entry-label";
 import {
   landingOccurrence,
   matchesBySegment,
@@ -33,7 +36,9 @@ import { cn } from "@/lib/utils";
 import { SessionStreamsView, type SessionSearchView } from "./session-streams-view";
 import { StreamSearchBox, useDebounced } from "./stream-search-box";
 
+/** Stable anchor, resolved to its current segment when the page opens. */
 const eventSearchParam = "event";
+const inspectSearchParam = "inspect";
 /** Head of the open segment. */
 const segmentSearchParam = "segment";
 /** Search text, carried over from a session search and kept as it changes. */
@@ -44,24 +49,9 @@ export default function SessionDetailPage() {
   const { t, locale, formatDateTime, formatNumber } = useI18n();
   const { sessionPk = "" } = useParams<{ sessionPk: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const selectedEventId = searchParams.get(eventSearchParam);
+  const anchoredEventId = searchParams.get(eventSearchParam);
+  const inspectedEventId = searchParams.get(inspectSearchParam);
   const segment = searchParams.get(segmentSearchParam);
-  // A search carried over from the sessions page names the event of its hit:
-  // the page opens in that event's segment and starts the search there,
-  // without opening the event.
-  const [landingEventPk, setLandingEventPk] = React.useState(() =>
-    searchParams.has(querySearchParam) && !searchParams.has(segmentSearchParam)
-      ? selectedEventId
-      : null,
-  );
-  // Once the URL no longer names it, the event is an event like any other.
-  if (landingEventPk !== null && selectedEventId !== landingEventPk) {
-    setLandingEventPk(null);
-  }
-  const inspectedEventId =
-    landingEventPk !== null && selectedEventId === landingEventPk
-      ? null
-      : selectedEventId;
 
   const headerQuery = useQuery({
     queryKey: ["session-header", sessionPk],
@@ -73,6 +63,23 @@ export default function SessionDetailPage() {
     queryFn: () => fetchSessionStreams(sessionPk),
     enabled: sessionPk !== "",
   });
+  const locationQuery = useQuery({
+    // A refreshed stream structure can move an event into a new segment.
+    queryKey: [
+      "event-location",
+      sessionPk,
+      anchoredEventId,
+      streamsQuery.dataUpdatedAt,
+    ],
+    queryFn: () => fetchEventLocation(anchoredEventId ?? ""),
+    enabled: anchoredEventId !== null && streamsQuery.data !== undefined,
+  });
+  const eventLocation =
+    locationQuery.data?.session_pk === sessionPk ? locationQuery.data : undefined;
+  const locatingEvent =
+    anchoredEventId !== null &&
+    streamsQuery.data !== undefined &&
+    locationQuery.isPending;
   const header = headerQuery.data;
   const eventQuery = useQuery({
     queryKey: ["usage-event", inspectedEventId],
@@ -110,32 +117,22 @@ export default function SessionDetailPage() {
     },
     [setSearchParams],
   );
-  const updateParam = React.useCallback(
-    (name: string, value: string | null) =>
-      updateParams({ [name]: value }, { replace: name === eventSearchParam }),
-    [updateParams],
-  );
-
-  const shownSegment = segment ?? streamsQuery.data?.segments[0]?.head ?? null;
+  const shownSegment =
+    eventLocation?.segment ?? segment ?? streamsQuery.data?.segments[0]?.head ?? null;
   const search = useStreamSearch({
     sessionPk,
     streams: streamsQuery.data,
     initialQuery: searchParams.get(querySearchParam) ?? "",
-    landingEventPk,
+    landingEventPk: anchoredEventId,
     onQueryChange: (query) =>
       updateParams({ [querySearchParam]: query || null }, { replace: true }),
-    // A match in another segment shows that segment.
+    // Stepping or starting a new search is an explicit navigation.
     onReveal: (occurrence) => {
-      if (occurrence.segment !== shownSegment) {
-        updateParams({ [segmentSearchParam]: occurrence.segment }, { replace: true });
-      }
-    },
-    // The event a search opened on gives way to the segment of its hit.
-    onLanded: (head) => {
       updateParams(
         {
+          [segmentSearchParam]: occurrence.segment,
           [eventSearchParam]: null,
-          ...(head === null ? {} : { [segmentSearchParam]: head }),
+          [inspectSearchParam]: null,
         },
         { replace: true },
       );
@@ -151,16 +148,21 @@ export default function SessionDetailPage() {
     return (value: string) => format.format(new Date(value));
   }, [locale]);
 
+  // The inspector receives recorded fields; derived location is rendered by the host.
+  const inspectedEvent = eventQuery.data ? { ...eventQuery.data } : null;
+  if (inspectedEvent) delete inspectedEvent.location;
   const detail: SessionEventDetailState = eventQuery.isError
     ? { status: "error", message: t(`error.${apiErrorKind(eventQuery.error)}.title`) }
-    : eventQuery.data
-      ? { status: "ready", event: eventQuery.data }
+    : inspectedEvent
+      ? { status: "ready", event: inspectedEvent }
       : { status: "loading" };
   const failed = headerQuery.isError
     ? headerQuery
     : streamsQuery.isError
       ? streamsQuery
-      : null;
+      : locationQuery.isError
+        ? locationQuery
+        : null;
 
   return (
     <BaseLayout>
@@ -183,7 +185,7 @@ export default function SessionDetailPage() {
           <QueryErrorCard
             error={failed.error}
             title={
-              apiErrorKind(failed.error) === "notFound"
+              failed !== locationQuery && apiErrorKind(failed.error) === "notFound"
                 ? t("sessions.detail.notFound")
                 : undefined
             }
@@ -192,7 +194,7 @@ export default function SessionDetailPage() {
           />
         ) : null}
 
-        {streamsQuery.isLoading ? (
+        {streamsQuery.isLoading || locatingEvent ? (
           <Card>
             <CardContent className="text-muted-foreground py-10 text-center text-sm">
               {t("sessions.detail.loading")}
@@ -200,7 +202,7 @@ export default function SessionDetailPage() {
           </Card>
         ) : null}
 
-        {streamsQuery.data ? (
+        {streamsQuery.data && !locatingEvent ? (
           <div>
             {/* The search spans the whole session, so it sits above the
                 timeline and the cards, and stays in view as the page scrolls. */}
@@ -218,10 +220,20 @@ export default function SessionDetailPage() {
             <SessionStreamsView
               sessionPk={sessionPk}
               streams={streamsQuery.data}
-              segment={segment}
+              segment={shownSegment}
+              anchoredEventId={eventLocation?.event_pk ?? null}
+              anchoredExchangeId={eventLocation?.exchange ?? null}
               selectedEventId={inspectedEventId}
-              onSelectSegment={(head) => updateParam(segmentSearchParam, head)}
-              onSelectEvent={(eventPk) => updateParam(eventSearchParam, eventPk)}
+              onSelectSegment={(head) =>
+                updateParams({
+                  [segmentSearchParam]: head,
+                  [eventSearchParam]: null,
+                  [inspectSearchParam]: null,
+                })
+              }
+              onSelectEvent={(eventPk) =>
+                updateParams({ [inspectSearchParam]: eventPk }, { replace: true })
+              }
               formatTime={formatTime}
               search={search.view}
               inspector={
@@ -229,7 +241,16 @@ export default function SessionDetailPage() {
                   <SessionEventInspector
                     key={inspectedEventId}
                     detail={detail}
-                    onClose={() => updateParam(eventSearchParam, null)}
+                    properties={
+                      <EventLocationProperties
+                        location={eventQuery.data?.location}
+                        sessionPk={sessionPk}
+                        eventPk={inspectedEventId}
+                      />
+                    }
+                    onClose={() =>
+                      updateParams({ [inspectSearchParam]: null }, { replace: true })
+                    }
                     attachmentUrl={usageAttachmentUrl}
                     formatDateTime={formatDateTime}
                     formatNumber={formatNumber}
@@ -242,6 +263,44 @@ export default function SessionDetailPage() {
         ) : null}
       </div>
     </BaseLayout>
+  );
+}
+
+/** Derived location is supplied by the event response, without another lookup. */
+function EventLocationProperties({
+  location,
+  sessionPk,
+  eventPk,
+}: {
+  location: EventStreamLocation | null | undefined;
+  sessionPk: string;
+  eventPk: string;
+}) {
+  const { t, formatNumber } = useI18n();
+  return (
+    <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1.5 border-b p-4 text-xs">
+      <dt className="text-muted-foreground">{t("sessions.event.segment")}</dt>
+      <dd>
+        <Link
+          to={`/sessions/${encodeURIComponent(sessionPk)}?event=${encodeURIComponent(eventPk)}`}
+          className="text-ring underline-offset-4 hover:underline"
+        >
+          {location
+            ? t("sessions.event.segmentNumber", {
+                number: formatNumber(location.segment_index),
+              })
+            : t("sessions.event.locate")}
+        </Link>
+      </dd>
+      {location ? (
+        <>
+          <dt className="text-muted-foreground">{t("sessions.event.segmentId")}</dt>
+          <dd className="font-mono break-all">{location.segment}</dd>
+          <dt className="text-muted-foreground">{t("sessions.event.exchangeId")}</dt>
+          <dd className="font-mono break-all">{location.exchange}</dd>
+        </>
+      ) : null}
+    </dl>
   );
 }
 
@@ -259,7 +318,6 @@ function useStreamSearch({
   landingEventPk,
   onQueryChange,
   onReveal,
-  onLanded,
 }: {
   sessionPk: string;
   streams: SessionStreamsResponse | undefined;
@@ -270,8 +328,6 @@ function useStreamSearch({
   onQueryChange: (query: string) => void;
   /** Shows the segment an occurrence is in. */
   onReveal: (occurrence: StreamOccurrence) => void;
-  /** The search opened on an event has started, in the segment given if any. */
-  onLanded: (segment: string | null) => void;
 }) {
   const { t } = useI18n();
   const [query, setQuery] = React.useState(initialQuery);
@@ -280,9 +336,9 @@ function useStreamSearch({
 
   // The settled text is reported only when it changes, not for the text the
   // page opened with.
-  const callbacks = React.useRef({ onQueryChange, onReveal, onLanded });
+  const callbacks = React.useRef({ onQueryChange, onReveal });
   React.useEffect(() => {
-    callbacks.current = { onQueryChange, onReveal, onLanded };
+    callbacks.current = { onQueryChange, onReveal };
   });
   const reportedQuery = React.useRef(searchQuery);
   React.useEffect(() => {
@@ -348,7 +404,6 @@ function useStreamSearch({
       // Without a match in the event, the view stays until the reader steps.
       const first = landingOccurrence(occurrences, eventPk);
       setActiveIndex(first);
-      callbacks.current.onLanded(first === -1 ? null : occurrences[first].segment);
       if (first !== -1) {
         setRevealRequest((current) => current + 1);
       }
@@ -489,8 +544,7 @@ function useFoldSidebarOnScroll(summaryRef: React.RefObject<HTMLElement | null>)
 function SessionIdentity({ header }: { header: SessionHeaderResponse | undefined }) {
   const { t } = useI18n();
   const agent = header?.agents[0];
-  // The first request's user words, else the session id.
-  const title = header?.title?.text ?? header?.session_id;
+  const title = entryLabelText(header?.title) ?? header?.session_id;
   return (
     <div className="flex min-w-0 items-center gap-3.5">
       <div className="bg-ring/10 text-ring ring-ring/20 flex size-11 shrink-0 items-center justify-center rounded-xl ring-1">
@@ -563,13 +617,13 @@ function SessionStats({
       label: t("sessions.detail.duration"),
       value: formatDuration(header.start, header.end, t),
     },
-    { label: t("sessions.detail.turnCount"), value: formatNumber(header.turn_count) },
     {
-      label: t("sessions.streams.counts"),
-      value: t("sessions.streams.countsValue", {
-        segments: formatNumber(header.segment_count),
-        exchanges: formatNumber(header.exchange_count),
-      }),
+      label: t("sessions.detail.turnCount"),
+      value: formatNumber(header.segment_count),
+    },
+    {
+      label: t("sessions.detail.exchangeCount"),
+      value: formatNumber(header.exchange_count),
     },
     { label: t("common.tokens"), value: formatNumber(header.tokens.total) },
     {

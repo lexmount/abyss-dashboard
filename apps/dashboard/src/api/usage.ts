@@ -1,7 +1,3 @@
-import type {
-  SessionTrajectoryEvent,
-  SessionTrajectoryItem,
-} from "@lexmount.com/abyss-ui";
 import { fetchJson } from "@/api/http";
 
 export interface SummaryResponse {
@@ -74,11 +70,9 @@ export interface UsageEvent {
   host_name?: string | null;
   platform?: string | null;
   session_pk: string;
-  turn_pk: string;
   agent_name: string;
   agent_version: string | null;
   session_id: string;
-  turn_index: number;
   llm_provider: string;
   llm_model: string;
   event_type: string;
@@ -91,6 +85,7 @@ export interface UsageEvent {
   observed_at: string;
   metadata: unknown;
   attachments: UsageEventAttachment[];
+  location?: EventStreamLocation | null;
 }
 
 export interface UsageEventAttachment {
@@ -100,37 +95,6 @@ export interface UsageEventAttachment {
   byte_size: number;
   sha256: string;
   content_available: boolean;
-}
-
-export interface SessionTimelineResponse {
-  session: SessionInfo;
-  turns: TurnTimeline[];
-}
-
-export interface SessionInfo {
-  session_pk: string;
-  user_id: string;
-  device_context_id: string;
-  agent_name: string;
-  agent_version: string | null;
-  session_id: string;
-  started_at: string;
-  ended_at: string | null;
-  metadata: unknown;
-  /** Name the Agent generated for the session, when one was captured. */
-  title: string | null;
-  /** Why the session exists when it is not ordinary work, e.g. "title_generation". */
-  purpose: string | null;
-  /** For a naming session, the task session its title was matched to. */
-  parent_session_pk: string | null;
-}
-
-export interface TurnTimeline {
-  turn_pk: string;
-  turn_index: number;
-  started_at: string;
-  ended_at: string | null;
-  events: UsageEvent[];
 }
 
 /** One filter value, or several where any of them matches. */
@@ -160,6 +124,8 @@ export interface SessionSearchResponse {
 export interface SessionSearchResult {
   session_pk: string;
   session_id: string;
+  /** The same request label shown by the session list and header. */
+  title: EntryLabel | null;
   agent_name: string;
   agent_version: string | null;
   host_name: string;
@@ -177,8 +143,7 @@ export interface SessionSearchResult {
 
 export interface SessionSearchMatch {
   event_pk: string;
-  turn_pk: string;
-  turn_index: number;
+  location?: EventStreamLocation | null;
   event_type: string;
   llm_provider: string;
   llm_model: string;
@@ -283,6 +248,7 @@ export function fetchRawEvents(
 ): Promise<EventListResponse> {
   const params = usageParams(query);
   params.set("fields", "list");
+  params.set("locate", "true");
   params.set("limit", page.limit.toString());
   if (page.offset > 0) {
     params.set("offset", page.offset.toString());
@@ -290,25 +256,23 @@ export function fetchRawEvents(
   return fetchJson<EventListResponse>(`/api/v1/agent-usage/events?${params}`);
 }
 
-export function fetchSessionTimeline(
-  sessionPk: string,
-): Promise<SessionTimelineResponse> {
-  return fetchJson<SessionTimelineResponse>(
-    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}`,
-  );
+/** An event's current place in the derived session structure. */
+export interface EventStreamLocation {
+  segment: string;
+  /** Position in the session's segment list, starting at one. */
+  segment_index: number;
+  segment_kind: "root" | "turn" | "branch";
+  exchange: string;
 }
 
-export interface SessionTrajectoryResponse {
-  session: SessionInfo;
-  items: SessionTrajectoryItem[];
-  events: SessionTrajectoryEvent[];
+export interface EventLocationResponse extends EventStreamLocation {
+  session_pk: string;
+  event_pk: string;
 }
 
-export function fetchSessionTrajectory(
-  sessionPk: string,
-): Promise<SessionTrajectoryResponse> {
-  return fetchJson<SessionTrajectoryResponse>(
-    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/trajectory`,
+export function fetchEventLocation(eventPk: string): Promise<EventLocationResponse> {
+  return fetchJson<EventLocationResponse>(
+    `/api/v1/agent-usage/events/${encodeURIComponent(eventPk)}/location`,
   );
 }
 
@@ -355,7 +319,7 @@ export function fetchSessionStreams(
 export interface SessionHeaderResponse {
   session_pk: string;
   session_id: string;
-  /** The new user words of the session's first request. */
+  /** Label from the first request's last nonempty user entry in its new part. */
   title: EntryLabel | null;
   agents: { name: string; version: string | null }[];
   start: string;
@@ -503,8 +467,8 @@ export interface SessionListItem {
   turns: number;
   events: number;
   total_tokens: number;
-  /** Name the Agent generated for the session, when one was captured. */
-  title: string | null;
+  /** Label from the first request's last nonempty user entry in its new part. */
+  title: EntryLabel | null;
   /** Why the session exists when it is not ordinary work, e.g. "title_generation". */
   purpose: string | null;
 }

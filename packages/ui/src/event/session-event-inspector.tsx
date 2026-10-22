@@ -11,7 +11,14 @@ import {
   type ConversationEntry,
   type RecordedHeader,
 } from "./event-content";
-import type { SessionImageAttachment } from "./session-timeline";
+export interface SessionImageAttachment {
+  id: string;
+  position: number;
+  media_type: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+  byte_size: number;
+  sha256: string;
+  content_available: boolean;
+}
 
 const INSPECTOR_DEFAULT_WIDTH_PX = 520;
 const INSPECTOR_MIN_WIDTH_PX = 320;
@@ -92,6 +99,8 @@ export interface SessionEventInspectorProps {
   heading?: string;
   /** Tabs shown right after the content tab. */
   extraTabs?: readonly SessionEventInspectorTab[];
+  /** Host-provided derived properties, shown before the recorded scalar fields. */
+  properties?: React.ReactNode;
   /**
    * `panel` (default) is a resizable side panel with its own header and close
    * button. `embedded` shows only the tabs, for a host that already shows the
@@ -112,6 +121,7 @@ export function SessionEventInspector({
   detail,
   heading,
   extraTabs = [],
+  properties,
   variant = "panel",
   onClose,
   attachmentUrl,
@@ -230,7 +240,10 @@ export function SessionEventInspector({
       ) : tab === "metadata" ? (
         <MetadataPanel metadata={detail.event.metadata} />
       ) : (
-        <PropertiesPanel event={detail.event} formatNumber={formatNumber} />
+        <>
+          {properties}
+          <PropertiesPanel event={detail.event} formatNumber={formatNumber} />
+        </>
       )}
     </div>
   );

@@ -108,7 +108,7 @@ theme in their Tailwind entry point:
 
 ```ts
 import "@lexmount.com/abyss-ui/styles.css";
-import { Button, SessionTimeline } from "@lexmount.com/abyss-ui";
+import { Button, SessionEventInspector } from "@lexmount.com/abyss-ui";
 ```
 
 ```css
