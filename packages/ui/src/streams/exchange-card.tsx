@@ -1,16 +1,7 @@
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { apiErrorKind } from "@/api/http";
-import {
-  fetchEventConversation,
-  type ConversationEntry,
-  type ConversationPreview,
-  type SegmentExchange,
-  type TextRange,
-  type TokenCounts,
-} from "@/api/usage";
-import { useI18n } from "@/hooks/use-i18n";
+import { cn } from "../utils";
+import type { SessionStreamsLabels } from "./labels";
 import {
   collapseWhitespace,
   occurrenceCount,
@@ -18,16 +9,15 @@ import {
   type EntryMatches,
   type EventMatches,
   type StreamOccurrence,
-} from "@/lib/stream-search";
-import { cn } from "@/lib/utils";
+} from "./search";
 import { Highlighted } from "./stream-search-box";
-
-/**
- * How long a conversation a card loaded in full stays cached once nothing
- * shows it. Request bodies run to hundreds of kilobytes, so a session read
- * end to end must not keep all of them in memory.
- */
-const conversationCacheMs = 60_000;
+import type {
+  ConversationPreview,
+  ConversationPreviewEntry,
+  SegmentExchange,
+  TextRange,
+  TokenCounts,
+} from "./types";
 
 /** Characters and lines of user input or a reply shown before it is expanded. */
 const collapsedMaxCharacters = 600;
@@ -39,7 +29,36 @@ const collapsedMaxLines = 8;
  */
 export const previewCharacters = collapsedMaxCharacters * 4;
 
-type Translate = ReturnType<typeof useI18n>["t"];
+/** How the cards get an event's whole conversation, and show what they give. */
+export interface ExchangeCardContext {
+  /**
+   * Opens an event, such as in an inspector. Without it the cards are read
+   * only: neither a card nor an entry can be opened.
+   */
+  onOpenEvent?: (eventPk: string) => void;
+  /**
+   * Loads an event's whole conversation, for the entries and texts a preview
+   * leaves out. Without it what the preview leaves out stays out.
+   */
+  loadConversation?: (eventPk: string) => Promise<ConversationPreview>;
+  formatTime: (value: string) => string;
+  formatDateTime: (value: string) => string;
+  formatNumber: (value: number) => string;
+  labels: SessionStreamsLabels;
+}
+
+export interface ExchangeCardProps extends ExchangeCardContext {
+  side: "request" | "response";
+  exchange: SegmentExchange;
+  /** The card's event is open in the inspector, or anchored. */
+  selected: boolean;
+  /** The session's search, or empty. */
+  query: string;
+  /** Where the search found the query in the card's event, if anywhere. */
+  matches: EventMatches | undefined;
+  /** The occurrence being viewed, when it is in this card's event. */
+  activeMatch: StreamOccurrence | null;
+}
 
 /**
  * One side of an exchange: its header, then the entries its preview gives,
@@ -47,7 +66,7 @@ type Translate = ReturnType<typeof useI18n>["t"];
  * conversation once the reader asks for an entry left out or a text cut
  * short, or once the search's occurrence being viewed is in an entry left
  * out or past the start of a text the preview gives. Clicking the header or
- * an entry opens the event in the inspector. A request marks where its new
+ * an entry opens the event, when the host can. A request marks where its new
  * part begins. While the session is searched, the entries mark the query.
  */
 export const ExchangeCard = React.memo(function ExchangeCard({
@@ -58,51 +77,43 @@ export const ExchangeCard = React.memo(function ExchangeCard({
   matches,
   activeMatch,
   onOpenEvent,
-}: {
-  side: "request" | "response";
-  exchange: SegmentExchange;
-  /** The card's event is open in the inspector. */
-  selected: boolean;
-  /** The session's search, or empty. */
-  query: string;
-  /** Where the search found the query in the card's event, if anywhere. */
-  matches: EventMatches | undefined;
-  /** The occurrence being viewed, when it is in this card's event. */
-  activeMatch: StreamOccurrence | null;
-  onOpenEvent: (eventPk: string) => void;
-}) {
-  const { t } = useI18n();
+  loadConversation,
+  formatTime,
+  formatDateTime,
+  formatNumber,
+  labels,
+}: ExchangeCardProps) {
   const request = side === "request";
   const preview = request ? exchange.request : exchange.response;
-  const eventPk = (request ? exchange.request_pk : exchange.response_pk) ?? null;
+  const eventPk =
+    (request ? exchange.request_pk : exchange.response_pk) ?? null;
   const at = (request ? exchange.requested_at : exchange.responded_at) ?? null;
   const [wholeAsked, setWholeAsked] = React.useState(false);
   // The occurrence being viewed is beyond the preview, so the whole is read.
   const beyond =
     activeMatch !== null && preview ? !inPreview(activeMatch, preview) : false;
-  const wholeQuery = useQuery({
-    queryKey: ["event-conversation", eventPk],
-    queryFn: () => fetchEventConversation(eventPk ?? ""),
-    enabled: eventPk !== null && (wholeAsked || beyond),
-    // Persisted events never change.
-    staleTime: Infinity,
-    gcTime: conversationCacheMs,
-  });
-  const shown = wholeQuery.data ?? preview;
+  const wholeState = useWholeConversation(
+    eventPk,
+    wholeAsked || beyond,
+    loadConversation,
+  );
+  const shown = wholeState.data ?? preview;
   const loadWhole = React.useCallback(() => setWholeAsked(true), []);
   const whole = React.useMemo(
-    (): WholeText => ({
-      loading: wholeQuery.isFetching,
-      error: wholeQuery.isError ? wholeQuery.error : null,
-      load: loadWhole,
-    }),
-    [wholeQuery.isFetching, wholeQuery.isError, wholeQuery.error, loadWhole],
+    (): WholeText | null =>
+      loadConversation
+        ? {
+            loading: wholeState.loading,
+            error: wholeState.error,
+            load: loadWhole,
+          }
+        : null,
+    [loadConversation, wholeState.loading, wholeState.error, loadWhole],
   );
-  const open = React.useCallback(() => {
-    if (eventPk !== null) {
-      onOpenEvent(eventPk);
-    }
-  }, [eventPk, onOpenEvent]);
+  const open = React.useMemo(
+    () => (eventPk !== null && onOpenEvent ? () => onOpenEvent(eventPk) : null),
+    [eventPk, onOpenEvent],
+  );
 
   return (
     <article
@@ -119,19 +130,21 @@ export const ExchangeCard = React.memo(function ExchangeCard({
         exchange={exchange}
         at={at}
         selected={selected}
-        onOpen={eventPk === null ? null : open}
+        present={eventPk !== null}
+        readOnly={!onOpenEvent}
+        onOpen={open}
+        formatTime={formatTime}
+        formatDateTime={formatDateTime}
+        formatNumber={formatNumber}
+        labels={labels}
       />
       {eventPk === null || !shown ? (
-        <Note>
-          {request
-            ? t("sessions.streams.requestMissing")
-            : t("sessions.streams.responseMissing")}
-        </Note>
+        <Note>{request ? labels.requestMissing : labels.responseMissing}</Note>
       ) : (
         <>
-          <Incomplete completeness={shown.completeness} />
+          <Incomplete completeness={shown.completeness} labels={labels} />
           {shown.entries_total === 0 ? (
-            <Note>{t("sessions.streams.noEntries")}</Note>
+            <Note>{labels.noEntries}</Note>
           ) : (
             <EntryList
               preview={shown}
@@ -142,6 +155,8 @@ export const ExchangeCard = React.memo(function ExchangeCard({
               matches={matches}
               activeMatch={activeMatch}
               onSelect={open}
+              formatNumber={formatNumber}
+              labels={labels}
             />
           )}
         </>
@@ -175,6 +190,59 @@ function inPreview(
   return false;
 }
 
+/** An event's whole conversation, once a card has asked for it. */
+interface WholeConversation {
+  data: ConversationPreview | undefined;
+  loading: boolean;
+  /** Why it could not be loaded, or null. */
+  error: unknown;
+}
+
+/**
+ * Loads an event's whole conversation the first time it is wanted, and keeps
+ * it while the card is shown; a load once started finishes even when it is
+ * no longer wanted.
+ */
+function useWholeConversation(
+  eventPk: string | null,
+  wanted: boolean,
+  load: ((eventPk: string) => Promise<ConversationPreview>) | undefined,
+): WholeConversation {
+  const [state, setState] = React.useState<WholeConversation>({
+    data: undefined,
+    loading: false,
+    error: null,
+  });
+  const started = React.useRef<string | null>(null);
+  const mounted = React.useRef(true);
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  React.useEffect(() => {
+    if (!wanted || eventPk === null || !load || started.current === eventPk) {
+      return;
+    }
+    started.current = eventPk;
+    setState({ data: undefined, loading: true, error: null });
+    load(eventPk).then(
+      (data) => {
+        if (mounted.current) {
+          setState({ data, loading: false, error: null });
+        }
+      },
+      (error: unknown) => {
+        if (mounted.current) {
+          setState({ data: undefined, loading: false, error: error ?? null });
+        }
+      },
+    );
+  }, [wanted, eventPk, load]);
+  return state;
+}
+
 /** How a card gets the entries and texts its preview leaves out. */
 interface WholeText {
   /** The whole conversation is being loaded. */
@@ -193,49 +261,84 @@ function CardHeader({
   exchange,
   at,
   selected,
+  present,
+  readOnly,
   onOpen,
+  formatTime,
+  formatDateTime,
+  formatNumber,
+  labels,
 }: {
   side: "request" | "response";
   exchange: SegmentExchange;
   at: string | null;
   selected: boolean;
-  /** Opens the event, or null when the event is missing. */
+  /** The card's event was observed. */
+  present: boolean;
+  /** The host does not open events, so the header is not a control. */
+  readOnly: boolean;
+  /** Opens the event, or null when it cannot be opened. */
   onOpen: (() => void) | null;
+  formatTime: (value: string) => string;
+  formatDateTime: (value: string) => string;
+  formatNumber: (value: number) => string;
+  labels: SessionStreamsLabels;
 }) {
-  const { t, formatDateTime, formatNumber } = useI18n();
-  const formatTime = useFormatTime();
   const request = side === "request";
-  const tokens = (request ? exchange.request_tokens : exchange.response_tokens) ?? null;
+  const tokens =
+    (request ? exchange.request_tokens : exchange.response_tokens) ?? null;
+  const content = (
+    <>
+      <span className="bg-background shrink-0 rounded border px-2 py-0.5 font-semibold">
+        {request ? labels.request : labels.response}
+      </span>
+      <span className="min-w-0 font-mono font-medium [overflow-wrap:anywhere]">
+        {exchange.model || labels.unknownModel}
+      </span>
+      {present ? (
+        <span className="shrink-0 font-semibold tabular-nums">
+          {tokens
+            ? `${formatNumber(tokens.total)} ${labels.tokens}`
+            : labels.tokensUnavailable}
+        </span>
+      ) : null}
+      <span
+        className="text-muted-foreground ml-auto shrink-0 tabular-nums"
+        title={at ? formatDateTime(at) : undefined}
+      >
+        {at ? formatTime(at) : "—"}
+      </span>
+      {tokens ? (
+        <TokenBreakdown
+          tokens={tokens}
+          request={request}
+          labels={labels}
+          formatNumber={formatNumber}
+        />
+      ) : null}
+    </>
+  );
   return (
     <div className="bg-card sticky top-11 z-10 border-b">
-      <button
-        type="button"
-        aria-pressed={selected}
-        disabled={onOpen === null}
-        onClick={onOpen ?? undefined}
-        className="bg-muted/40 hover:bg-muted/70 focus-visible:ring-ring disabled:hover:bg-muted/40 flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset"
-      >
-        <span className="bg-background shrink-0 rounded border px-2 py-0.5 font-semibold">
-          {request ? t("common.request") : t("common.response")}
-        </span>
-        <span className="min-w-0 font-mono font-medium [overflow-wrap:anywhere]">
-          {exchange.model || t("sessions.trajectory.unknownModel")}
-        </span>
-        {onOpen !== null ? (
-          <span className="shrink-0 font-semibold tabular-nums">
-            {tokens
-              ? `${formatNumber(tokens.total)} ${t("common.tokens")}`
-              : t("sessions.trajectory.tokensUnavailable")}
-          </span>
-        ) : null}
-        <span
-          className="text-muted-foreground ml-auto shrink-0 tabular-nums"
-          title={at ? formatDateTime(at) : undefined}
+      {readOnly ? (
+        <div
+          data-card-header=""
+          className="bg-muted/40 flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left text-xs"
         >
-          {at ? formatTime(at) : "—"}
-        </span>
-        {tokens ? <TokenBreakdown tokens={tokens} request={request} /> : null}
-      </button>
+          {content}
+        </div>
+      ) : (
+        <button
+          type="button"
+          data-card-header=""
+          aria-pressed={selected}
+          disabled={onOpen === null}
+          onClick={onOpen ?? undefined}
+          className="bg-muted/40 hover:bg-muted/70 focus-visible:ring-ring disabled:hover:bg-muted/40 flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset"
+        >
+          {content}
+        </button>
+      )}
     </div>
   );
 }
@@ -247,30 +350,21 @@ function CardHeader({
 function TokenBreakdown({
   tokens,
   request,
+  labels,
+  formatNumber,
 }: {
   tokens: TokenCounts;
   request: boolean;
+  labels: SessionStreamsLabels;
+  formatNumber: (value: number) => string;
 }) {
-  const { t, formatNumber } = useI18n();
   const input = tokens.input + tokens.cache_read + tokens.cache_write;
   const parts: [label: string, value: number, shown: boolean][] = [
-    [t("sessions.trajectory.inputTokens"), input, input > 0 || request],
-    [
-      t("sessions.trajectory.outputTokens"),
-      tokens.output,
-      tokens.output > 0 || !request,
-    ],
-    [
-      t("sessions.trajectory.cacheReadTokens"),
-      tokens.cache_read,
-      tokens.cache_read > 0,
-    ],
-    [
-      t("sessions.trajectory.cacheWriteTokens"),
-      tokens.cache_write,
-      tokens.cache_write > 0,
-    ],
-    [t("sessions.trajectory.reasoningTokens"), tokens.reasoning, tokens.reasoning > 0],
+    [labels.inputTokens, input, input > 0 || request],
+    [labels.outputTokens, tokens.output, tokens.output > 0 || !request],
+    [labels.cacheReadTokens, tokens.cache_read, tokens.cache_read > 0],
+    [labels.cacheWriteTokens, tokens.cache_write, tokens.cache_write > 0],
+    [labels.reasoningTokens, tokens.reasoning, tokens.reasoning > 0],
   ];
   return (
     <span className="text-muted-foreground flex w-full flex-wrap gap-x-3 gap-y-1 tabular-nums">
@@ -290,10 +384,15 @@ function Note({ children }: { children: React.ReactNode }) {
 }
 
 /** Notes a conversation the collector could not decode completely. */
-function Incomplete({ completeness }: { completeness: string | null }) {
-  const { t } = useI18n();
+function Incomplete({
+  completeness,
+  labels,
+}: {
+  completeness: string | null;
+  labels: SessionStreamsLabels;
+}) {
   return completeness !== null && completeness !== "complete" ? (
-    <Note>{t("sessions.event.incomplete", { completeness })}</Note>
+    <Note>{labels.incomplete(completeness)}</Note>
   ) : null;
 }
 
@@ -311,16 +410,22 @@ function EntryList({
   matches,
   activeMatch,
   onSelect,
+  formatNumber,
+  labels,
 }: {
   preview: ConversationPreview;
   /** Index where the request's new part begins, or null. */
   newFrom: number | null;
   selected: boolean;
-  whole: WholeText;
+  /** How to load what the preview leaves out, or null when it cannot be. */
+  whole: WholeText | null;
   query: string;
   matches: EventMatches | undefined;
   activeMatch: StreamOccurrence | null;
-  onSelect: () => void;
+  /** Opens the entries' event, or null when it cannot be opened. */
+  onSelect: (() => void) | null;
+  formatNumber: (value: number) => string;
+  labels: SessionStreamsLabels;
 }) {
   const items: React.ReactNode[] = [];
   let next = 0;
@@ -332,6 +437,8 @@ function EntryList({
           count={to - from}
           matches={query ? occurrencesBetween(matches, from, to) : 0}
           whole={whole}
+          formatNumber={formatNumber}
+          labels={labels}
         />,
       );
     }
@@ -341,7 +448,7 @@ function EntryList({
     chunk.entries.forEach((entry, offset) => {
       const index = chunk.from + offset;
       if (newFrom !== null && newFrom > 0 && index === newFrom) {
-        items.push(<NewPartMark key="new" />);
+        items.push(<NewPartMark key="new" label={labels.newPart} />);
       }
       items.push(
         <EntryBlock
@@ -354,6 +461,8 @@ function EntryList({
           active={activeMatch?.entryIndex === index ? activeMatch : null}
           selected={selected}
           onSelect={onSelect}
+          formatNumber={formatNumber}
+          labels={labels}
         />,
       );
     });
@@ -370,12 +479,11 @@ function EntryList({
 }
 
 /** Where a request's new part begins, after the context it carries. */
-function NewPartMark() {
-  const { t } = useI18n();
+function NewPartMark({ label }: { label: string }) {
   return (
     <div className="text-ring flex items-center gap-2 py-1 text-[11px] font-medium">
       <span className="bg-ring/30 h-px flex-1" />
-      {t("sessions.streams.newPart")}
+      {label}
       <span className="bg-ring/30 h-px flex-1" />
     </div>
   );
@@ -383,40 +491,47 @@ function NewPartMark() {
 
 /**
  * Entries the preview leaves out, with how many of the search's occurrences
- * they hold, and a control that loads them.
+ * they hold, and a control that loads them when the host can.
  */
 function LeftOut({
   count,
   matches,
   whole,
+  formatNumber,
+  labels,
 }: {
   count: number;
   /** Occurrences of the search in the entries left out. */
   matches: number;
-  whole: WholeText;
+  whole: WholeText | null;
+  formatNumber: (value: number) => string;
+  labels: SessionStreamsLabels;
 }) {
-  const { t, formatNumber } = useI18n();
+  const text =
+    matches > 0
+      ? labels.omittedMatches(formatNumber(count), formatNumber(matches))
+      : labels.omitted(formatNumber(count));
+  const frame = cn(
+    "text-muted-foreground w-full rounded-lg border border-dashed px-2.5 py-1.5 text-left text-xs",
+    matches > 0 && "border-ring/50",
+  );
   return (
     <div className="py-1">
-      {whole.loading ? (
-        <p className="text-muted-foreground text-xs">{t("sessions.event.loading")}</p>
+      {whole === null ? (
+        <p className={frame}>{text}</p>
+      ) : whole.loading ? (
+        <p className="text-muted-foreground text-xs">
+          {labels.loadingConversation}
+        </p>
       ) : whole.error !== null ? (
-        <LoadError error={whole.error} className="" />
+        <LoadError error={whole.error} className="" labels={labels} />
       ) : (
         <button
           type="button"
           onClick={whole.load}
-          className={cn(
-            "text-muted-foreground hover:text-foreground hover:bg-muted/60 w-full rounded-lg border border-dashed px-2.5 py-1.5 text-left text-xs",
-            matches > 0 && "border-ring/50",
-          )}
+          className={cn(frame, "hover:text-foreground hover:bg-muted/60")}
         >
-          {matches > 0
-            ? t("sessions.streams.omittedMatches", {
-                count: formatNumber(count),
-                matches: formatNumber(matches),
-              })
-            : t("sessions.streams.omitted", { count: formatNumber(count) })}
+          {text}
         </button>
       )}
     </div>
@@ -427,16 +542,15 @@ function LeftOut({
 function LoadError({
   error,
   className = "px-4 py-3",
+  labels,
 }: {
   error: unknown;
   className?: string;
+  labels: SessionStreamsLabels;
 }) {
-  const { t } = useI18n();
   return (
     <p className={cn("text-destructive text-xs", className)}>
-      {t("sessions.event.error", {
-        message: t(`error.${apiErrorKind(error)}.title`),
-      })}
+      {labels.loadError(error)}
     </p>
   );
 }
@@ -490,7 +604,7 @@ function oneLine(
  * one line. An entry with a search hit opens until the reader closes it. An
  * entry whose text the preview cut short shows that start when open, with
  * the rest loading or there to load; the reader expanding it loads the rest.
- * Clicking the entry opens its event.
+ * Clicking the entry opens its event, when the host can.
  */
 const EntryBlock = React.memo(function EntryBlock({
   index,
@@ -501,10 +615,12 @@ const EntryBlock = React.memo(function EntryBlock({
   active,
   selected,
   onSelect,
+  formatNumber,
+  labels,
 }: {
   /** Position of the entry in its event's conversation. */
   index: number;
-  entry: ConversationEntry;
+  entry: ConversationPreviewEntry;
   /** How to get the whole text, when `entry.text` is only its start. */
   whole: WholeText | null;
   /** The session's search, or empty. */
@@ -515,9 +631,11 @@ const EntryBlock = React.memo(function EntryBlock({
   active: Pick<StreamOccurrence, "field" | "occurrence"> | null;
   /** The entry's event is open in the inspector. */
   selected: boolean;
-  onSelect: () => void;
+  /** Opens the entry's event, or null when it cannot be opened. */
+  onSelect: (() => void) | null;
+  formatNumber: (value: number) => string;
+  labels: SessionStreamsLabels;
 }) {
-  const { t, formatNumber } = useI18n();
   const hit = query.length > 0 && occurrenceCount(matches) > 0;
   const [expanded, toggleExpanded] = useHitToggle(false, hit ? query : null);
   const text = entry.text ?? "";
@@ -536,24 +654,37 @@ const EntryBlock = React.memo(function EntryBlock({
     }
     toggleExpanded();
   };
-  const selectable = {
-    role: "button",
-    tabIndex: 0,
-    "aria-pressed": selected,
+  const located = {
     "data-role": entry.role,
     "data-entry-index": index,
-    onClick: onSelect,
-    onKeyDown: (event: React.KeyboardEvent) => {
-      if (event.target === event.currentTarget && event.key === "Enter") {
-        onSelect();
-      }
-    },
   } as const;
-  const label = entryLabel(entry.role, t);
+  const selectable =
+    onSelect === null
+      ? located
+      : ({
+          ...located,
+          role: "button",
+          tabIndex: 0,
+          "aria-pressed": selected,
+          onClick: onSelect,
+          onKeyDown: (event: React.KeyboardEvent) => {
+            if (event.target === event.currentTarget && event.key === "Enter") {
+              onSelect();
+            }
+          },
+        } as const);
+  // Only an entry that opens its event looks like it does.
+  const clickable = onSelect !== null;
+  const label = entryLabel(entry.role, labels);
   // Below the open start of a cut text: the rest loading, or there to load.
   const rest =
     expanded && entry.text_length !== undefined && whole !== null ? (
-      <RestOfText length={entry.text_length} whole={whole} />
+      <RestOfText
+        length={entry.text_length}
+        whole={whole}
+        formatNumber={formatNumber}
+        labels={labels}
+      />
     ) : null;
 
   if (!prose) {
@@ -563,8 +694,11 @@ const EntryBlock = React.memo(function EntryBlock({
         <div
           {...selectable}
           className={cn(
-            "cursor-pointer rounded-lg border transition-colors outline-none",
-            expanded ? "bg-card" : "bg-muted/30 hover:bg-muted/60",
+            "rounded-lg border transition-colors outline-none",
+            clickable && "cursor-pointer",
+            expanded
+              ? "bg-card"
+              : cn("bg-muted/30", clickable && "hover:bg-muted/60"),
             ring,
           )}
         >
@@ -572,11 +706,7 @@ const EntryBlock = React.memo(function EntryBlock({
             <button
               type="button"
               aria-expanded={expanded}
-              aria-label={
-                expanded
-                  ? t("sessions.trajectory.showLess")
-                  : t("sessions.trajectory.showMore")
-              }
+              aria-label={expanded ? labels.showLess : labels.showMore}
               onClick={toggle}
               className="text-muted-foreground hover:text-foreground -m-1 rounded p-1"
             >
@@ -593,22 +723,27 @@ const EntryBlock = React.memo(function EntryBlock({
               </span>
             ) : null}
             <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[11px]">
-              {tool && !expanded ? <Summary text={text} ranges={matches?.text} /> : ""}
+              {tool && !expanded ? (
+                <Summary text={text} ranges={matches?.text} />
+              ) : (
+                ""
+              )}
             </span>
             <span className="text-muted-foreground shrink-0 tabular-nums">
-              {t("sessions.event.characters", {
-                count: formatNumber(entry.text_length ?? text.length),
-              })}
+              {labels.characters(
+                formatNumber(entry.text_length ?? text.length),
+              )}
             </span>
           </div>
           {expanded ? (
-            <div className="cursor-auto space-y-2 border-t p-2.5" onClick={stop}>
+            <div
+              className="cursor-auto space-y-2 border-t p-2.5"
+              onClick={stop}
+            >
               {tool ? (
                 <ContentBlock
                   label={
-                    entry.role === "tool_call"
-                      ? t("sessions.trajectory.input")
-                      : t("sessions.trajectory.output")
+                    entry.role === "tool_call" ? labels.input : labels.output
                   }
                   text={text}
                   ranges={matches?.text}
@@ -644,9 +779,7 @@ const EntryBlock = React.memo(function EntryBlock({
       />
     </div>
   ) : (
-    <div className="text-muted-foreground text-xs italic">
-      {t("sessions.event.noText")}
-    </div>
+    <div className="text-muted-foreground text-xs italic">{labels.noText}</div>
   );
   const more = long ? (
     <button
@@ -656,7 +789,7 @@ const EntryBlock = React.memo(function EntryBlock({
       className="text-muted-foreground hover:text-foreground mt-1 inline-flex items-center gap-0.5 text-xs"
     >
       <Chevron className="size-3.5" />
-      {expanded ? t("sessions.trajectory.showLess") : t("sessions.trajectory.showMore")}
+      {expanded ? labels.showLess : labels.showMore}
     </button>
   ) : null;
 
@@ -666,7 +799,8 @@ const EntryBlock = React.memo(function EntryBlock({
         <div
           {...selectable}
           className={cn(
-            "border-ring/20 bg-ring/[0.06] cursor-pointer rounded-lg border px-3.5 py-2.5 outline-none",
+            "border-ring/20 bg-ring/[0.06] rounded-lg border px-3.5 py-2.5 outline-none",
+            clickable && "cursor-pointer",
             ring,
           )}
         >
@@ -685,11 +819,14 @@ const EntryBlock = React.memo(function EntryBlock({
       <div
         {...selectable}
         className={cn(
-          "hover:bg-muted/40 cursor-pointer rounded-lg px-1 py-1 outline-none",
+          "rounded-lg px-1 py-1 outline-none",
+          clickable && "hover:bg-muted/40 cursor-pointer",
           ring,
         )}
       >
-        <div className="text-muted-foreground mb-1.5 text-xs font-medium">{label}</div>
+        <div className="text-muted-foreground mb-1.5 text-xs font-medium">
+          {label}
+        </div>
         {body}
         {rest}
         {more}
@@ -702,17 +839,26 @@ const EntryBlock = React.memo(function EntryBlock({
  * What follows the start of a text the preview cut short: the whole
  * conversation loading, why it could not load, or a control that loads it.
  */
-function RestOfText({ length, whole }: { length: number; whole: WholeText }) {
-  const { t, formatNumber } = useI18n();
+function RestOfText({
+  length,
+  whole,
+  formatNumber,
+  labels,
+}: {
+  length: number;
+  whole: WholeText;
+  formatNumber: (value: number) => string;
+  labels: SessionStreamsLabels;
+}) {
   if (whole.loading) {
     return (
       <p className="text-muted-foreground mt-1 text-xs">
-        {t("sessions.event.loading")}
+        {labels.loadingConversation}
       </p>
     );
   }
   if (whole.error !== null) {
-    return <LoadError error={whole.error} className="mt-1" />;
+    return <LoadError error={whole.error} className="mt-1" labels={labels} />;
   }
   return (
     <button
@@ -723,7 +869,7 @@ function RestOfText({ length, whole }: { length: number; whole: WholeText }) {
       }}
       className="text-muted-foreground hover:text-foreground mt-1 block text-xs"
     >
-      {t("sessions.event.showMore", { count: formatNumber(length) })}
+      {labels.showRest(formatNumber(length))}
     </button>
   );
 }
@@ -797,7 +943,8 @@ function SearchScrollBox({
     if (target) {
       const boxRect = box.getBoundingClientRect();
       const rect = target.getBoundingClientRect();
-      box.scrollTop += rect.top - boxRect.top - (box.clientHeight - rect.height) / 2;
+      box.scrollTop +=
+        rect.top - boxRect.top - (box.clientHeight - rect.height) / 2;
     }
   }, [text, ranges, active]);
   return (
@@ -825,35 +972,26 @@ function useHitToggle(
   return [chosen, () => setChosen((current) => !current)];
 }
 
-/** An entry's role in words; a role this page does not know shows as sent. */
-function entryLabel(role: string, t: Translate): string {
+/** An entry's role in words; a role the view does not know shows as sent. */
+function entryLabel(role: string, labels: SessionStreamsLabels): string {
   switch (role) {
     case "system":
-      return t("sessions.trajectory.system");
+      return labels.roleSystem;
     case "developer":
-      return t("sessions.trajectory.developer");
+      return labels.roleDeveloper;
     case "user":
-      return t("sessions.trajectory.user");
+      return labels.roleUser;
     case "assistant":
-      return t("sessions.trajectory.assistant");
+      return labels.roleAssistant;
     case "reasoning":
-      return t("sessions.trajectory.reasoning");
+      return labels.roleReasoning;
     case "tool_call":
-      return t("sessions.detail.toolCall");
+      return labels.roleToolCall;
     case "tool_result":
-      return t("sessions.detail.toolResult");
+      return labels.roleToolResult;
     case "unknown":
-      return t("sessions.event.roleUnknown");
+      return labels.roleUnknown;
     default:
       return role;
   }
-}
-
-/** Formats an instant as its time of day, with seconds. */
-function useFormatTime(): (value: string) => string {
-  const { locale } = useI18n();
-  return React.useMemo(() => {
-    const format = new Intl.DateTimeFormat(locale, { timeStyle: "medium" });
-    return (value: string) => format.format(new Date(value));
-  }, [locale]);
 }

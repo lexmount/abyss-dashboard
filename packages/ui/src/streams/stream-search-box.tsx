@@ -1,9 +1,24 @@
 import * as React from "react";
 import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
-import type { TextRange } from "@/api/usage";
-import { useI18n } from "@/hooks/use-i18n";
-import { highlightSegments } from "@/lib/stream-search";
-import { cn } from "@/lib/utils";
+import { cn } from "../utils";
+import type { StreamSearchBoxLabels } from "./labels";
+import { highlightSegments } from "./search";
+import type { TextRange } from "./types";
+
+export interface StreamSearchBoxProps {
+  query: string;
+  onQueryChange: (query: string) => void;
+  /** Shown instead of the position while the session's text is not searchable yet. */
+  status: string | null;
+  /** 1-based position of the match being viewed, or 0 for none. */
+  position: number;
+  total: number;
+  /** The search found more than it returned, so `total` is a lower bound. */
+  truncated: boolean;
+  onStep: (delta: number) => void;
+  formatNumber: (value: number) => string;
+  labels: StreamSearchBoxLabels;
+}
 
 /**
  * The session's search field, with the position of the match being viewed
@@ -18,19 +33,9 @@ export function StreamSearchBox({
   total,
   truncated,
   onStep,
-}: {
-  query: string;
-  onQueryChange: (query: string) => void;
-  /** Shown instead of the position while the session's text is not searchable yet. */
-  status: string | null;
-  /** 1-based position of the match being viewed, or 0 for none. */
-  position: number;
-  total: number;
-  /** The search found more than it returned, so `total` is a lower bound. */
-  truncated: boolean;
-  onStep: (delta: number) => void;
-}) {
-  const { t, formatNumber } = useI18n();
+  formatNumber,
+  labels,
+}: StreamSearchBoxProps) {
   const hasQuery = query.trim().length > 0;
   return (
     <div className="border-input focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 bg-card flex h-8 w-full items-center gap-1.5 rounded-md border pr-1 pl-2.5 shadow-xs transition-[color,box-shadow] focus-within:ring-[3px]">
@@ -38,8 +43,8 @@ export function StreamSearchBox({
       <input
         value={query}
         maxLength={256}
-        placeholder={t("sessions.streams.search")}
-        aria-label={t("sessions.streams.search")}
+        placeholder={labels.search}
+        aria-label={labels.search}
         className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
         onChange={(event) => onQueryChange(event.target.value)}
         onKeyDown={(event) => {
@@ -60,28 +65,28 @@ export function StreamSearchBox({
           >
             {status ??
               (total > 0
-                ? t("sessions.streams.searchPosition", {
-                    current: formatNumber(position),
-                    total: `${formatNumber(total)}${truncated ? "+" : ""}`,
-                  })
-                : t("sessions.streams.searchNoMatches"))}
+                ? labels.position(
+                    formatNumber(position),
+                    `${formatNumber(total)}${truncated ? "+" : ""}`,
+                  )
+                : labels.noMatches)}
           </span>
           <SearchIconButton
-            label={t("sessions.streams.searchPrevious")}
+            label={labels.previous}
             disabled={total === 0}
             onClick={() => onStep(-1)}
           >
             <ChevronUp className="size-3.5" />
           </SearchIconButton>
           <SearchIconButton
-            label={t("sessions.streams.searchNext")}
+            label={labels.next}
             disabled={total === 0}
             onClick={() => onStep(1)}
           >
             <ChevronDown className="size-3.5" />
           </SearchIconButton>
           <SearchIconButton
-            label={t("sessions.streams.searchClear")}
+            label={labels.clear}
             onClick={() => onQueryChange("")}
           >
             <X className="size-3.5" />
@@ -148,7 +153,9 @@ export function Highlighted({
             data-active-match={current ? "" : undefined}
             className={cn(
               "rounded-sm px-px",
-              current ? "bg-ring text-background" : "bg-ring/25 text-foreground",
+              current
+                ? "bg-ring text-background"
+                : "bg-ring/25 text-foreground",
             )}
           >
             {segment.text}
@@ -157,14 +164,4 @@ export function Highlighted({
       })}
     </>
   );
-}
-
-/** The value once it has stopped changing for `delayMs`. */
-export function useDebounced<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = React.useState(value);
-  React.useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [value, delayMs]);
-  return debounced;
 }

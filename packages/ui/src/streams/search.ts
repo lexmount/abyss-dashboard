@@ -4,14 +4,16 @@
  * occurrences in the page's order and marks them in the text the cards show.
  */
 
-import type { SessionTextSearchResponse, TextRange } from "@/api/usage";
+import type { SessionTextSearchResponse, TextRange } from "./types";
 
 /** Fields of an entry searched, in the order their occurrences are numbered. */
 export const searchableFields = ["name", "text"] as const;
 export type SearchableField = (typeof searchableFields)[number];
 
 /** Where the query is in one conversation entry, field by field. */
-export type EntryMatches = Readonly<Record<SearchableField, readonly TextRange[]>>;
+export type EntryMatches = Readonly<
+  Record<SearchableField, readonly TextRange[]>
+>;
 
 /** The entries of one event with the query in them, by position. */
 export type EventMatches = ReadonlyMap<number, EntryMatches>;
@@ -20,7 +22,9 @@ export type EventMatches = ReadonlyMap<number, EntryMatches>;
 export type SessionMatches = ReadonlyMap<string, EventMatches>;
 
 /** The ranges of a search's hits, by event and then entry. */
-export function sessionMatches(result: SessionTextSearchResponse): SessionMatches {
+export function sessionMatches(
+  result: SessionTextSearchResponse,
+): SessionMatches {
   const ranges = textRanges(result);
   const events = new Map<
     string,
@@ -46,7 +50,9 @@ export function sessionMatches(result: SessionTextSearchResponse): SessionMatche
   return events;
 }
 
-function textRanges(result: SessionTextSearchResponse): Map<number, TextRange[]> {
+function textRanges(
+  result: SessionTextSearchResponse,
+): Map<number, TextRange[]> {
   return new Map(result.texts.map((text) => [text.id, text.ranges]));
 }
 
@@ -194,7 +200,10 @@ export function collapseWhitespace(
   maxLength: number,
 ): { text: string; ranges: TextRange[] | undefined } {
   if (!ranges) {
-    return { text: text.replace(/\s+/g, " ").trim().slice(0, maxLength), ranges };
+    return {
+      text: text.replace(/\s+/g, " ").trim().slice(0, maxLength),
+      ranges,
+    };
   }
   // Where in the text each code unit of the result comes from.
   let collapsed = "";
@@ -215,7 +224,10 @@ export function collapseWhitespace(
   copy(text.length);
   const start = collapsed.startsWith(" ") ? 1 : 0;
   const end = Math.min(
-    Math.max(start, collapsed.endsWith(" ") ? collapsed.length - 1 : collapsed.length),
+    Math.max(
+      start,
+      collapsed.endsWith(" ") ? collapsed.length - 1 : collapsed.length,
+    ),
     start + maxLength,
   );
   const at = (source: number) =>
