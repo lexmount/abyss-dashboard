@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  fetchDayTokenUsage,
+  fetchDailyTokenUsage,
   fetchRawEvents,
   fetchEventLocation,
   fetchUsageEvent,
@@ -50,41 +50,27 @@ describe("usage API", () => {
     expect(url.searchParams.get("limit")).toBe("500");
   });
 
-  it("sums one local day's usage from its own bounded summary", async () => {
+  it("asks for token usage by day in the given time zone", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       void input;
-      const row = {
-        input_tokens: 1,
-        output_tokens: 2,
-        cache_read_tokens: 3,
-        cache_write_tokens: 4,
-        total_tokens: 10,
-      };
-      return Promise.resolve(jsonResponse({ rows: [row, row], next_page_token: null }));
+      return Promise.resolve(jsonResponse({ rows: [], next_page_token: null }));
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const row = await fetchDayTokenUsage(
-      { agentName: "codex" },
-      { day: "2026-07-02", from: "2026-07-02T07:00:00Z", to: "2026-07-02T16:00:00Z" },
+    await fetchDailyTokenUsage(
+      { agentName: "codex", from: "2026-06-26T16:00:00Z", to: "2026-07-02T08:00:00Z" },
+      "Asia/Shanghai",
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const url = requestUrl(fetchMock.mock.calls[0]?.[0]);
     expect(url.pathname).toBe("/api/v1/agent-usage/summary");
-    expect(url.searchParams.get("group_by")).toBe("event_type");
+    expect(url.searchParams.get("group_by")).toBe("day");
+    expect(url.searchParams.get("tz")).toBe("Asia/Shanghai");
     expect(url.searchParams.get("fields")).toBe("token_usage");
     expect(url.searchParams.get("agent_name")).toBe("codex");
-    expect(url.searchParams.get("from")).toBe("2026-07-02T07:00:00Z");
-    expect(url.searchParams.get("to")).toBe("2026-07-02T16:00:00Z");
-    expect(row).toEqual({
-      day: "2026-07-02",
-      input_tokens: 2,
-      output_tokens: 4,
-      cache_read_tokens: 6,
-      cache_write_tokens: 8,
-      total_tokens: 20,
-    });
+    expect(url.searchParams.get("from")).toBe("2026-06-26T16:00:00Z");
+    expect(url.searchParams.get("to")).toBe("2026-07-02T08:00:00Z");
   });
 
   it("requests raw events without product scope parameters", async () => {
