@@ -405,12 +405,11 @@ export interface ConversationEntry {
   text_length?: number;
 }
 
-/** One segment's exchanges from the asked one on. */
+/** One segment's exchanges from the asked one to its end, all at once. */
 export interface SegmentResponse {
   session_pk: string;
   segment: string;
   exchanges: SegmentExchange[];
-  next: string | null;
 }
 
 export interface SegmentExchange {
@@ -443,12 +442,9 @@ export function fetchSessionSegment(
   sessionPk: string,
   head: string,
   window: PreviewWindow,
-  after?: string,
 ): Promise<SegmentResponse> {
-  const params = windowParams(window);
-  if (after !== undefined) params.set("after", after);
   return fetchJson<SegmentResponse>(
-    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/segments/${encodeURIComponent(head)}?${params}`,
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/segments/${encodeURIComponent(head)}?${windowParams(window)}`,
   );
 }
 

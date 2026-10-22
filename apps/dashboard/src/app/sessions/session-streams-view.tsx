@@ -1,5 +1,5 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { Button, Card, CardContent } from "@lexmount.com/abyss-ui";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent } from "@lexmount.com/abyss-ui";
 import * as React from "react";
 import {
   fetchSessionSegment,
@@ -86,7 +86,7 @@ export function SessionStreamsView({
   );
 }
 
-/** The exchanges of one segment, a page at a time. */
+/** The exchanges of one segment, all at once. */
 function SegmentCards({
   sessionPk,
   head,
@@ -103,14 +103,11 @@ function SegmentCards({
   onSelectEvent: (eventPk: string) => void;
 }) {
   const { t } = useI18n();
-  const query = useInfiniteQuery({
+  const query = useQuery({
     queryKey: ["session-segment", sessionPk, head],
-    queryFn: ({ pageParam }) =>
-      fetchSessionSegment(sessionPk, head, CARD_WINDOW, pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page) => page.next ?? undefined,
+    queryFn: () => fetchSessionSegment(sessionPk, head, CARD_WINDOW),
   });
-  const exchanges = query.data?.pages.flatMap((page) => page.exchanges) ?? [];
+  const exchanges = query.data?.exchanges ?? [];
 
   if (query.isError) {
     return (
@@ -134,7 +131,7 @@ function SegmentCards({
         <section key={exchange.id} className="space-y-2">
           <ExchangeLine
             exchange={exchange}
-            segment={query.data?.pages[0]?.segment ?? head}
+            segment={query.data?.segment ?? head}
             ordinalOf={ordinalOf}
             onSelectSegment={onSelectSegment}
           />
@@ -153,16 +150,6 @@ function SegmentCards({
           })}
         </section>
       ))}
-      {query.hasNextPage ? (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={query.isFetchingNextPage}
-          onClick={() => void query.fetchNextPage()}
-        >
-          {t("sessions.streams.loadMore")}
-        </Button>
-      ) : null}
     </div>
   );
 }
