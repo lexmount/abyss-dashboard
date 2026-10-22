@@ -195,46 +195,19 @@ export function fetchUsageSummary(
   return fetchJson<SummaryResponse>(`/api/v1/agent-usage/summary?${params}`);
 }
 
-/** One day of the chart, bounded in the viewer's own time zone. */
-export interface UsageDayWindow {
-  /** Local calendar day, YYYY-MM-DD. */
-  day: string;
-  from: string;
-  to: string;
-}
+/** The viewer's IANA time zone, whose calendar days usage charts follow. */
+export const viewerTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-/**
- * Token usage of one local day. The backend buckets days in UTC, so each local
- * day is asked for on its own and its rows (one per event type) are summed.
- */
-export async function fetchDayTokenUsage(
+/** Token usage of each calendar day in `timeZone` that has events. */
+export function fetchDailyTokenUsage(
   query: UsageQuery,
-  { day, from, to }: UsageDayWindow,
-): Promise<DailyTokenUsageRow> {
-  const params = usageParams({ ...query, from, to });
-  params.set("group_by", "event_type");
+  timeZone: string,
+): Promise<DailyTokenUsageResponse> {
+  const params = usageParams(query);
+  params.set("group_by", "day");
+  params.set("tz", timeZone);
   params.set("fields", "token_usage");
-  const response = await fetchJson<DailyTokenUsageResponse>(
-    `/api/v1/agent-usage/summary?${params}`,
-  );
-  return response.rows.reduce<DailyTokenUsageRow>(
-    (total, row) => ({
-      day,
-      input_tokens: total.input_tokens + row.input_tokens,
-      output_tokens: total.output_tokens + row.output_tokens,
-      cache_read_tokens: total.cache_read_tokens + row.cache_read_tokens,
-      cache_write_tokens: total.cache_write_tokens + row.cache_write_tokens,
-      total_tokens: total.total_tokens + row.total_tokens,
-    }),
-    {
-      day,
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_read_tokens: 0,
-      cache_write_tokens: 0,
-      total_tokens: 0,
-    },
-  );
+  return fetchJson<DailyTokenUsageResponse>(`/api/v1/agent-usage/summary?${params}`);
 }
 
 /**
