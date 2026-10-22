@@ -17,6 +17,7 @@ import {
 } from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
+import { entryLabelText } from "@/lib/entry-label";
 
 interface SessionSearchResultsProps {
   response: SessionSearchResponse;
@@ -132,6 +133,7 @@ function SessionResultCard({
   query: string;
 }) {
   const { t, formatDateTime, formatNumber } = useI18n();
+  const title = entryLabelText(result.title) ?? result.session_id;
   return (
     <Card className="transition-colors hover:border-primary/40">
       {/* The header opens the session; each hit opens it at the hit's event. */}
@@ -142,10 +144,12 @@ function SessionResultCard({
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 space-y-1">
-              <CardTitle className="truncate text-base">
+              <CardTitle className="truncate text-base" title={title}>
                 {agentDisplayName(result.agent_name)}
                 <span className="text-muted-foreground font-normal"> / </span>
-                <span className="font-mono text-sm">{result.session_id}</span>
+                <span className={result.title ? "font-medium" : "font-mono text-sm"}>
+                  {title}
+                </span>
               </CardTitle>
               <CardDescription className="flex flex-wrap items-center gap-x-4 gap-y-1">
                 <span className="inline-flex items-center gap-1.5">
@@ -201,7 +205,11 @@ function SessionResultCard({
                 <Badge variant="outline">{t("sessions.search.context")}</Badge>
               )}
               <span className="text-sm font-medium">
-                {t("sessions.detail.turn", { index: match.turn_index })}
+                {match.location
+                  ? t("sessions.event.segmentNumber", {
+                      number: formatNumber(match.location.segment_index),
+                    })
+                  : t("sessions.event.locate")}
               </span>
               <span className="text-muted-foreground text-xs">
                 {formatDateTime(match.observed_at)}

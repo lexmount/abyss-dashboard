@@ -111,7 +111,15 @@ function listItem(sessionId: string, title: string | null, purpose: string | nul
     turns: 1,
     events: 2,
     total_tokens: 100,
-    title,
+    title:
+      title === null
+        ? null
+        : {
+            event_pk: `${sessionId}-request`,
+            entry_index: 0,
+            text: title,
+            length: title.length,
+          },
     purpose,
   };
 }

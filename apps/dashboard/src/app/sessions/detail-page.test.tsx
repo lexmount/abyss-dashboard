@@ -17,6 +17,7 @@ import { I18nProvider } from "@/contexts/i18n-context";
 import SessionDetailPage from "./detail-page";
 
 const mocks = vi.hoisted(() => ({
+  fetchEventLocation: vi.fn(),
   fetchSessionHeader: vi.fn(),
   fetchSessionStreams: vi.fn(),
   fetchSessionSegment: vi.fn(),
@@ -99,6 +100,14 @@ describe("SessionDetailPage search", () => {
   beforeEach(() => {
     window.localStorage.setItem("abyss-ui-language", "en");
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    mocks.fetchEventLocation.mockImplementation((eventPk: string) =>
+      Promise.resolve({
+        session_pk: "s-1",
+        event_pk: eventPk,
+        segment: eventPk.endsWith("2") ? "b" : "a",
+        exchange: eventPk.endsWith("2") ? "b" : "a",
+      }),
+    );
     mocks.fetchSessionHeader.mockResolvedValue(header());
     mocks.fetchSessionStreams.mockResolvedValue(streams());
     mocks.fetchSessionSegment.mockImplementation((_session: string, head: string) =>
@@ -121,6 +130,9 @@ describe("SessionDetailPage search", () => {
 
   it("steps through the backend's hits in page order, loading what the preview leaves out", async () => {
     renderPage("/sessions/s-1");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "First user request" }),
+    ).toBeInTheDocument();
     const user = userEvent.setup();
     await user.type(
       await screen.findByRole("textbox", { name: "Search this session" }),
@@ -139,7 +151,7 @@ describe("SessionDetailPage search", () => {
       "1",
     );
     // Each segment counts its hits; the entries left out say they hold one.
-    const timeline = screen.getByRole("listbox", { name: "Segment timeline" });
+    const timeline = screen.getByRole("listbox", { name: "Turn timeline" });
     expect(within(timeline).getByText("2 hits")).toBeInTheDocument();
     expect(within(timeline).getByText("1 hits")).toBeInTheDocument();
     expect(
@@ -169,14 +181,21 @@ describe("SessionDetailPage search", () => {
     await waitFor(() => expect(active()).toHaveTextContent("timeout"));
     expect(screen.getByTestId("location")).toHaveTextContent("segment=b");
     expect(active()?.closest("article")).toHaveAttribute("data-event-id", "r2");
+    expect(
+      screen.getByRole("heading", { level: 1, name: "First user request" }),
+    ).toBeInTheDocument();
   });
 
   it("opens a search carried over on its event's segment, without inspecting it", async () => {
+    mocks.fetchSessionHeader.mockResolvedValue({ ...header(), title: null });
     renderPage("/sessions/s-1?event=r2&q=timeout");
 
     expect(await screen.findByText("3 / 3")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "session-1" }),
+    ).toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.getByTestId("location")).toHaveTextContent("?q=timeout&segment=b"),
+      expect(screen.getByTestId("location")).toHaveTextContent("?event=r2&q=timeout"),
     );
     await waitFor(() =>
       expect(
@@ -184,6 +203,80 @@ describe("SessionDetailPage search", () => {
       ).toHaveAttribute("data-event-id", "r2"),
     );
     expect(mocks.fetchUsageEvent).not.toHaveBeenCalled();
+  });
+  it("locates an event without a search and keeps its stable URL", async () => {
+    renderPage("/sessions/s-1?event=s2");
+
+    await waitFor(() =>
+      expect(document.querySelector('article[data-event-id="s2"]')).toHaveAttribute(
+        "data-selected",
+        "true",
+      ),
+    );
+    expect(mocks.fetchEventLocation).toHaveBeenCalledWith("s2");
+    expect(mocks.fetchUsageEvent).not.toHaveBeenCalled();
+    expect(mocks.searchWithinSession).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location")).toHaveTextContent("?event=s2");
+    await waitFor(() => expect(window.scrollTo).toHaveBeenCalled());
+  });
+
+  it("resolves an event's new segment even when its link carries the old segment", async () => {
+    renderPage("/sessions/s-1?segment=a&event=r2");
+
+    await waitFor(() =>
+      expect(document.querySelector('article[data-event-id="r2"]')).toHaveAttribute(
+        "data-selected",
+        "true",
+      ),
+    );
+    const timeline = screen.getByRole("listbox", { name: "Turn timeline" });
+    expect(within(timeline).getAllByRole("option")[1]).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("event=r2");
+  });
+
+  it("keeps event location usable when the carried search has no matching hits", async () => {
+    mocks.searchWithinSession.mockResolvedValue({ ...search, hits: [], texts: [] });
+    renderPage("/sessions/s-1?event=r2&q=absent");
+
+    await waitFor(() =>
+      expect(document.querySelector('article[data-event-id="r2"]')).toHaveAttribute(
+        "data-selected",
+        "true",
+      ),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("?event=r2&q=absent");
+  });
+
+  it("clears the event anchor on manual segment navigation", async () => {
+    renderPage("/sessions/s-1?event=r2");
+    await waitFor(() =>
+      expect(document.querySelector('article[data-event-id="r2"]')).toBeInTheDocument(),
+    );
+    const timeline = screen.getByRole("listbox", { name: "Turn timeline" });
+    await userEvent.click(within(timeline).getAllByRole("option")[0]);
+
+    await waitFor(() =>
+      expect(document.querySelector('article[data-event-id="r1"]')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("?segment=a");
+    expect(screen.getByTestId("location")).not.toHaveTextContent("event=");
+  });
+
+  it("opens an inspector without changing the event anchor", async () => {
+    renderPage("/sessions/s-1?event=s2");
+    await waitFor(() =>
+      expect(document.querySelector('article[data-event-id="s2"]')).toBeInTheDocument(),
+    );
+    const card = document.querySelector('article[data-event-id="s2"]') as HTMLElement;
+    await userEvent.click(within(card).getByRole("button", { name: /Response/ }));
+    await waitFor(() => expect(mocks.fetchUsageEvent).toHaveBeenCalledWith("s2"));
+    expect(screen.getByTestId("location")).toHaveTextContent("?event=s2&inspect=s2");
+    await userEvent.click(screen.getByRole("button", { name: "Close raw event" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("?event=s2");
+    expect(screen.getByTestId("location")).not.toHaveTextContent("inspect=");
   });
 });
 
@@ -230,7 +323,12 @@ function header(): SessionHeaderResponse {
   return {
     session_pk: "s-1",
     session_id: "session-1",
-    title: null,
+    title: {
+      event_pk: "r1",
+      entry_index: 1,
+      text: "First user request",
+      length: "First user request".length,
+    },
     agents: [{ name: "claude-code", version: null }],
     start: "2026-10-20T01:00:00Z",
     end: "2026-10-20T01:05:00Z",

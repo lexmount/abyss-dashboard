@@ -128,7 +128,7 @@ describe("SessionsPage", () => {
       "/sessions/019fcfff-ba46-7340-bd15-600791fe583f?q=timeout",
     );
     // A hit opens the session at its own event.
-    const hit = screen.getByRole("link", { name: /Turn 2/ });
+    const [hit] = eventLinks();
     expect(hit).toHaveAttribute(
       "href",
       "/sessions/019fcfff-ba46-7340-bd15-600791fe583f?event=event-1&q=timeout",
@@ -167,7 +167,7 @@ describe("SessionsPage", () => {
     renderPage("/sessions?q=timeout");
 
     expect(await screen.findByText("3 matching event(s), 1 new")).toBeInTheDocument();
-    const hits = screen.getAllByRole("link", { name: /Turn 2/ });
+    const hits = eventLinks();
     expect(hits.map((hit) => hit.getAttribute("href"))).toEqual([
       "/sessions/019fcfff-ba46-7340-bd15-600791fe583f?event=event-1&q=timeout",
       "/sessions/019fcfff-ba46-7340-bd15-600791fe583f?event=event-2&q=timeout",
@@ -249,6 +249,13 @@ describe("session search URL parameters", () => {
   });
 });
 
+/** The result links that open a session at one of its events. */
+function eventLinks() {
+  return screen
+    .getAllByRole("link")
+    .filter((link) => link.getAttribute("href")?.includes("event="));
+}
+
 function renderPage(initialEntry: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -277,6 +284,7 @@ function searchResponse(): SessionSearchResponse {
       {
         session_pk: "019fcfff-ba46-7340-bd15-600791fe583f",
         session_id: "session-provider-id",
+        title: null,
         agent_name: "codex",
         agent_version: "0.12.0",
         host_name: "alice-mbp",
@@ -290,8 +298,6 @@ function searchResponse(): SessionSearchResponse {
         matches: [
           {
             event_pk: "event-1",
-            turn_pk: "turn-1",
-            turn_index: 2,
             event_type: "response",
             llm_provider: "openai",
             llm_model: "gpt-5",
@@ -333,7 +339,12 @@ function listResponse() {
         turns: 3,
         events: 12,
         total_tokens: 45000,
-        title: "Draw a pelican",
+        title: {
+          event_pk: "request-1",
+          entry_index: 0,
+          text: "Draw a pelican",
+          length: "Draw a pelican".length,
+        },
         purpose: "title_generation",
       },
     ],

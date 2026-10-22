@@ -1041,13 +1041,11 @@ export function RawEventsTable({
           </div>
         ) : (
           <Table className="w-full min-w-[1100px] table-fixed">
-            {/* When, then the session and its turn together, then model and
-                agent; token count, event type, and device context last. */}
+            {/* Session and segment navigation sit together; the segment link
+                resolves the stable event anchor when it opens. */}
             <colgroup>
               <col className="w-[15%]" />
               <col className="w-[10%]" />
-              {/* Fits the whole turn label, up to "ターン 99999" with its
-                  arrow, even at the table's 1100px minimum width. */}
               <col className="w-[13%]" />
               <col className="w-[15%]" />
               <col className="w-[12%]" />
@@ -1059,7 +1057,7 @@ export function RawEventsTable({
               <TableRow>
                 <TableHead>{t("table.observed")}</TableHead>
                 <TableHead>{t("common.session")}</TableHead>
-                <TableHead>{t("dashboard.recent.turn")}</TableHead>
+                <TableHead>{t("sessions.event.segment")}</TableHead>
                 <TableHead>{t("common.model")}</TableHead>
                 <TableHead>{t("common.agent")}</TableHead>
                 <TableHead className="leading-tight">
@@ -1084,7 +1082,8 @@ export function RawEventsTable({
                 </TableRow>
               ) : (
                 pagination.pageRows.map((event) => {
-                  const sessionDetailUrl = `/sessions/${event.session_pk}`;
+                  const sessionDetailUrl = `/sessions/${encodeURIComponent(event.session_pk)}`;
+                  const eventDetailUrl = `${sessionDetailUrl}?event=${encodeURIComponent(event.id)}`;
 
                   return (
                     <TableRow key={event.id}>
@@ -1112,14 +1111,13 @@ export function RawEventsTable({
                           size="sm"
                           className="h-7 max-w-full px-2 text-xs"
                         >
-                          <Link
-                            to={`${sessionDetailUrl}?turn=${event.turn_index}`}
-                            title={t("dashboard.recent.openTurnTitle")}
-                          >
+                          <Link to={eventDetailUrl} title={t("sessions.event.locate")}>
                             <span className="truncate">
-                              {t("dashboard.recent.openTurn", {
-                                turn: event.turn_index,
-                              })}
+                              {event.location
+                                ? t("sessions.event.segmentNumber", {
+                                    number: formatNumber(event.location.segment_index),
+                                  })
+                                : t("sessions.event.locate")}
                             </span>
                             <ArrowRight className="size-3.5 shrink-0" />
                           </Link>

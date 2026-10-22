@@ -45,20 +45,25 @@ describe("RawEventsTable", () => {
     vi.restoreAllMocks();
   });
 
-  it("links each event to its turn in the session's merged view", () => {
+  it("links each event to its session and shows the turn column", () => {
     renderRawEventsTable([
       {
         ...baseUsageEvent,
         session_pk: "session-response-pk",
-        turn_index: 7,
       },
     ]);
 
     expect(screen.getByRole("columnheader", { name: "Turn" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Turn 7/ })).toHaveAttribute(
-      "href",
-      "/sessions/session-response-pk?turn=7",
-    );
+    expect(screen.queryByText(/Turn 7/)).toBeNull();
+    expect(
+      screen
+        .getAllByRole("link")
+        .some(
+          (link) =>
+            link.getAttribute("href") ===
+            "/sessions/session-response-pk?event=event-request",
+        ),
+    ).toBe(true);
   });
 
   it("renders agent and device context columns without crowding the session cell", () => {
@@ -556,11 +561,9 @@ const baseUsageEvent: UsageEvent = {
   host_name: "alice-mbp",
   platform: "macos",
   session_pk: "session-pk",
-  turn_pk: "turn-pk",
   agent_name: "codex",
   agent_version: null,
   session_id: "session-id",
-  turn_index: 1,
   llm_provider: "openai",
   llm_model: "gpt-5",
   event_type: "request",
