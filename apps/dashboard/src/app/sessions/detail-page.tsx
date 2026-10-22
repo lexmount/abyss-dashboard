@@ -1,14 +1,26 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  exchangePreviewWindow,
+  landingOccurrence,
+  matchesBySegment,
   SessionEventInspector,
+  sessionMatches,
+  SessionStreamsView,
+  StreamSearchBox,
+  streamOccurrences,
+  type SegmentExchangesState,
   type SessionEventDetailState,
+  type SessionSearchView,
+  type StreamOccurrence,
 } from "@lexmount.com/abyss-ui";
 import { ArrowLeft, Bot, Check, Copy } from "lucide-react";
 import * as React from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
+  fetchEventConversation,
   fetchEventLocation,
   fetchSessionHeader,
+  fetchSessionSegment,
   fetchSessionStreams,
   fetchUsageEvent,
   searchWithinSession,
@@ -25,16 +37,8 @@ import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 import { eventInspectorLabels } from "@/lib/inspector-labels";
 import { entryLabelText } from "@/lib/entry-label";
-import {
-  landingOccurrence,
-  matchesBySegment,
-  sessionMatches,
-  streamOccurrences,
-  type StreamOccurrence,
-} from "@/lib/stream-search";
+import { sessionStreamsLabels, streamSearchBoxLabels } from "@/lib/stream-labels";
 import { cn } from "@/lib/utils";
-import { SessionStreamsView, type SessionSearchView } from "./session-streams-view";
-import { StreamSearchBox, useDebounced } from "./stream-search-box";
 
 /** Stable anchor, resolved to its current segment when the page opens. */
 const eventSearchParam = "event";
@@ -44,6 +48,12 @@ const segmentSearchParam = "segment";
 /** Search text, carried over from a session search and kept as it changes. */
 const querySearchParam = "q";
 const searchDebounceMs = 150;
+/**
+ * How long a conversation a card loaded in full stays cached. Request bodies
+ * run to hundreds of kilobytes, so a session read end to end must not keep
+ * all of them in memory.
+ */
+const conversationCacheMs = 60_000;
 
 export default function SessionDetailPage() {
   const { t, locale, formatDateTime, formatNumber } = useI18n();
@@ -119,6 +129,35 @@ export default function SessionDetailPage() {
   );
   const shownSegment =
     eventLocation?.segment ?? segment ?? streamsQuery.data?.segments[0]?.head ?? null;
+  const segmentQuery = useQuery({
+    queryKey: ["session-segment", sessionPk, shownSegment],
+    queryFn: () =>
+      fetchSessionSegment(sessionPk, shownSegment ?? "", exchangePreviewWindow),
+    enabled: streamsQuery.data !== undefined && !locatingEvent && shownSegment !== null,
+  });
+  const segmentExchanges: SegmentExchangesState = segmentQuery.isError
+    ? { status: "error", message: segmentQuery.error.message }
+    : segmentQuery.data
+      ? {
+          status: "ready",
+          segment: segmentQuery.data.segment,
+          exchanges: segmentQuery.data.exchanges,
+        }
+      : { status: "loading" };
+  const queryClient = useQueryClient();
+  const loadConversation = React.useCallback(
+    (eventPk: string) =>
+      queryClient.fetchQuery({
+        queryKey: ["event-conversation", eventPk],
+        queryFn: () => fetchEventConversation(eventPk),
+        // Persisted events never change.
+        staleTime: Infinity,
+        gcTime: conversationCacheMs,
+      }),
+    [queryClient],
+  );
+  const streamsLabels = React.useMemo(() => sessionStreamsLabels(t), [t]);
+  const searchLabels = React.useMemo(() => streamSearchBoxLabels(t), [t]);
   const search = useStreamSearch({
     sessionPk,
     streams: streamsQuery.data,
@@ -216,12 +255,14 @@ export default function SessionDetailPage() {
                 total={search.total}
                 truncated={search.truncated}
                 onStep={search.step}
+                formatNumber={formatNumber}
+                labels={searchLabels}
               />
             </div>
             <SessionStreamsView
-              sessionPk={sessionPk}
-              streams={streamsQuery.data}
+              segments={streamsQuery.data.segments}
               segment={shownSegment}
+              exchanges={segmentExchanges}
               anchoredEventId={eventLocation?.event_pk ?? null}
               anchoredExchangeId={eventLocation?.exchange ?? null}
               selectedEventId={inspectedEventId}
@@ -232,10 +273,14 @@ export default function SessionDetailPage() {
                   [inspectSearchParam]: null,
                 })
               }
-              onSelectEvent={(eventPk) =>
+              onOpenEvent={(eventPk) =>
                 updateParams({ [inspectSearchParam]: eventPk }, { replace: true })
               }
+              loadConversation={loadConversation}
               formatTime={formatTime}
+              formatDateTime={formatDateTime}
+              formatNumber={formatNumber}
+              labels={streamsLabels}
               search={search.view}
               inspector={
                 inspectedEventId === null ? null : (
@@ -459,6 +504,16 @@ function useStreamSearch({
     step,
     view,
   };
+}
+
+/** The value once it has stopped changing for `delayMs`. */
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = React.useState(value);
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
 }
 
 function SessionIdentity({ header }: { header: SessionHeaderResponse | undefined }) {

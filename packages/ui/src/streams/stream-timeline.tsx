@@ -1,7 +1,32 @@
 import * as React from "react";
-import { useI18n } from "@/hooks/use-i18n";
-import { laneColor, type StreamLayout, type TimelineRow } from "@/lib/streams";
-import { cn } from "@/lib/utils";
+import { cn } from "../utils";
+import type { SessionStreamsLabels } from "./labels";
+import { laneColor, type StreamLayout, type TimelineRow } from "./layout";
+
+/** The labels the timeline uses. */
+export type StreamTimelineLabels = Pick<
+  SessionStreamsLabels,
+  | "timeline"
+  | "segmentNumber"
+  | "segmentExchanges"
+  | "segmentMatches"
+  | "noUserInput"
+  | "continuesSegment"
+>;
+
+export interface StreamTimelineProps {
+  layout: StreamLayout;
+  /** Head of the segment shown. */
+  selected: string | null;
+  onSelect: (head: string) => void;
+  formatTime: (value: string) => string;
+  formatDateTime: (value: string) => string;
+  formatNumber: (value: number) => string;
+  labels: StreamTimelineLabels;
+  /** Search occurrences per segment head while searching, else null. */
+  matches?: ReadonlyMap<string, number> | null;
+  className?: string;
+}
 
 /** Distance between two lanes. */
 const lanePx = 14;
@@ -22,19 +47,12 @@ export function StreamTimeline({
   selected,
   onSelect,
   formatTime,
+  formatDateTime,
+  formatNumber,
+  labels,
   matches = null,
   className,
-}: {
-  layout: StreamLayout;
-  /** Head of the segment shown. */
-  selected: string | null;
-  onSelect: (head: string) => void;
-  formatTime: (value: string) => string;
-  /** Search occurrences per segment head while searching, else null. */
-  matches?: ReadonlyMap<string, number> | null;
-  className?: string;
-}) {
-  const { t, formatDateTime, formatNumber } = useI18n();
+}: StreamTimelineProps) {
   const { rows } = layout;
   const gutter = React.useMemo(() => gutterOf(layout.lanes), [layout.lanes]);
   const position = Math.max(
@@ -54,7 +72,8 @@ export function StreamTimeline({
     if (!box || !node) {
       return;
     }
-    const top = node.getBoundingClientRect().top - box.getBoundingClientRect().top;
+    const top =
+      node.getBoundingClientRect().top - box.getBoundingClientRect().top;
     const bottom = top + node.offsetHeight;
     if (top < 0) {
       box.scrollTop += top - 8;
@@ -114,7 +133,7 @@ export function StreamTimeline({
     <div
       ref={boxRef}
       role="listbox"
-      aria-label={t("sessions.streams.list")}
+      aria-label={labels.timeline}
       tabIndex={0}
       onKeyDown={onKeyDown}
       className={cn(
@@ -145,11 +164,14 @@ export function StreamTimeline({
                   ordinalOf={layout.ordinalOf}
                   selected={isSelected}
                   matchCount={
-                    matches === null ? null : (matches.get(row.segment.head) ?? 0)
+                    matches === null
+                      ? null
+                      : (matches.get(row.segment.head) ?? 0)
                   }
                   formatTime={formatTime}
                   formatDateTime={formatDateTime}
                   formatNumber={formatNumber}
+                  labels={labels}
                 />
               </button>
             </li>
@@ -178,6 +200,7 @@ function TimelineRowContent({
   formatTime,
   formatDateTime,
   formatNumber,
+  labels,
 }: {
   row: TimelineRow;
   ordinalOf: ReadonlyMap<string, number>;
@@ -187,17 +210,21 @@ function TimelineRowContent({
   formatTime: (value: string) => string;
   formatDateTime: (value: string) => string;
   formatNumber: (value: number) => string;
+  labels: StreamTimelineLabels;
 }) {
-  const { t } = useI18n();
   const { segment } = row;
-  const parent = segment.parent === null ? undefined : ordinalOf.get(segment.parent);
+  const parent =
+    segment.parent === null ? undefined : ordinalOf.get(segment.parent);
   return (
     <>
       <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
-        <span className={cn("font-medium whitespace-nowrap", selected && "text-ring")}>
-          {t("sessions.event.segmentNumber", {
-            number: formatNumber(row.ordinal + 1),
-          })}
+        <span
+          className={cn(
+            "font-medium whitespace-nowrap",
+            selected && "text-ring",
+          )}
+        >
+          {labels.segmentNumber(formatNumber(row.ordinal + 1))}
         </span>
         <span
           className="text-muted-foreground whitespace-nowrap tabular-nums"
@@ -208,15 +235,13 @@ function TimelineRowContent({
         <span className="ml-auto flex flex-wrap justify-end gap-1">
           {matchCount !== null && matchCount > 0 ? (
             <Pill className="bg-ring/15 text-ring font-medium">
-              {t("sessions.streams.searchMatches", { count: formatNumber(matchCount) })}
+              {labels.segmentMatches(formatNumber(matchCount))}
             </Pill>
           ) : null}
           {/* While searching, the hits take the exchange count's place. */}
           {matchCount === null ? (
             <Pill>
-              {t("sessions.streams.exchanges", {
-                count: formatNumber(segment.exchange_count),
-              })}
+              {labels.segmentExchanges(formatNumber(segment.exchange_count))}
             </Pill>
           ) : null}
         </span>
@@ -233,8 +258,8 @@ function TimelineRowContent({
       ) : (
         <span className="text-muted-foreground mt-0.5 block text-xs">
           {parent === undefined
-            ? t("sessions.streams.noUserInput")
-            : t("sessions.streams.continuesSegment", { number: parent + 1 })}
+            ? labels.noUserInput
+            : labels.continuesSegment(parent + 1)}
         </span>
       )}
     </>
