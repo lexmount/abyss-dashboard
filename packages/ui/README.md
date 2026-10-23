@@ -45,6 +45,19 @@ application-specific styles:
 The component stylesheet is precompiled, so consuming applications do not need
 to scan this package's source files for Tailwind class names.
 
+## Usage comparison
+
+`UsageComparisonChart` and `UsageActivityHeatmap` provide the
+shared comparison layout. Applications supply selections, aggregated rows,
+filter options, translated labels, locale, loading state, and callbacks.
+`comparisonBuckets` and `activityBuckets` create local-time boundaries,
+including daylight-saving changes. The heatmap shows daily total tokens over
+the latest 365 days; chart filters and heatmap filters are independent.
+
+The application owns the authenticated comparison request. Comparison rows
+contain the bucket start in epoch milliseconds, the dimension value, total
+tokens, and request count. No event content is needed by these views.
+
 ## Release
 
 The package is published publicly under the `lexmount.com` npm organization at

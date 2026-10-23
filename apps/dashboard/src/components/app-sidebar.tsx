@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { LayoutDashboard, TerminalSquare } from "lucide-react";
+import { ChartNoAxesCombined, LayoutDashboard, TerminalSquare } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   Sidebar,
@@ -29,6 +29,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           icon: LayoutDashboard,
         },
         {
+          title: t("comparison.tab"),
+          url: "/comparison",
+          icon: ChartNoAxesCombined,
+        },
+        {
           title: t("nav.sessions"),
           url: "/sessions",
           icon: TerminalSquare,
@@ -48,8 +53,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <img src={abyssIconUrl} alt="" className="size-full object-contain" />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">Abyss</span>
-                  <span className="truncate text-xs">{t("nav.agentUsageConsole")}</span>
+                  <span className="truncate font-medium">{t("nav.consoleTitle")}</span>
                 </div>
               </Link>
             </SidebarMenuButton>
