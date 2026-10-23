@@ -28,6 +28,10 @@ export interface StreamSegment {
   attached_to: string | null;
   /** By the declared turn id, or by time when no turn was declared. */
   attached_by: "declared" | "time" | null;
+  /** The turn of the segment's first exchange; segments of one turn share it. */
+  turn_id: string | null;
+  /** Number of that turn in the session, from one. */
+  turn: number | null;
 }
 
 /** Where a request's new user words are, and how they begin. */
@@ -91,7 +95,10 @@ export interface SegmentExchange {
   /** Ids the client declared in its request headers, as sent. */
   subagent_id: string | null;
   parent_subagent_id: string | null;
-  root_turn_id: string | null;
+  /** The turn the exchange belongs to, or null for none. */
+  turn_id: string | null;
+  /** Number of that turn in the session, from one. */
+  turn: number | null;
 }
 
 /** A span of a text, start inclusive and end exclusive, in UTF-16 code units. */
@@ -122,4 +129,42 @@ export interface SessionTextSearchHit {
   text_id: number;
   /** Head of the segment the event's exchange is in, or null for none. */
   segment: string | null;
+}
+
+/** The turns of a session, the timeline's rows. */
+export interface SessionTurnsResponse {
+  session_pk: string;
+  turns: SessionTurn[];
+}
+
+/**
+ * One user input and all the work it set going: its main line, the
+ * subagents it spawned, and their side requests. The segments before the
+ * session's first turn come as one turn without a number.
+ */
+export interface SessionTurn {
+  /** Number of the turn in the session, from one; null for no turn. */
+  turn: number | null;
+  turn_id: string | null;
+  start: string;
+  end: string;
+  exchange_count: number;
+  /** The user input of the turn, from the earliest labeled main segment. */
+  label: EntryLabel | null;
+  /** Whether the turn's main line starts without a base: a new context. */
+  new_context: boolean;
+  /** The main line first, then each subagent as it appears. */
+  executors: TurnExecutor[];
+}
+
+/** The main line or one subagent within a turn. */
+export interface TurnExecutor {
+  /** The subagent id, or null for the main line. */
+  subagent_id: string | null;
+  /** Heads of the segments on the executor's main line, in order. */
+  main: string[];
+  /** Heads of its other segments: side requests. */
+  side: string[];
+  exchange_count: number;
+  start: string;
 }

@@ -10,20 +10,19 @@ type Translate = ReturnType<typeof useI18n>["t"];
 /** Translated labels for the session stream view. */
 export function sessionStreamsLabels(t: Translate): SessionStreamsLabels {
   return {
-    summary: (segments) => t("sessions.streams.summary", { segments }),
-    timeline: t("sessions.streams.list"),
-    segmentNumber: (number) => t("sessions.event.segmentNumber", { number }),
+    summary: (turns) => t("sessions.streams.turnCount", { count: turns }),
+    timeline: t("sessions.streams.timeline"),
+    turnNumber: (number) => t("sessions.event.turnNumber", { number }),
+    noTurn: t("sessions.event.noTurn"),
     segmentExchanges: (count) => t("sessions.streams.exchanges", { count }),
     segmentMatches: (count) => t("sessions.streams.searchMatches", { count }),
     noUserInput: t("sessions.streams.noUserInput"),
-    continuesSegment: (number) => t("sessions.streams.continuesSegment", { number }),
+    newContext: t("sessions.streams.newContext"),
+    mainLine: t("sessions.streams.mainLine"),
     subagent: t("sessions.streams.subagent"),
-    derived: t("sessions.streams.derived"),
-    byTime: t("sessions.streams.byTime"),
+    sideRequests: (count) => t("sessions.streams.sideRequests", { count }),
     spawned: t("sessions.streams.spawned"),
     loading: t("sessions.detail.loading"),
-    noBase: (reason) => t("sessions.streams.noBase", { reason }),
-    after: (exchange, rule) => t("sessions.streams.after", { exchange, rule }),
     request: t("common.request"),
     response: t("common.response"),
     requestMissing: t("sessions.streams.requestMissing"),
@@ -63,6 +62,17 @@ export function sessionStreamsLabels(t: Translate): SessionStreamsLabels {
     roleToolResult: t("sessions.detail.toolResult"),
     roleUnknown: t("sessions.event.roleUnknown"),
   };
+}
+
+/** A turn's name by its number, or the stand-in for an event in no turn. */
+export function turnName(
+  t: Translate,
+  formatNumber: (value: number) => string,
+  turn: number | null,
+): string {
+  return turn === null
+    ? t("sessions.event.noTurn")
+    : t("sessions.event.turnNumber", { number: formatNumber(turn) });
 }
 
 /** Translated labels for the session search field. */

@@ -12,6 +12,7 @@ import type {
   SessionHeaderResponse,
   SessionStreamsResponse,
   SessionTextSearchResponse,
+  SessionTurnsResponse,
 } from "@/api/usage";
 import { I18nProvider } from "@/contexts/i18n-context";
 import SessionDetailPage from "./detail-page";
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   fetchSessionHeader: vi.fn(),
   fetchSessionStreams: vi.fn(),
   fetchSessionSegment: vi.fn(),
+  fetchSessionTurns: vi.fn(),
   fetchEventConversation: vi.fn(),
   fetchUsageEvent: vi.fn(),
   searchWithinSession: vi.fn(),
@@ -106,10 +108,12 @@ describe("SessionDetailPage search", () => {
         event_pk: eventPk,
         segment: eventPk.endsWith("2") ? "b" : "a",
         exchange: eventPk.endsWith("2") ? "b" : "a",
+        turn: 1,
       }),
     );
     mocks.fetchSessionHeader.mockResolvedValue(header());
     mocks.fetchSessionStreams.mockResolvedValue(streams());
+    mocks.fetchSessionTurns.mockResolvedValue(turns());
     mocks.fetchSessionSegment.mockImplementation((_session: string, head: string) =>
       Promise.resolve(segment(head)),
     );
@@ -150,10 +154,11 @@ describe("SessionDetailPage search", () => {
       "data-entry-index",
       "1",
     );
-    // Each segment counts its hits; the entries left out say they hold one.
+    // The turn and its main line count their hits; the entries left out say
+    // they hold one.
     const timeline = screen.getByRole("listbox", { name: "Turn timeline" });
+    expect(within(timeline).getByText("3 hits")).toBeInTheDocument();
     expect(within(timeline).getByText("2 hits")).toBeInTheDocument();
-    expect(within(timeline).getByText("1 hits")).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
         name: "2 entries left out (1 matches), click to load",
@@ -180,6 +185,8 @@ describe("SessionDetailPage search", () => {
     );
     await waitFor(() => expect(active()).toHaveTextContent("timeout"));
     expect(screen.getByTestId("location")).toHaveTextContent("segment=b");
+    // Its side request unfolds under the main line, with its own count.
+    expect(within(timeline).getByText("1 hits")).toBeInTheDocument();
     expect(active()?.closest("article")).toHaveAttribute("data-event-id", "r2");
     expect(
       screen.getByRole("heading", { level: 1, name: "First user request" }),
@@ -229,10 +236,18 @@ describe("SessionDetailPage search", () => {
         "true",
       ),
     );
+    // The event's segment is a side request of the one turn: the turn is
+    // shown and the side request unfolds, chosen.
     const timeline = screen.getByRole("listbox", { name: "Turn timeline" });
-    expect(within(timeline).getAllByRole("option")[1]).toHaveAttribute(
+    expect(within(timeline).getByRole("option")).toHaveAttribute(
       "aria-selected",
       "true",
+    );
+    await waitFor(() =>
+      expect(timeline.querySelector('[data-side="b"]')).toHaveAttribute(
+        "aria-current",
+        "true",
+      ),
     );
     expect(screen.getByTestId("location")).toHaveTextContent("event=r2");
   });
@@ -263,6 +278,21 @@ describe("SessionDetailPage search", () => {
     );
     expect(screen.getByTestId("location")).toHaveTextContent("?segment=a");
     expect(screen.getByTestId("location")).not.toHaveTextContent("event=");
+  });
+
+  it("shows one row per turn, its side requests folded under its main line", async () => {
+    renderPage("/sessions/s-1?segment=a");
+    const timeline = await screen.findByRole("listbox", { name: "Turn timeline" });
+    // Both segments are in the session's one turn.
+    expect(within(timeline).getAllByRole("option")).toHaveLength(1);
+    expect(within(timeline).getByText("Turn 1")).toBeInTheDocument();
+    expect(screen.getByText("1 turns")).toBeInTheDocument();
+    expect(within(timeline).getByText("Main line")).toBeInTheDocument();
+    expect(timeline.querySelector('[data-side="b"]')).toBeNull();
+    await userEvent.click(
+      within(timeline).getByRole("button", { name: /Side requests/ }),
+    );
+    expect(timeline.querySelector('[data-side="b"]')).toBeInTheDocument();
   });
 
   it("opens an inspector without changing the event anchor", async () => {
@@ -301,6 +331,26 @@ describe("SessionDetailPage subagents", () => {
         },
       ],
     } satisfies SessionStreamsResponse);
+    const [turn] = turns().turns;
+    mocks.fetchSessionTurns.mockResolvedValue({
+      session_pk: "s-1",
+      turns: [
+        {
+          ...turn,
+          exchange_count: 3,
+          executors: [
+            ...turn.executors,
+            {
+              subagent_id: "agent-7",
+              main: ["c"],
+              side: [],
+              exchange_count: 1,
+              start: "2026-10-20T01:02:00Z",
+            },
+          ],
+        },
+      ],
+    } satisfies SessionTurnsResponse);
     mocks.fetchSessionSegment.mockImplementation((_session: string, head: string) => {
       const response = segment(head === "c" ? "a" : head);
       const [exchange] = response.exchanges;
@@ -315,7 +365,8 @@ describe("SessionDetailPage subagents", () => {
                   id: "c",
                   subagent_id: "agent-7",
                   parent_subagent_id: null,
-                  root_turn_id: "turn-1",
+                  turn_id: "turn-1",
+                  turn: 1,
                 },
               ],
             }
@@ -384,7 +435,7 @@ describe("SessionDetailPage subagents", () => {
     expect(properties).toHaveTextContent("Subagents spawned");
     expect(properties).toHaveTextContent("Declared ids");
     await userEvent.click(
-      within(properties).getByRole("button", { name: "agent-7 · Turn 3" }),
+      within(properties).getByRole("button", { name: "agent-7 · Turn 1" }),
     );
     expect(screen.getByTestId("location")).toHaveTextContent("?segment=c");
     expect(screen.getByTestId("location")).not.toHaveTextContent("inspect=");
@@ -474,12 +525,42 @@ function streams(): SessionStreamsResponse {
     subagent_id: null,
     attached_to: null,
     attached_by: null,
+    // One turn: the branch is a side request within it.
+    turn_id: "turn-1",
+    turn: 1,
   };
   return {
     session_pk: "s-1",
     segments: [
       { ...base, head: "a", kind: "root", parent: null, forked_from: null },
       { ...base, head: "b", kind: "branch", parent: "a", forked_from: "a" },
+    ],
+  };
+}
+
+/** The one turn: segment a is its main line, b a side request of it. */
+function turns(): SessionTurnsResponse {
+  return {
+    session_pk: "s-1",
+    turns: [
+      {
+        turn: 1,
+        turn_id: "turn-1",
+        start: "2026-10-20T01:00:00Z",
+        end: "2026-10-20T01:01:00Z",
+        exchange_count: 2,
+        label: null,
+        new_context: true,
+        executors: [
+          {
+            subagent_id: null,
+            main: ["a"],
+            side: ["b"],
+            exchange_count: 2,
+            start: "2026-10-20T01:00:00Z",
+          },
+        ],
+      },
     ],
   };
 }
@@ -505,7 +586,8 @@ function segment(head: string): SegmentResponse {
     response: preview(`s${n}`),
     subagent_id: null,
     parent_subagent_id: null,
-    root_turn_id: null,
+    turn_id: "turn-1",
+    turn: 1,
   };
   return { session_pk: "s-1", segment: head, exchanges: [exchange] };
 }

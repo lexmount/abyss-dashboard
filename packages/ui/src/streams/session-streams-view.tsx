@@ -5,11 +5,11 @@ import {
   previewCharacters,
   type ExchangeCardContext,
 } from "./exchange-card";
-import type { SessionStreamsLabels } from "./labels";
-import { streamLayout } from "./layout";
+import { turnName, type SessionStreamsLabels } from "./labels";
 import type { SessionMatches, StreamOccurrence } from "./search";
-import { StreamTimeline } from "./stream-timeline";
-import type { SegmentExchange, StreamSegment } from "./types";
+import { TurnTimeline } from "./turn-timeline";
+import { spawnedSubagents, turnHead } from "./turns";
+import type { SegmentExchange, SessionTurn, StreamSegment } from "./types";
 
 /**
  * What a card shows of each request and response before it is expanded: the
@@ -21,16 +21,13 @@ export const exchangePreviewWindow = {
   textPreview: previewCharacters,
 } as const;
 
-/** Leading characters of an exchange id, enough to tell them apart. */
-const shortId = (id: string) => id.slice(0, 14);
-
 /**
  * Frames a match being revealed is looked for, while its segment and card
  * load and, past the preview, its event is read in full.
  */
 const revealFrames = 600;
 
-/** The exchanges of the segment shown, as the host has them. */
+/** The exchanges of a segment shown, as the host has them. */
 export type SegmentExchangesState =
   | { status: "loading" }
   | { status: "error"; message: string }
@@ -64,13 +61,27 @@ const noSearch: SessionSearchView = {
   revealRequest: 0,
 };
 
+/** A segment shown, and its exchanges as the host has them. */
+export interface ShownSegment {
+  head: string;
+  state: SegmentExchangesState;
+}
+
 export interface SessionStreamsViewProps extends ExchangeCardContext {
   /** The session's segments, in session order. */
   segments: readonly StreamSegment[];
-  /** Head of the segment shown; the first segment when null. */
+  /** The session's turns, the timeline's rows. */
+  turns: readonly SessionTurn[];
+  /**
+   * Head of the segment chosen; the first turn's when null. The timeline
+   * marks the turn, executor, and side request it is in.
+   */
   segment: string | null;
-  /** The exchanges of the segment shown, with `exchangePreviewWindow` previews. */
-  exchanges: SegmentExchangesState;
+  /**
+   * The segments shown, in order, with `exchangePreviewWindow` previews:
+   * what `shownSegments` gives for the segment chosen.
+   */
+  exchanges: readonly ShownSegment[];
   onSelectSegment: (head: string) => void;
   /** The event open in the inspector, highlighted in the list. */
   selectedEventId?: string | null;
@@ -85,14 +96,16 @@ export interface SessionStreamsViewProps extends ExchangeCardContext {
 }
 
 /**
- * A session's segments on the left and the exchanges of the chosen one on
- * the right, each exchange a request card and a response card. The host
- * gives the segments and the exchanges of the one shown. Without
+ * A session's turns on the left and the exchanges of the segments chosen on
+ * the right, each exchange a request card and a response card: an executor's
+ * whole main line, or one side request. The host gives the turns, the
+ * segments, and the exchanges of those shown. Without
  * `onOpenEvent` it is read only: the cards show their content, but no card
  * or entry opens its event.
  */
 export function SessionStreamsView({
   segments,
+  turns,
   segment,
   exchanges,
   onSelectSegment,
@@ -108,10 +121,23 @@ export function SessionStreamsView({
   formatNumber,
   labels,
 }: SessionStreamsViewProps) {
-  const layout = React.useMemo(() => streamLayout(segments), [segments]);
-  const selected = segment ?? segments[0]?.head ?? null;
+  const segmentOf = React.useMemo(
+    () => new Map(segments.map((item) => [item.head, item])),
+    [segments],
+  );
+  const spawned = React.useMemo(() => spawnedSubagents(segments), [segments]);
+  const selected =
+    segment ??
+    (turns[0] === undefined ? undefined : turnHead(turns[0])) ??
+    segments[0]?.head ??
+    null;
   const cardsRef = React.useRef<HTMLDivElement>(null);
   useRevealMatch(cardsRef, search.active, search.revealRequest);
+  const columnRef = React.useRef<HTMLDivElement>(null);
+  const held = useHeldHeight(
+    columnRef,
+    exchanges.some(({ state }) => state.status === "loading"),
+  );
   const card: ExchangeCardContext = {
     onOpenEvent,
     loadConversation,
@@ -125,10 +151,11 @@ export function SessionStreamsView({
     <div className="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
       <Card className="overflow-hidden p-0 lg:sticky lg:top-14 lg:self-start">
         <div className="text-muted-foreground border-b px-3 py-2 text-xs">
-          {labels.summary(segments.length)}
+          {labels.summary(turns.filter((turn) => turn.turn !== null).length)}
         </div>
-        <StreamTimeline
-          layout={layout}
+        <TurnTimeline
+          turns={turns}
+          segmentOf={segmentOf}
           selected={selected}
           onSelect={onSelectSegment}
           formatTime={formatTime}
@@ -140,21 +167,34 @@ export function SessionStreamsView({
         />
       </Card>
       <div ref={cardsRef} className="flex min-w-0 items-start gap-4">
-        {selected === null ? null : (
-          <SegmentCards
-            key={selected}
-            head={selected}
-            state={exchanges}
-            ordinalOf={layout.ordinalOf}
-            spawned={layout.spawned.get(selected) ?? noSegments}
-            selectedEventId={selectedEventId}
-            anchoredEventId={anchoredEventId}
-            anchoredExchangeId={anchoredExchangeId}
-            search={search}
-            onSelectSegment={onSelectSegment}
-            card={card}
-          />
-        )}
+        <div
+          ref={columnRef}
+          className="min-w-0 flex-1 space-y-3"
+          style={{ minHeight: held }}
+        >
+          {exchanges.map(({ head, state }, index) => (
+            <React.Fragment key={head}>
+              {/* Segments of one main line follow each other, apart. */}
+              {index > 0 ? (
+                <div
+                  data-segment-divider
+                  className="border-t border-dashed pt-1"
+                />
+              ) : null}
+              <SegmentCards
+                head={head}
+                state={state}
+                spawned={spawned.get(head) ?? noSegments}
+                selectedEventId={selectedEventId}
+                anchoredEventId={anchoredEventId}
+                anchoredExchangeId={anchoredExchangeId}
+                search={search}
+                onSelectSegment={onSelectSegment}
+                card={card}
+              />
+            </React.Fragment>
+          ))}
+        </div>
         {inspector ? (
           <div className="sticky top-14 flex h-[calc(100svh-4.5rem)] shrink-0">
             {inspector}
@@ -163,6 +203,33 @@ export function SessionStreamsView({
       </div>
     </div>
   );
+}
+
+/**
+ * The height to hold a column at while its content loads: the height it had
+ * when it last showed loaded content. Moving to another turn then leaves the
+ * page where it is, rather than the page shrinking to a loading card and the
+ * browser pulling the scroll up with it.
+ */
+function useHeldHeight(
+  columnRef: React.RefObject<HTMLElement | null>,
+  loading: boolean,
+): number | undefined {
+  // Measured only while loaded, so the height the render after holds is
+  // there before anything lays the shrunk column out.
+  const [loadedHeight, setLoadedHeight] = React.useState<number>();
+  React.useLayoutEffect(() => {
+    const column = columnRef.current;
+    if (loading || !column || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() =>
+      setLoadedHeight(column.offsetHeight),
+    );
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [columnRef, loading]);
+  return loading ? loadedHeight : undefined;
 }
 
 /**
@@ -227,7 +294,6 @@ const noSegments: readonly StreamSegment[] = [];
 function SegmentCards({
   head,
   state,
-  ordinalOf,
   spawned,
   selectedEventId,
   anchoredEventId,
@@ -238,7 +304,6 @@ function SegmentCards({
 }: {
   head: string;
   state: SegmentExchangesState;
-  ordinalOf: ReadonlyMap<string, number>;
   /** Subagent segments attached to this segment. */
   spawned: readonly StreamSegment[];
   selectedEventId: string | null;
@@ -292,10 +357,13 @@ function SegmentCards({
     );
   }
   return (
-    <div ref={contentRef} className="min-w-0 flex-1 space-y-3">
+    <div
+      ref={contentRef}
+      data-segment-cards={head}
+      className="min-w-0 space-y-3"
+    >
       <SpawnedSubagents
         spawned={spawned}
-        ordinalOf={ordinalOf}
         onSelectSegment={onSelectSegment}
         formatNumber={card.formatNumber}
         labels={card.labels}
@@ -321,13 +389,6 @@ function SegmentCards({
           }
           className="data-[anchored]:ring-ring/60 space-y-2 [contain-intrinsic-size:auto_450px] [content-visibility:auto] data-[anchored]:rounded-xl data-[anchored]:ring-2"
         >
-          <ExchangeLine
-            exchange={exchange}
-            segment={ready?.segment ?? head}
-            ordinalOf={ordinalOf}
-            onSelectSegment={onSelectSegment}
-            labels={card.labels}
-          />
           {(["request", "response"] as const).map((side) => {
             const eventPk =
               side === "request" ? exchange.request_pk : exchange.response_pk;
@@ -365,13 +426,11 @@ function SegmentCards({
  */
 function SpawnedSubagents({
   spawned,
-  ordinalOf,
   onSelectSegment,
   formatNumber,
   labels,
 }: {
   spawned: readonly StreamSegment[];
-  ordinalOf: ReadonlyMap<string, number>;
   onSelectSegment: (head: string) => void;
   formatNumber: (value: number) => string;
   labels: SessionStreamsLabels;
@@ -394,63 +453,9 @@ function SpawnedSubagents({
         >
           <span className="font-mono">{child.subagent_id}</span>
           {" · "}
-          {labels.segmentNumber(
-            formatNumber((ordinalOf.get(child.head) ?? 0) + 1),
-          )}
+          {turnName(labels, formatNumber, child.turn)}
         </button>
       ))}
-    </div>
-  );
-}
-
-/**
- * Where an exchange sits in its stream: the exchange it continues and by
- * which rule, with a link to that exchange's segment when it is another one,
- * or why it continues none.
- */
-function ExchangeLine({
-  exchange,
-  segment,
-  ordinalOf,
-  onSelectSegment,
-  labels,
-}: {
-  exchange: SegmentExchange;
-  /** Head of the segment the exchange is shown in. */
-  segment: string;
-  ordinalOf: ReadonlyMap<string, number>;
-  onSelectSegment: (head: string) => void;
-  labels: SessionStreamsLabels;
-}) {
-  // Only a base in another segment gets a link there.
-  const baseSegment =
-    exchange.base_segment === segment ? null : exchange.base_segment;
-  const segmentNumber =
-    baseSegment === null ? undefined : ordinalOf.get(baseSegment);
-  return (
-    <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pt-2 text-xs">
-      <span className="text-foreground font-mono" title={exchange.id}>
-        {shortId(exchange.id)}
-      </span>
-      {exchange.base === null ? (
-        <span>{labels.noBase(exchange.no_base_reason ?? "")}</span>
-      ) : (
-        <span title={exchange.base}>
-          {labels.after(shortId(exchange.base), exchange.rule ?? "")}
-          {baseSegment !== null && segmentNumber !== undefined ? (
-            <>
-              {" · "}
-              <button
-                type="button"
-                className="text-ring underline-offset-4 hover:underline"
-                onClick={() => onSelectSegment(baseSegment)}
-              >
-                {labels.continuesSegment(segmentNumber + 1)}
-              </button>
-            </>
-          ) : null}
-        </span>
-      )}
     </div>
   );
 }

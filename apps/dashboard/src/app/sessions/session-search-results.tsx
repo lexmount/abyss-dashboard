@@ -18,6 +18,7 @@ import {
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 import { entryLabelText } from "@/lib/entry-label";
+import { turnName } from "@/lib/stream-labels";
 
 interface SessionSearchResultsProps {
   response: SessionSearchResponse;
@@ -206,9 +207,7 @@ function SessionResultCard({
               )}
               <span className="text-sm font-medium">
                 {match.location
-                  ? t("sessions.event.segmentNumber", {
-                      number: formatNumber(match.location.segment_index),
-                    })
+                  ? turnName(t, formatNumber, match.location.turn)
                   : t("sessions.event.locate")}
               </span>
               <span className="text-muted-foreground text-xs">

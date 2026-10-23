@@ -16,24 +16,24 @@ import type {
   ConversationPreview,
   ConversationPreviewEntry,
   SegmentExchange,
+  SessionTurn,
   StreamSegment,
 } from "./types";
 
 const labels: SessionStreamsLabels = {
-  summary: (segments) => `${segments} turns`,
+  summary: (turns) => `${turns} turns`,
   timeline: "Turn timeline",
-  segmentNumber: (number) => `Turn ${number}`,
+  turnNumber: (number) => `Turn ${number}`,
+  noTurn: "No turn",
   segmentExchanges: (count) => `${count} exchanges`,
   segmentMatches: (count) => `${count} hits`,
   noUserInput: "No user input",
-  continuesSegment: (number) => `Continues turn ${number}`,
+  newContext: "New context",
+  mainLine: "Main line",
   subagent: "Subagent",
-  derived: "Derived",
-  byTime: "by time",
+  sideRequests: (count) => `Side requests ×${count}`,
   spawned: "Subagents spawned",
   loading: "Loading session timeline...",
-  noBase: (reason) => `no base: ${reason}`,
-  after: (exchange, rule) => `after ${exchange} (${rule})`,
   request: "Request",
   response: "Response",
   requestMissing: "The request event is missing",
@@ -104,6 +104,8 @@ const segments: StreamSegment[] = [
     subagent_id: null,
     attached_to: null,
     attached_by: null,
+    turn_id: "turn-1",
+    turn: 1,
   },
   {
     head: "b",
@@ -117,8 +119,39 @@ const segments: StreamSegment[] = [
     subagent_id: null,
     attached_to: null,
     attached_by: null,
+    turn_id: "turn-2",
+    turn: 2,
   },
 ];
+
+/** A turn of one main line, with nothing else in it. */
+function turnOf(
+  turn: number,
+  main: string[],
+  more: Partial<SessionTurn> = {},
+): SessionTurn {
+  return {
+    turn,
+    turn_id: `turn-${turn}`,
+    start: "2026-10-20T01:00:00Z",
+    end: "2026-10-20T01:01:00Z",
+    exchange_count: main.length,
+    label: null,
+    new_context: turn === 1,
+    executors: [
+      {
+        subagent_id: null,
+        main,
+        side: [],
+        exchange_count: main.length,
+        start: "2026-10-20T01:00:00Z",
+      },
+    ],
+    ...more,
+  };
+}
+
+const turns: SessionTurn[] = [turnOf(1, ["a"]), turnOf(2, ["b"])];
 
 const exchange: SegmentExchange = {
   id: "a",
@@ -139,7 +172,8 @@ const exchange: SegmentExchange = {
   response: preview("s1"),
   subagent_id: null,
   parent_subagent_id: null,
-  root_turn_id: null,
+  turn_id: "turn-1",
+  turn: 1,
 };
 
 /** The first three entries of an event. */
@@ -167,8 +201,14 @@ function renderView(props: Partial<SessionStreamsViewProps> = {}) {
   render(
     <SessionStreamsView
       segments={segments}
+      turns={turns}
       segment="a"
-      exchanges={{ status: "ready", segment: "a", exchanges: [exchange] }}
+      exchanges={[
+        {
+          head: "a",
+          state: { status: "ready", segment: "a", exchanges: [exchange] },
+        },
+      ]}
       onSelectSegment={onSelectSegment}
       formatTime={(value) => value.slice(11, 19)}
       formatDateTime={(value) => value}
@@ -247,40 +287,47 @@ describe("SessionStreamsView, read only", () => {
   });
 
   it("still goes to the subagents a segment spawned", () => {
+    const subagent: StreamSegment = {
+      ...segments[0],
+      head: "c",
+      start: "2026-10-20T01:02:30Z",
+      end: "2026-10-20T01:02:40Z",
+      subagent_id: "agent-7",
+      attached_to: "a",
+      attached_by: "declared",
+    };
+    const first = turnOf(1, ["a"]);
     const { onSelectSegment } = renderView({
-      segments: [
-        ...segments,
+      segments: [...segments, subagent],
+      turns: [
         {
-          ...segments[0],
-          head: "c",
-          start: "2026-10-20T01:02:30Z",
-          end: "2026-10-20T01:02:40Z",
-          subagent_id: "agent-7",
-          attached_to: "a",
-          attached_by: "declared",
+          ...first,
+          executors: [
+            ...first.executors,
+            { ...first.executors[0], subagent_id: "agent-7", main: ["c"] },
+          ],
         },
+        turnOf(2, ["b"]),
       ],
     });
 
-    // The subagent follows the turn it is attached to, one column out.
+    // The subagent sits under the turn it works in, after the main line.
     const timeline = screen.getByRole("listbox", { name: "Turn timeline" });
-    const options = within(timeline).getAllByRole("option");
-    expect(options.map((option) => option.dataset.segment)).toEqual([
-      "a",
-      "c",
-      "b",
+    const rows = timeline.querySelectorAll<HTMLElement>("[data-executor]");
+    expect([...rows].map((row) => row.dataset.executor)).toEqual([
+      "main",
+      "agent-7",
     ]);
-    expect(options[1]).toHaveAttribute("data-column", "1");
-    expect(within(options[1]).getByText("Derived")).toBeInTheDocument();
-    expect(within(options[1]).getByText("agent-7")).toBeInTheDocument();
+    fireEvent.click(within(rows[1]).getByRole("button", { name: /agent-7/ }));
+    expect(onSelectSegment).toHaveBeenLastCalledWith("c");
 
     const spawned = document.querySelector<HTMLElement>("[data-spawned]")!;
     expect(spawned).toHaveTextContent("Subagents spawned");
-    // Turn 3 by its place in the session, though it shows second.
+    // The subagent works within the turn that spawned it.
     fireEvent.click(
-      within(spawned).getByRole("button", { name: "agent-7 · Turn 3" }),
+      within(spawned).getByRole("button", { name: "agent-7 · Turn 1" }),
     );
-    expect(onSelectSegment).toHaveBeenCalledWith("c");
+    expect(onSelectSegment).toHaveBeenLastCalledWith("c");
   });
 
   it("notes what is left out as text when the host cannot load it", () => {
@@ -313,20 +360,25 @@ describe("Entry text folding, for every role", () => {
     props: Partial<SessionStreamsViewProps> = {},
   ) {
     renderView({
-      exchanges: {
-        status: "ready",
-        segment: "a",
-        exchanges: [
-          {
-            ...exchange,
-            request: {
-              ...whole("r1"),
-              entries_total: 1,
-              chunks: [{ from: 0, entries: [entry] }],
-            },
+      exchanges: [
+        {
+          head: "a",
+          state: {
+            status: "ready",
+            segment: "a",
+            exchanges: [
+              {
+                ...exchange,
+                request: {
+                  ...whole("r1"),
+                  entries_total: 1,
+                  chunks: [{ from: 0, entries: [entry] }],
+                },
+              },
+            ],
           },
-        ],
-      },
+        },
+      ],
       ...props,
     });
     return card("r1").querySelector<HTMLElement>('[data-entry-index="0"]')!;
@@ -453,10 +505,12 @@ describe("SessionStreamsView, with events to open", () => {
   });
 
   it("shows the host's loading and error states for the segment", () => {
-    renderView({ exchanges: { status: "loading" } });
+    renderView({ exchanges: [{ head: "a", state: { status: "loading" } }] });
     expect(screen.getByText("Loading session timeline...")).toBeInTheDocument();
     cleanup();
-    renderView({ exchanges: { status: "error", message: "Gone" } });
+    renderView({
+      exchanges: [{ head: "a", state: { status: "error", message: "Gone" } }],
+    });
     expect(screen.getByText("Gone")).toBeInTheDocument();
   });
 });

@@ -78,6 +78,7 @@ import { SessionPicker } from "@/components/session-picker";
 import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
 import { shortSessionId } from "@/lib/session-id";
+import { turnName } from "@/lib/stream-labels";
 import { cn } from "@/lib/utils";
 import {
   agentChoices,
@@ -1027,7 +1028,7 @@ export function RawEventsTable({
               <TableRow>
                 <TableHead>{t("table.observed")}</TableHead>
                 <TableHead>{t("common.session")}</TableHead>
-                <TableHead>{t("sessions.event.segment")}</TableHead>
+                <TableHead>{t("sessions.event.turn")}</TableHead>
                 <TableHead>{t("common.model")}</TableHead>
                 <TableHead>{t("common.agent")}</TableHead>
                 <TableHead className="leading-tight">
@@ -1084,9 +1085,7 @@ export function RawEventsTable({
                           <Link to={eventDetailUrl} title={t("sessions.event.locate")}>
                             <span className="truncate">
                               {event.location
-                                ? t("sessions.event.segmentNumber", {
-                                    number: formatNumber(event.location.segment_index),
-                                  })
+                                ? turnName(t, formatNumber, event.location.turn)
                                 : t("sessions.event.locate")}
                             </span>
                             <ArrowRight className="size-3.5 shrink-0" />
