@@ -3,7 +3,6 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "../utils";
 import type { SessionStreamsLabels } from "./labels";
 import {
-  collapseWhitespace,
   occurrenceCount,
   occurrencesBetween,
   type EntryMatches,
@@ -19,7 +18,7 @@ import type {
   TokenCounts,
 } from "./types";
 
-/** Characters and lines of user input or a reply shown before it is expanded. */
+/** Characters and lines before an entry shows an expandable text preview. */
 const collapsedMaxCharacters = 600;
 const collapsedMaxLines = 8;
 /**
@@ -587,22 +586,10 @@ function collapsedStart(text: string): string {
 }
 
 /**
- * A text on one line, for the summary of a collapsed entry, with the
- * search's ranges moved along.
- */
-function oneLine(
-  text: string,
-  ranges: readonly TextRange[] | undefined,
-): { text: string; ranges: TextRange[] | undefined } {
-  return collapseWhitespace(text.slice(0, 1000), ranges, 300);
-}
-
-/**
- * One conversation entry. User input and replies read as text, the long ones
- * showing their first lines until expanded. Every other entry, such as
- * instructions, reasoning, and tool calls and results, starts collapsed to
- * one line. An entry with a search hit opens until the reader closes it. An
- * entry whose text the preview cut short shows that start when open, with
+ * One conversation entry. Every role shows short text in full and the first
+ * lines of long text until expanded. An entry with a search hit opens until
+ * the reader closes it. An entry whose text the preview cut short shows that
+ * start when open, with
  * the rest loading or there to load; the reader expanding it loads the rest.
  * Clicking the entry opens its event, when the host can.
  */
@@ -640,7 +627,12 @@ const EntryBlock = React.memo(function EntryBlock({
   const [expanded, toggleExpanded] = useHitToggle(false, hit ? query : null);
   const text = entry.text ?? "";
   const prose = entry.role === "user" || entry.role === "assistant";
-  const long = React.useMemo(() => prose && isLong(text), [prose, text]);
+  const long = React.useMemo(
+    () => isLong(text) || (entry.text_length ?? text.length) > text.length,
+    [text, entry.text_length],
+  );
+  const collapsed = long && !expanded;
+  const visibleText = collapsed ? collapsedStart(text) : text;
   const Chevron = expanded ? ChevronDown : ChevronRight;
   const activeField = (field: StreamOccurrence["field"]) =>
     active?.field === field ? active.occurrence : undefined;
@@ -686,101 +678,6 @@ const EntryBlock = React.memo(function EntryBlock({
         labels={labels}
       />
     ) : null;
-
-  if (!prose) {
-    const tool = entry.role === "tool_call" || entry.role === "tool_result";
-    return (
-      <div className="py-1">
-        <div
-          {...selectable}
-          className={cn(
-            "rounded-lg border transition-colors outline-none",
-            clickable && "cursor-pointer",
-            expanded
-              ? "bg-card"
-              : cn("bg-muted/30", clickable && "hover:bg-muted/60"),
-            ring,
-          )}
-        >
-          <div className="flex flex-wrap items-center gap-2 px-2.5 py-2 text-xs">
-            <button
-              type="button"
-              aria-expanded={expanded}
-              aria-label={expanded ? labels.showLess : labels.showMore}
-              onClick={toggle}
-              className="text-muted-foreground hover:text-foreground -m-1 rounded p-1"
-            >
-              <Chevron className="size-3.5 shrink-0" />
-            </button>
-            <span className="text-muted-foreground shrink-0">{label}</span>
-            {entry.name ? (
-              <span className="shrink-0 font-medium">
-                <Highlighted
-                  text={entry.name}
-                  ranges={matches?.name}
-                  active={activeField("name")}
-                />
-              </span>
-            ) : null}
-            <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[11px]">
-              {tool && !expanded ? (
-                <Summary text={text} ranges={matches?.text} />
-              ) : (
-                ""
-              )}
-            </span>
-            <span className="text-muted-foreground shrink-0 tabular-nums">
-              {labels.characters(
-                formatNumber(entry.text_length ?? text.length),
-              )}
-            </span>
-          </div>
-          {expanded ? (
-            <div
-              className="cursor-auto space-y-2 border-t p-2.5"
-              onClick={stop}
-            >
-              {tool ? (
-                <ContentBlock
-                  label={
-                    entry.role === "tool_call" ? labels.input : labels.output
-                  }
-                  text={text}
-                  ranges={matches?.text}
-                  active={activeField("text")}
-                />
-              ) : (
-                <SearchScrollBox
-                  className="max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap"
-                  text={text}
-                  ranges={matches?.text}
-                  active={activeField("text")}
-                />
-              )}
-              {rest}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
-  const body = text ? (
-    <div
-      className={cn(
-        "text-sm leading-relaxed break-words whitespace-pre-wrap",
-        long && !expanded && "line-clamp-6",
-      )}
-    >
-      <Highlighted
-        text={long && !expanded ? collapsedStart(text) : text}
-        ranges={matches?.text}
-        active={activeField("text")}
-      />
-    </div>
-  ) : (
-    <div className="text-muted-foreground text-xs italic">{labels.noText}</div>
-  );
   const more = long ? (
     <button
       type="button"
@@ -792,6 +689,86 @@ const EntryBlock = React.memo(function EntryBlock({
       {expanded ? labels.showLess : labels.showMore}
     </button>
   ) : null;
+
+  if (!prose) {
+    const tool = entry.role === "tool_call" || entry.role === "tool_result";
+    return (
+      <div className="py-1">
+        <div
+          {...selectable}
+          className={cn(
+            "rounded-lg border transition-colors outline-none",
+            clickable && "cursor-pointer",
+            collapsed
+              ? cn("bg-muted/30", clickable && "hover:bg-muted/60")
+              : "bg-card",
+            ring,
+          )}
+        >
+          <div className="flex flex-wrap items-center gap-2 px-2.5 py-2 text-xs">
+            <span className="text-muted-foreground shrink-0">{label}</span>
+            {entry.name ? (
+              <span className="shrink-0 font-medium">
+                <Highlighted
+                  text={entry.name}
+                  ranges={matches?.name}
+                  active={activeField("name")}
+                />
+              </span>
+            ) : null}
+            <span className="text-muted-foreground ml-auto shrink-0 tabular-nums">
+              {labels.characters(
+                formatNumber(entry.text_length ?? text.length),
+              )}
+            </span>
+          </div>
+          <div className="cursor-auto space-y-2 border-t p-2.5" onClick={stop}>
+            {tool ? (
+              <ContentBlock
+                label={
+                  entry.role === "tool_call" ? labels.input : labels.output
+                }
+                text={visibleText}
+                collapsed={collapsed}
+                ranges={matches?.text}
+                active={activeField("text")}
+              />
+            ) : (
+              <SearchScrollBox
+                className={cn(
+                  "font-mono text-xs break-words whitespace-pre-wrap",
+                  collapsed ? "line-clamp-6" : "max-h-96 overflow-auto",
+                )}
+                text={visibleText}
+                collapsed={collapsed}
+                ranges={matches?.text}
+                active={activeField("text")}
+              />
+            )}
+            {rest}
+            {more}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const body = text ? (
+    <div
+      className={cn(
+        "text-sm leading-relaxed break-words whitespace-pre-wrap",
+        collapsed && "line-clamp-6",
+      )}
+    >
+      <Highlighted
+        text={visibleText}
+        ranges={matches?.text}
+        active={activeField("text")}
+      />
+    </div>
+  ) : (
+    <div className="text-muted-foreground text-xs italic">{labels.noText}</div>
+  );
 
   if (entry.role === "user") {
     return (
@@ -874,27 +851,17 @@ function RestOfText({
   );
 }
 
-/** A collapsed tool call's or result's text on one line, with its hits marked. */
-function Summary({
-  text,
-  ranges,
-}: {
-  text: string;
-  ranges: readonly TextRange[] | undefined;
-}) {
-  const line = React.useMemo(() => oneLine(text, ranges), [text, ranges]);
-  return <Highlighted text={line.text} ranges={line.ranges} />;
-}
-
 /** A tool call's input or a tool result's output, under its label. */
 function ContentBlock({
   label,
   text,
+  collapsed,
   ranges,
   active,
 }: {
   label: string;
   text: string;
+  collapsed: boolean;
   ranges: readonly TextRange[] | undefined;
   /** Index of the occurrence being viewed within this text, if any. */
   active?: number;
@@ -904,12 +871,18 @@ function ContentBlock({
       <div className="text-muted-foreground border-b px-3 py-1 text-[11px] font-medium tracking-wide uppercase">
         {label}
       </div>
-      <SearchScrollBox
-        className="max-h-96 overflow-auto p-3 font-mono text-xs break-all whitespace-pre-wrap"
-        text={text}
-        ranges={ranges}
-        active={active}
-      />
+      <div className="p-3">
+        <SearchScrollBox
+          className={cn(
+            "font-mono text-xs break-all whitespace-pre-wrap",
+            collapsed ? "line-clamp-6" : "max-h-96 overflow-auto",
+          )}
+          text={text}
+          collapsed={collapsed}
+          ranges={ranges}
+          active={active}
+        />
+      </div>
     </div>
   );
 }
@@ -922,11 +895,13 @@ function ContentBlock({
 function SearchScrollBox({
   className,
   text,
+  collapsed,
   ranges,
   active,
 }: {
   className: string;
   text: string;
+  collapsed: boolean;
   /** The search's hits in the text. */
   ranges: readonly TextRange[] | undefined;
   active?: number;
@@ -934,7 +909,14 @@ function SearchScrollBox({
   const ref = React.useRef<HTMLPreElement>(null);
   React.useLayoutEffect(() => {
     const box = ref.current;
-    if (!box || !ranges?.length) {
+    if (!box) {
+      return;
+    }
+    if (collapsed) {
+      box.scrollTop = 0;
+      return;
+    }
+    if (!ranges?.length) {
       return;
     }
     const target =
@@ -946,7 +928,7 @@ function SearchScrollBox({
       box.scrollTop +=
         rect.top - boxRect.top - (box.clientHeight - rect.height) / 2;
     }
-  }, [text, ranges, active]);
+  }, [text, ranges, active, collapsed]);
   return (
     <pre ref={ref} className={className}>
       <Highlighted text={text} ranges={ranges} active={active} />
