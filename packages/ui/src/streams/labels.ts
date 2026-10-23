@@ -18,6 +18,14 @@ export interface SessionStreamsLabels {
   noUserInput: string;
   /** A segment or exchange continuing the given segment, numbered from one. */
   continuesSegment: (number: number) => string;
+  /** Names a subagent's segments, before its declared id. */
+  subagent: string;
+  /** Marks a subagent segment attached to the turn that spawned it. */
+  derived: string;
+  /** Marks an attachment made by time rather than by a declared turn. */
+  byTime: string;
+  /** Before the subagents a segment spawned, above its exchanges. */
+  spawned: string;
   /** While the chosen segment's exchanges load. */
   loading: string;
   /** An exchange without a base, and why. */

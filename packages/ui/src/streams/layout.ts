@@ -8,9 +8,12 @@ export interface TimelineRow {
   segment: StreamSegment;
   /** Position of the segment in the session, from 0. */
   ordinal: number;
+  /** 0 for the main line; one more for each level of subagent beside it. */
+  column: number;
   /**
-   * Lane of the segment. A continuation keeps its lane, and so does the
-   * longest branch of a fork; every other branch takes a lane of its own.
+   * Lane of the segment within its column. A continuation keeps its lane,
+   * and so does the longest branch of a fork; every other branch takes a
+   * lane of its own.
    */
   lane: number;
   /**
@@ -28,17 +31,28 @@ export interface TimelineRow {
 }
 
 export interface StreamLayout {
-  /** Segments in session order. */
+  /** Segments in display order. */
   rows: TimelineRow[];
-  /** Lanes the timeline uses. */
-  lanes: number;
-  /** Position of each segment, by its head. */
+  /** Lanes each column uses, by column. */
+  lanes: number[];
+  /** Position of each segment in the session, by its head. */
   ordinalOf: Map<string, number>;
+  /**
+   * Subagent segments attached to each segment, by the head of the segment
+   * they are attached to, in session order.
+   */
+  spawned: Map<string, StreamSegment[]>;
 }
 
 /**
- * Places a session's segments on the timeline, in session order, each in a
- * lane.
+ * Places a session's segments on the timeline. Segments of the main line, the
+ * ones without a subagent at the start of their tree, keep their session
+ * order. A subagent's segments follow the segment they are attached to, one
+ * column further out; subagent segments attached nowhere sit in the first
+ * side column at the place their first segment starts. A segment stays with
+ * the segment it continues, so a fork keeps its branches in one column.
+ * Attachment only places segments: it changes neither their parents nor
+ * their order within a tree.
  *
  * Streams do not tell the branches of a fork apart: each one is a new
  * stream. The timeline only draws them differently, so that a long run reads
@@ -49,11 +63,25 @@ export interface StreamLayout {
  * is still going, its longest branch, and with it the colors, may change.
  */
 export function streamLayout(segments: readonly StreamSegment[]): StreamLayout {
+  const ordinalOf = new Map(
+    segments.map((segment, ordinal) => [segment.head, ordinal]),
+  );
+  // Parents come before their children, so each tree's first segment is known
+  // by the time a child is reached.
+  const rootOf = new Map<string, string>();
+  const trees = new Map<string, StreamSegment[]>();
   const childrenOf = new Map<string, string[]>();
   const branchesOff = new Map<string, number>();
   for (const segment of segments) {
-    if (segment.parent !== null) {
+    const parentRoot =
+      segment.parent === null ? undefined : rootOf.get(segment.parent);
+    if (segment.parent !== null && parentRoot !== undefined) {
+      rootOf.set(segment.head, parentRoot);
+      trees.get(parentRoot)?.push(segment);
       pushTo(childrenOf, segment.parent, segment.head);
+    } else {
+      rootOf.set(segment.head, segment.head);
+      trees.set(segment.head, [segment]);
     }
     if (segment.kind === "branch" && segment.forked_from !== null) {
       branchesOff.set(
@@ -70,21 +98,84 @@ export function streamLayout(segments: readonly StreamSegment[]): StreamLayout {
       forks.set(segment.parent, count);
     }
   }
-  const subtrees = subtreeSizes(segments, childrenOf);
 
-  const state: LaneState = {
-    used: new Set(),
-    reserved: new Map(),
-    release: [],
-    spurs: new Map(),
-    spursDue: new Map(),
-    ended: new Set(),
+  const sideRoots: StreamSegment[] = [];
+  const spawned = new Map<string, StreamSegment[]>();
+  const unattached: StreamSegment[] = [];
+  for (const [first] of trees.values()) {
+    if (!first.subagent_id) {
+      continue;
+    }
+    sideRoots.push(first);
+    const anchor = first.attached_to ?? null;
+    if (anchor !== null && ordinalOf.has(anchor)) {
+      pushTo(spawned, anchor, first);
+    } else {
+      unattached.push(first);
+    }
+  }
+  const main = segments.filter((segment) => {
+    const root = trees.get(rootOf.get(segment.head) ?? segment.head)?.[0];
+    return !root?.subagent_id;
+  });
+
+  const placed: { segment: StreamSegment; column: number }[] = [];
+  const placedTrees = new Set<string>();
+  const place = (segment: StreamSegment, column: number) => {
+    placed.push({ segment, column });
+    for (const first of spawned.get(segment.head) ?? []) {
+      placeTree(first, column + 1);
+    }
   };
+  const placeTree = (first: StreamSegment, column: number) => {
+    if (placedTrees.has(first.head)) {
+      return;
+    }
+    placedTrees.add(first.head);
+    for (const segment of trees.get(first.head) ?? []) {
+      place(segment, column);
+    }
+  };
+  const ordinal = (segment: StreamSegment) => ordinalOf.get(segment.head) ?? 0;
+  let next = 0;
+  for (const segment of main) {
+    while (
+      next < unattached.length &&
+      ordinal(unattached[next]) < ordinal(segment)
+    ) {
+      placeTree(unattached[next], 1);
+      next += 1;
+    }
+    place(segment, 0);
+  }
+  for (; next < unattached.length; next += 1) {
+    placeTree(unattached[next], 1);
+  }
+  // Subagents attached only to each other still show, after everything else.
+  for (const first of sideRoots) {
+    placeTree(first, 1);
+  }
+
+  const subtrees = subtreeSizes(segments, childrenOf);
+  const columns = new Map<number, LaneState>();
   const colorOf = new Map<string, number>();
   let nextColor = 0;
-  let lanes = 0;
-  const rows = segments.map((segment, ordinal): TimelineRow => {
-    // A segment nothing continues gives its lane back once the next one starts.
+  const lanes: number[] = [];
+  const rows = placed.map(({ segment, column }): TimelineRow => {
+    let state = columns.get(column);
+    if (!state) {
+      state = {
+        used: new Set(),
+        reserved: new Map(),
+        release: [],
+        spurs: new Map(),
+        spursDue: new Map(),
+        ended: new Set(),
+      };
+      columns.set(column, state);
+    }
+    // A segment nothing continues gives its lane back once the next one of
+    // its column starts.
     for (const lane of state.release) {
       state.used.delete(lane);
     }
@@ -135,10 +226,11 @@ export function streamLayout(segments: readonly StreamSegment[]): StreamLayout {
     } else {
       state.release.push(lane);
     }
-    lanes = Math.max(lanes, lane + 1);
+    lanes[column] = Math.max(lanes[column] ?? 0, lane + 1);
     return {
       segment,
-      ordinal,
+      ordinal: ordinal(segment),
+      column,
       lane,
       color,
       spur: spurOff !== undefined,
@@ -147,10 +239,9 @@ export function streamLayout(segments: readonly StreamSegment[]): StreamLayout {
   });
   return {
     rows,
-    lanes,
-    ordinalOf: new Map(
-      segments.map((segment, ordinal) => [segment.head, ordinal]),
-    ),
+    lanes: Array.from(lanes, (count) => count ?? 0),
+    ordinalOf,
+    spawned,
   };
 }
 
@@ -214,7 +305,7 @@ interface LaneState {
   used: Set<number>;
   /** Lanes kept for segments that continue one already placed, by head. */
   reserved: Map<string, number>;
-  /** Lanes to give back when the next segment starts. */
+  /** Lanes to give back when the next segment of the column starts. */
   release: number[];
   /** The lane each spur still to come branches off, by the spur's head. */
   spurs: Map<string, number>;
