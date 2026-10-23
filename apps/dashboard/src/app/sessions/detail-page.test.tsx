@@ -280,6 +280,129 @@ describe("SessionDetailPage search", () => {
   });
 });
 
+describe("SessionDetailPage subagents", () => {
+  beforeEach(() => {
+    window.localStorage.setItem("abyss-ui-language", "en");
+    vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    mocks.fetchSessionHeader.mockResolvedValue(header());
+    const main = streams().segments;
+    mocks.fetchSessionStreams.mockResolvedValue({
+      session_pk: "s-1",
+      segments: [
+        main[0],
+        main[1],
+        {
+          ...main[0],
+          head: "c",
+          start: "2026-10-20T01:02:00Z",
+          subagent_id: "agent-7",
+          attached_to: "a",
+          attached_by: "time",
+        },
+      ],
+    } satisfies SessionStreamsResponse);
+    mocks.fetchSessionSegment.mockImplementation((_session: string, head: string) => {
+      const response = segment(head === "c" ? "a" : head);
+      const [exchange] = response.exchanges;
+      return Promise.resolve(
+        head === "c"
+          ? {
+              ...response,
+              segment: "c",
+              exchanges: [
+                {
+                  ...exchange,
+                  id: "c",
+                  subagent_id: "agent-7",
+                  parent_subagent_id: null,
+                  root_turn_id: "turn-1",
+                },
+              ],
+            }
+          : response,
+      );
+    });
+    mocks.fetchUsageEvent.mockImplementation((eventPk: string) =>
+      Promise.resolve({
+        id: eventPk,
+        event_id: eventPk,
+        user_id: "u",
+        device_context_id: "d",
+        session_pk: "s-1",
+        agent_name: "claude-code",
+        agent_version: null,
+        session_id: "session-1",
+        llm_provider: "anthropic",
+        llm_model: "claude-opus-4-5",
+        event_type: "request",
+        input_tokens: 1,
+        output_tokens: 1,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 2,
+        observed_at: "2026-10-20T01:00:00Z",
+        metadata: {},
+        attachments: [],
+        location: null,
+      }),
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    for (const mock of Object.values(mocks)) {
+      mock.mockReset();
+    }
+  });
+
+  const openProperties = async (eventPk: string) => {
+    const user = userEvent.setup();
+    const card = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>(
+        `article[data-event-id="${eventPk}"]`,
+      );
+      expect(found).toBeInTheDocument();
+      return found as HTMLElement;
+    });
+    await user.click(within(card).getByRole("button", { name: /Request/ }));
+    await user.click(await screen.findByRole("tab", { name: "Properties" }));
+    return (await screen.findByTestId("subagent-properties")) as HTMLElement;
+  };
+
+  it("lists the subagents a turn spawned above its exchanges and in its event", async () => {
+    renderPage("/sessions/s-1?segment=a");
+    const spawned = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>("[data-spawned]");
+      expect(found).toBeInTheDocument();
+      return found as HTMLElement;
+    });
+    expect(spawned).toHaveTextContent("Subagents spawned");
+
+    const properties = await openProperties("r1");
+    expect(properties).toHaveTextContent("Subagents spawned");
+    expect(properties).toHaveTextContent("Declared ids");
+    await userEvent.click(
+      within(properties).getByRole("button", { name: "agent-7 · Turn 3" }),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("?segment=c");
+    expect(screen.getByTestId("location")).not.toHaveTextContent("inspect=");
+  });
+
+  it("shows where a subagent was derived from, by time, and the ids it declared", async () => {
+    renderPage("/sessions/s-1?segment=c");
+    const properties = await openProperties("r1");
+
+    expect(properties).toHaveTextContent("Derived from");
+    expect(within(properties).getByText("by time")).toBeInTheDocument();
+    expect(within(properties).getByText("agent-7")).toBeInTheDocument();
+    expect(within(properties).getByText("turn-1")).toBeInTheDocument();
+    await userEvent.click(within(properties).getByRole("button", { name: "Turn 1" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("?segment=a");
+  });
+});
+
 function renderPage(path: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -348,6 +471,9 @@ function streams(): SessionStreamsResponse {
     end: "2026-10-20T01:01:00Z",
     exchange_count: 1,
     label: null,
+    subagent_id: null,
+    attached_to: null,
+    attached_by: null,
   };
   return {
     session_pk: "s-1",
@@ -377,6 +503,9 @@ function segment(head: string): SegmentResponse {
     response_tokens: tokens,
     request: preview(`r${n}`),
     response: preview(`s${n}`),
+    subagent_id: null,
+    parent_subagent_id: null,
+    root_turn_id: null,
   };
   return { session_pk: "s-1", segment: head, exchanges: [exchange] };
 }

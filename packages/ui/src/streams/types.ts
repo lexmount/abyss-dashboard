@@ -18,6 +18,16 @@ export interface StreamSegment {
   exchange_count: number;
   /** The new user words of the segment's first request. */
   label: EntryLabel | null;
+  /** The subagent id the first exchange declared, if any. */
+  subagent_id: string | null;
+  /**
+   * Head of the segment a subagent's first segment is attached to, the turn
+   * that spawned it. Attachment only places the segment for display: its
+   * `parent`, `forked_from`, and segmentation stay as they are.
+   */
+  attached_to: string | null;
+  /** By the declared turn id, or by time when no turn was declared. */
+  attached_by: "declared" | "time" | null;
 }
 
 /** Where a request's new user words are, and how they begin. */
@@ -78,6 +88,10 @@ export interface SegmentExchange {
   response_tokens: TokenCounts | null;
   request: ConversationPreview | null;
   response: ConversationPreview | null;
+  /** Ids the client declared in its request headers, as sent. */
+  subagent_id: string | null;
+  parent_subagent_id: string | null;
+  root_turn_id: string | null;
 }
 
 /** A span of a text, start inclusive and end exclusive, in UTF-16 code units. */

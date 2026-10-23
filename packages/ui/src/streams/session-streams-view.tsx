@@ -146,6 +146,7 @@ export function SessionStreamsView({
             head={selected}
             state={exchanges}
             ordinalOf={layout.ordinalOf}
+            spawned={layout.spawned.get(selected) ?? noSegments}
             selectedEventId={selectedEventId}
             anchoredEventId={anchoredEventId}
             anchoredExchangeId={anchoredExchangeId}
@@ -220,12 +221,14 @@ function useRevealMatch(
 }
 
 const noExchanges: readonly SegmentExchange[] = [];
+const noSegments: readonly StreamSegment[] = [];
 
 /** The exchanges of one segment, all at once. */
 function SegmentCards({
   head,
   state,
   ordinalOf,
+  spawned,
   selectedEventId,
   anchoredEventId,
   anchoredExchangeId,
@@ -236,6 +239,8 @@ function SegmentCards({
   head: string;
   state: SegmentExchangesState;
   ordinalOf: ReadonlyMap<string, number>;
+  /** Subagent segments attached to this segment. */
+  spawned: readonly StreamSegment[];
   selectedEventId: string | null;
   /** Stable event anchor to highlight and scroll to after its cards load. */
   anchoredEventId: string | null;
@@ -288,6 +293,13 @@ function SegmentCards({
   }
   return (
     <div ref={contentRef} className="min-w-0 flex-1 space-y-3">
+      <SpawnedSubagents
+        spawned={spawned}
+        ordinalOf={ordinalOf}
+        onSelectSegment={onSelectSegment}
+        formatNumber={card.formatNumber}
+        labels={card.labels}
+      />
       {state.status === "loading" ? (
         <Card>
           <CardContent className="text-muted-foreground py-10 text-center text-sm">
@@ -342,6 +354,50 @@ function SegmentCards({
             );
           })}
         </section>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The subagents a segment spawned, each a link to its first segment. Moving
+ * between segments is not opening an event, so the links work read only too.
+ */
+function SpawnedSubagents({
+  spawned,
+  ordinalOf,
+  onSelectSegment,
+  formatNumber,
+  labels,
+}: {
+  spawned: readonly StreamSegment[];
+  ordinalOf: ReadonlyMap<string, number>;
+  onSelectSegment: (head: string) => void;
+  formatNumber: (value: number) => string;
+  labels: SessionStreamsLabels;
+}) {
+  if (spawned.length === 0) {
+    return null;
+  }
+  return (
+    <div
+      data-spawned
+      className="text-muted-foreground flex flex-wrap items-baseline gap-x-3 gap-y-1 px-1 text-xs"
+    >
+      <span>{labels.spawned}</span>
+      {spawned.map((child) => (
+        <button
+          key={child.head}
+          type="button"
+          className="text-ring underline-offset-4 hover:underline"
+          onClick={() => onSelectSegment(child.head)}
+        >
+          <span className="font-mono">{child.subagent_id}</span>
+          {" · "}
+          {labels.segmentNumber(
+            formatNumber((ordinalOf.get(child.head) ?? 0) + 1),
+          )}
+        </button>
       ))}
     </div>
   );

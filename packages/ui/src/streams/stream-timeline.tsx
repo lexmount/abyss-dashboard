@@ -12,6 +12,9 @@ export type StreamTimelineLabels = Pick<
   | "segmentMatches"
   | "noUserInput"
   | "continuesSegment"
+  | "subagent"
+  | "derived"
+  | "byTime"
 >;
 
 export interface StreamTimelineProps {
@@ -30,16 +33,19 @@ export interface StreamTimelineProps {
 
 /** Distance between two lanes. */
 const lanePx = 14;
-/** Room before the first lane and after the last one. */
+/** Room before a column's first lane and after its last one. */
 const edgePx = 12;
+/** Extra room between two columns. */
+const columnGapPx = 6;
 /** A row's dot sits this far below the row's top: its padding and half a line. */
 const dotYPx = 17;
 
 /**
  * The session's segments, one row each, with the streams they form drawn in
  * the gutter: a continuation stays in its lane, the longest branch of a fork
- * goes straight on while the others bend out into lanes of their own.
- * Selecting a row shows that segment. While the session is searched, each
+ * goes straight on while the others bend out into lanes of their own, and a
+ * subagent's segments sit in a column beside the segment they were spawned
+ * from, joined to it by a dotted line. Selecting a row shows that segment. While the session is searched, each
  * segment shows its matches, and the ones without any fade.
  */
 export function StreamTimeline({
@@ -152,12 +158,13 @@ export function StreamTimeline({
                 role="option"
                 aria-selected={isSelected}
                 data-segment={row.segment.head}
+                data-column={row.column}
                 onClick={() => onSelect(row.segment.head)}
                 className={cn(
                   rowClass(isSelected),
                   matches && !matches.has(row.segment.head) && "opacity-45",
                 )}
-                style={{ paddingLeft: gutter.indent }}
+                style={{ paddingLeft: gutter.indent(row.column) }}
               >
                 <TimelineRowContent
                   row={row}
@@ -215,6 +222,8 @@ function TimelineRowContent({
   const { segment } = row;
   const parent =
     segment.parent === null ? undefined : ordinalOf.get(segment.parent);
+  const attached =
+    segment.attached_to != null && ordinalOf.has(segment.attached_to);
   return (
     <>
       <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
@@ -238,6 +247,16 @@ function TimelineRowContent({
               {labels.segmentMatches(formatNumber(matchCount))}
             </Pill>
           ) : null}
+          {attached ? (
+            <Pill
+              className="border-muted-foreground/50 border border-dashed"
+              data-derived={segment.attached_by ?? undefined}
+            >
+              {segment.attached_by === "time"
+                ? `${labels.derived} · ${labels.byTime}`
+                : labels.derived}
+            </Pill>
+          ) : null}
           {/* While searching, the hits take the exchange count's place. */}
           {matchCount === null ? (
             <Pill>
@@ -246,6 +265,12 @@ function TimelineRowContent({
           ) : null}
         </span>
       </span>
+      {segment.subagent_id ? (
+        <span className="text-muted-foreground mt-0.5 block text-[11px]">
+          {labels.subagent}{" "}
+          <span className="font-mono break-all">{segment.subagent_id}</span>
+        </span>
+      ) : null}
       {/* The segment's new user words on one line, the backend's start of
           them on hover; without any, where the segment comes from. */}
       {segment.label ? (
@@ -266,15 +291,10 @@ function TimelineRowContent({
   );
 }
 
-function Pill({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
+function Pill({ children, className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
+      {...props}
       className={cn(
         "bg-muted text-muted-foreground rounded-full px-1.5 py-px text-[10px] whitespace-nowrap tabular-nums",
         className,
@@ -287,22 +307,36 @@ function Pill({
 
 interface GutterGeometry {
   /** Horizontal place of a lane's dots. */
-  x: (lane: number) => number;
-  /** Where a row starts its text, right after the lanes. */
-  indent: number;
+  x: (column: number, lane: number) => number;
+  /** Where a row of the column starts its text, right after the column's lanes. */
+  indent: (column: number) => number;
+  width: number;
 }
 
-function gutterOf(lanes: number): GutterGeometry {
-  const x = (lane: number) => edgePx + lane * lanePx;
-  return { x, indent: x(Math.max(1, lanes) - 1) + edgePx };
+function gutterOf(lanes: readonly number[]): GutterGeometry {
+  const starts = [edgePx];
+  for (let column = 1; column < lanes.length; column += 1) {
+    starts.push(
+      starts[column - 1] +
+        Math.max(1, lanes[column - 1] ?? 0) * lanePx +
+        columnGapPx,
+    );
+  }
+  const x = (column: number, lane: number) =>
+    (starts[column] ?? edgePx) + lane * lanePx;
+  const indent = (column: number) =>
+    x(column, Math.max(1, lanes[column] ?? 0) - 1) + edgePx;
+  return { x, indent, width: indent(Math.max(0, lanes.length - 1)) };
 }
 
 /**
  * The lines and dots beside the rows. A segment joins the one it continues
  * in its own color, the color it carries on or the one its branch bends out
  * in; a side branch ending in one segment comes off that line just above its
- * own dot, beneath the line going on. A segment without a base has a hollow
- * dot, and one that ends in a fork point a heavy one.
+ * own dot, beneath the line going on. A subagent joins the segment it is
+ * attached to by a dotted line, whatever the attachment was made by. A
+ * segment without a base has a hollow dot, and one that ends in a fork point
+ * a heavy one.
  */
 function Gutter({
   rows,
@@ -320,7 +354,7 @@ function Gutter({
   const dots = new Map(
     rows.map((row, index) => [
       row.segment.head,
-      { x: gutter.x(row.lane), y: (tops[index] ?? 0) + dotYPx },
+      { x: gutter.x(row.column, row.lane), y: (tops[index] ?? 0) + dotYPx },
     ]),
   );
   const height = Math.max(0, ...tops) + dotYPx * 3;
@@ -330,7 +364,7 @@ function Gutter({
   return (
     <svg
       aria-hidden
-      width={gutter.indent}
+      width={gutter.width}
       height={height}
       className="pointer-events-none absolute top-0 left-0 z-[1] overflow-visible"
     >
@@ -368,6 +402,31 @@ function Gutter({
           />
         );
       })}
+      {/* Derivations, dotted and in no lane's color, so they read apart from
+          continuations and forks. */}
+      {rows.map((row) => {
+        const to = dots.get(row.segment.head);
+        const anchor =
+          row.segment.attached_to == null
+            ? undefined
+            : dots.get(row.segment.attached_to);
+        if (!to || !anchor) {
+          return null;
+        }
+        return (
+          <path
+            key={row.segment.head}
+            data-derivation={row.segment.head}
+            data-by={row.segment.attached_by ?? undefined}
+            d={lateBendPath(anchor.x, anchor.y, to.x, to.y)}
+            fill="none"
+            stroke="var(--muted-foreground)"
+            strokeWidth={1.5}
+            strokeDasharray="1 3"
+            strokeLinecap="round"
+          />
+        );
+      })}
       {selectedDot ? <Halo x={selectedDot.x} y={selectedDot.y} /> : null}
       {rows.map((row) => {
         const dot = dots.get(row.segment.head);
@@ -402,8 +461,8 @@ function Halo({ x, y }: { x: number; y: number }) {
 
 /**
  * Down the start's lane, then over to the end's just above its dot, so the
- * line stays clear of the rows in between: a spur off the line it branched
- * from.
+ * line stays clear of the rows in between: a subagent's derivation, or a
+ * spur off the line it branched from.
  */
 function lateBendPath(x1: number, y1: number, x2: number, y2: number): string {
   const turn = Math.max(y1, y2 - 24);

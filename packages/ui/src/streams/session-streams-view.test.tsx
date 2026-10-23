@@ -27,6 +27,10 @@ const labels: SessionStreamsLabels = {
   segmentMatches: (count) => `${count} hits`,
   noUserInput: "No user input",
   continuesSegment: (number) => `Continues turn ${number}`,
+  subagent: "Subagent",
+  derived: "Derived",
+  byTime: "by time",
+  spawned: "Subagents spawned",
   loading: "Loading session timeline...",
   noBase: (reason) => `no base: ${reason}`,
   after: (exchange, rule) => `after ${exchange} (${rule})`,
@@ -97,6 +101,9 @@ const segments: StreamSegment[] = [
     end: "2026-10-20T01:01:00Z",
     exchange_count: 1,
     label: null,
+    subagent_id: null,
+    attached_to: null,
+    attached_by: null,
   },
   {
     head: "b",
@@ -107,6 +114,9 @@ const segments: StreamSegment[] = [
     end: "2026-10-20T01:03:00Z",
     exchange_count: 1,
     label: null,
+    subagent_id: null,
+    attached_to: null,
+    attached_by: null,
   },
 ];
 
@@ -127,6 +137,9 @@ const exchange: SegmentExchange = {
   response_tokens: tokens,
   request: preview("r1"),
   response: preview("s1"),
+  subagent_id: null,
+  parent_subagent_id: null,
+  root_turn_id: null,
 };
 
 /** The first three entries of an event. */
@@ -204,7 +217,7 @@ describe("SessionStreamsView, read only", () => {
     expect(screen.queryByText(/raw event/i)).not.toBeInTheDocument();
   });
 
-  it("still switches segments, expands entries, and loads what is left out", async () => {
+  it("still switches segments, shows short entries, and loads what is left out", async () => {
     const loadConversation = vi.fn((eventPk: string) =>
       Promise.resolve(whole(eventPk)),
     );
@@ -217,8 +230,10 @@ describe("SessionStreamsView, read only", () => {
     const system = card("r1").querySelector<HTMLElement>(
       '[data-entry-index="0"]',
     )!;
-    fireEvent.click(within(system).getByRole("button", { name: "Show more" }));
     expect(within(system).getByText("be brief")).toBeInTheDocument();
+    expect(
+      within(system).queryByRole("button", { name: "Show more" }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(
       within(card("r1")).getByRole("button", { name: "2 entries left out" }),
@@ -231,6 +246,43 @@ describe("SessionStreamsView, read only", () => {
     );
   });
 
+  it("still goes to the subagents a segment spawned", () => {
+    const { onSelectSegment } = renderView({
+      segments: [
+        ...segments,
+        {
+          ...segments[0],
+          head: "c",
+          start: "2026-10-20T01:02:30Z",
+          end: "2026-10-20T01:02:40Z",
+          subagent_id: "agent-7",
+          attached_to: "a",
+          attached_by: "declared",
+        },
+      ],
+    });
+
+    // The subagent follows the turn it is attached to, one column out.
+    const timeline = screen.getByRole("listbox", { name: "Turn timeline" });
+    const options = within(timeline).getAllByRole("option");
+    expect(options.map((option) => option.dataset.segment)).toEqual([
+      "a",
+      "c",
+      "b",
+    ]);
+    expect(options[1]).toHaveAttribute("data-column", "1");
+    expect(within(options[1]).getByText("Derived")).toBeInTheDocument();
+    expect(within(options[1]).getByText("agent-7")).toBeInTheDocument();
+
+    const spawned = document.querySelector<HTMLElement>("[data-spawned]")!;
+    expect(spawned).toHaveTextContent("Subagents spawned");
+    // Turn 3 by its place in the session, though it shows second.
+    fireEvent.click(
+      within(spawned).getByRole("button", { name: "agent-7 · Turn 3" }),
+    );
+    expect(onSelectSegment).toHaveBeenCalledWith("c");
+  });
+
   it("notes what is left out as text when the host cannot load it", () => {
     renderView();
 
@@ -240,6 +292,131 @@ describe("SessionStreamsView, read only", () => {
       within(card("r1")).queryByRole("button", { name: /left out/ }),
     ).not.toBeInTheDocument();
   });
+});
+
+describe("Entry text folding, for every role", () => {
+  afterEach(cleanup);
+
+  const roles = [
+    "system",
+    "developer",
+    "user",
+    "assistant",
+    "reasoning",
+    "tool_call",
+    "tool_result",
+    "unknown",
+  ];
+
+  function renderEntry(
+    entry: ConversationPreviewEntry,
+    props: Partial<SessionStreamsViewProps> = {},
+  ) {
+    renderView({
+      exchanges: {
+        status: "ready",
+        segment: "a",
+        exchanges: [
+          {
+            ...exchange,
+            request: {
+              ...whole("r1"),
+              entries_total: 1,
+              chunks: [{ from: 0, entries: [entry] }],
+            },
+          },
+        ],
+      },
+      ...props,
+    });
+    return card("r1").querySelector<HTMLElement>('[data-entry-index="0"]')!;
+  }
+
+  it.each(roles)("shows short %s text with its line breaks", (role) => {
+    const text = "first line\nsecond line";
+    const entry = renderEntry({ role, text });
+    const body = within(entry).getByText("first line second line");
+    expect(body.textContent).toBe(text);
+    expect(entry.querySelector(".line-clamp-6")).toBeNull();
+    expect(
+      within(entry).queryByRole("button", { name: "Show more" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each(roles)("previews and toggles long %s text", (role) => {
+    for (const text of [
+      "opening " + "x".repeat(2500) + " tail-marker",
+      Array.from({ length: 9 }, (_, index) => `line ${index + 1}`).join("\n"),
+    ]) {
+      const entry = renderEntry({ role, text });
+      const tail = text.endsWith("tail-marker") ? "tail-marker" : "line 9";
+      expect(entry.textContent).toContain(text.slice(0, 7));
+      expect(entry.textContent).not.toContain(tail);
+      expect(entry.querySelector(".line-clamp-6")).not.toBeNull();
+      fireEvent.click(within(entry).getByRole("button", { name: "Show more" }));
+      expect(entry.textContent).toContain(tail);
+      expect(entry.querySelector(".line-clamp-6")).toBeNull();
+      const scrollBox = entry.querySelector("pre");
+      if (scrollBox) scrollBox.scrollTop = 120;
+      fireEvent.click(within(entry).getByRole("button", { name: "Show less" }));
+      expect(entry.textContent).not.toContain(tail);
+      if (scrollBox) expect(scrollBox.scrollTop).toBe(0);
+      cleanup();
+    }
+  });
+
+  it.each(roles)(
+    "opens %s text when the search hits past the collapsed start",
+    (role) => {
+      const text = "x".repeat(2500) + "needle";
+      const entry = renderEntry(
+        { role, text },
+        {
+          search: {
+            query: "needle",
+            matches: new Map([
+              ["r1", new Map([[0, { name: [], text: [[2500, 2506]] }]])],
+            ]),
+            segmentMatches: null,
+            active: null,
+            revealRequest: 0,
+          },
+        },
+      );
+      expect(within(entry).getByText("needle").tagName).toBe("MARK");
+      expect(entry.querySelector(".line-clamp-6")).toBeNull();
+      fireEvent.click(within(entry).getByRole("button", { name: "Show less" }));
+      expect(within(entry).queryByText("needle")).not.toBeInTheDocument();
+    },
+  );
+
+  it.each([60, 2400])(
+    "loads a tool result from a %i-character preview without opening its inspector",
+    async (previewLength) => {
+      const text = "x".repeat(2500) + "loaded-tail";
+      const onOpenEvent = vi.fn();
+      const loadConversation = vi.fn(() =>
+        Promise.resolve({
+          ...whole("r1"),
+          entries_total: 1,
+          chunks: [{ from: 0, entries: [{ role: "tool_result", text }] }],
+        }),
+      );
+      const entry = renderEntry(
+        {
+          role: "tool_result",
+          text: text.slice(0, previewLength),
+          text_length: text.length,
+        },
+        { loadConversation, onOpenEvent },
+      );
+      expect(loadConversation).not.toHaveBeenCalled();
+      fireEvent.click(within(entry).getByRole("button", { name: "Show more" }));
+      await waitFor(() => expect(entry.textContent).toContain("loaded-tail"));
+      expect(loadConversation).toHaveBeenCalledExactlyOnceWith("r1");
+      expect(onOpenEvent).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("SessionStreamsView, with events to open", () => {

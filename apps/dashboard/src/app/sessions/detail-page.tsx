@@ -7,6 +7,7 @@ import {
   sessionMatches,
   SessionStreamsView,
   StreamSearchBox,
+  streamLayout,
   streamOccurrences,
   type SegmentExchangesState,
   type SessionEventDetailState,
@@ -27,7 +28,9 @@ import {
   usageAttachmentUrl,
   type EventStreamLocation,
   type SessionHeaderResponse,
+  type SegmentExchange,
   type SessionStreamsResponse,
+  type StreamSegment,
 } from "@/api/usage";
 import { apiErrorKind } from "@/api/http";
 import { BaseLayout } from "@/components/layouts/base-layout";
@@ -157,6 +160,18 @@ export default function SessionDetailPage() {
     [queryClient],
   );
   const streamsLabels = React.useMemo(() => sessionStreamsLabels(t), [t]);
+  const streamSegments = streamsQuery.data?.segments;
+  // The subagents each segment spawned, as the timeline places them.
+  const spawned = React.useMemo(
+    () => streamLayout(streamSegments ?? []).spawned,
+    [streamSegments],
+  );
+  const selectSegment = (head: string) =>
+    updateParams({
+      [segmentSearchParam]: head,
+      [eventSearchParam]: null,
+      [inspectSearchParam]: null,
+    });
   const searchLabels = React.useMemo(() => streamSearchBoxLabels(t), [t]);
   const search = useStreamSearch({
     sessionPk,
@@ -187,6 +202,16 @@ export default function SessionDetailPage() {
     const format = new Intl.DateTimeFormat(locale, { timeStyle: "medium" });
     return (value: string) => format.format(new Date(value));
   }, [locale]);
+
+  // The exchange of the event inspected, among those of the segment shown.
+  const inspectedExchange =
+    inspectedEventId === null
+      ? undefined
+      : segmentQuery.data?.exchanges.find(
+          (exchange) =>
+            exchange.request_pk === inspectedEventId ||
+            exchange.response_pk === inspectedEventId,
+        );
 
   // The inspector receives recorded fields; derived location is rendered by the host.
   const inspectedEvent = eventQuery.data ? { ...eventQuery.data } : null;
@@ -266,13 +291,7 @@ export default function SessionDetailPage() {
               anchoredEventId={eventLocation?.event_pk ?? null}
               anchoredExchangeId={eventLocation?.exchange ?? null}
               selectedEventId={inspectedEventId}
-              onSelectSegment={(head) =>
-                updateParams({
-                  [segmentSearchParam]: head,
-                  [eventSearchParam]: null,
-                  [inspectSearchParam]: null,
-                })
-              }
+              onSelectSegment={selectSegment}
               onOpenEvent={(eventPk) =>
                 updateParams({ [inspectSearchParam]: eventPk }, { replace: true })
               }
@@ -288,11 +307,24 @@ export default function SessionDetailPage() {
                     key={inspectedEventId}
                     detail={detail}
                     properties={
-                      <EventLocationProperties
-                        location={eventQuery.data?.location}
-                        sessionPk={sessionPk}
-                        eventPk={inspectedEventId}
-                      />
+                      <>
+                        <EventLocationProperties
+                          location={eventQuery.data?.location}
+                          sessionPk={sessionPk}
+                          eventPk={inspectedEventId}
+                        />
+                        <EventSubagentProperties
+                          segment={
+                            inspectedExchange
+                              ? (segmentQuery.data?.segment ?? null)
+                              : (eventQuery.data?.location?.segment ?? null)
+                          }
+                          exchange={inspectedExchange}
+                          segments={streamsQuery.data.segments}
+                          spawned={spawned}
+                          onSelectSegment={selectSegment}
+                        />
+                      </>
                     }
                     onClose={() =>
                       updateParams({ [inspectSearchParam]: null }, { replace: true })
@@ -344,6 +376,116 @@ function EventLocationProperties({
           <dd className="font-mono break-all">{location.segment}</dd>
           <dt className="text-muted-foreground">{t("sessions.event.exchangeId")}</dt>
           <dd className="font-mono break-all">{location.exchange}</dd>
+        </>
+      ) : null}
+    </dl>
+  );
+}
+
+/**
+ * Where the inspected event's segment stands among the session's subagents:
+ * the turn it was spawned from and how it was attached there, the subagents
+ * it spawned, and the ids the event's exchange declared, under the fields'
+ * own names. Moving to a segment is not opening an event.
+ */
+function EventSubagentProperties({
+  segment,
+  exchange,
+  segments,
+  spawned,
+  onSelectSegment,
+}: {
+  /** Head of the event's segment, once known. */
+  segment: string | null;
+  /** The event's exchange, once the segment's exchanges have loaded. */
+  exchange: SegmentExchange | undefined;
+  segments: readonly StreamSegment[];
+  spawned: ReadonlyMap<string, StreamSegment[]>;
+  onSelectSegment: (head: string) => void;
+}) {
+  const { t, formatNumber } = useI18n();
+  const ordinalOf = React.useMemo(
+    () => new Map(segments.map((item, ordinal) => [item.head, ordinal])),
+    [segments],
+  );
+  const own = segments.find((item) => item.head === segment);
+  const anchor =
+    own?.attached_to == null
+      ? undefined
+      : segments.find((item) => item.head === own.attached_to);
+  const children = segment === null ? [] : (spawned.get(segment) ?? []);
+  if (!anchor && children.length === 0 && !exchange) {
+    return null;
+  }
+  const turn = (head: string) =>
+    t("sessions.event.segmentNumber", {
+      number: formatNumber((ordinalOf.get(head) ?? 0) + 1),
+    });
+  const link = (label: React.ReactNode, head: string) => (
+    <button
+      key={head}
+      type="button"
+      className="text-ring text-left underline-offset-4 hover:underline"
+      onClick={() => onSelectSegment(head)}
+    >
+      {label}
+    </button>
+  );
+  const declared: [string, string | null | undefined][] = exchange
+    ? [
+        ["subagent_id", exchange.subagent_id],
+        ["parent_subagent_id", exchange.parent_subagent_id],
+        ["root_turn_id", exchange.root_turn_id],
+      ]
+    : [];
+  return (
+    <dl
+      data-testid="subagent-properties"
+      className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1.5 border-b p-4 text-xs"
+    >
+      {anchor ? (
+        <>
+          <dt className="text-muted-foreground">{t("sessions.event.derivedFrom")}</dt>
+          <dd className="inline-flex flex-wrap items-baseline gap-2">
+            {link(turn(anchor.head), anchor.head)}
+            {own?.attached_by === "time" ? (
+              <span className="border-muted-foreground/50 text-muted-foreground rounded-full border border-dashed px-1.5 text-[10px]">
+                {t("sessions.streams.byTime")}
+              </span>
+            ) : null}
+          </dd>
+        </>
+      ) : null}
+      {children.length > 0 ? (
+        <>
+          <dt className="text-muted-foreground">{t("sessions.event.spawned")}</dt>
+          <dd className="grid gap-1">
+            {children.map((child) =>
+              link(
+                <>
+                  <span className="font-mono">{child.subagent_id}</span>
+                  {" · "}
+                  {turn(child.head)}
+                </>,
+                child.head,
+              ),
+            )}
+          </dd>
+        </>
+      ) : null}
+      {declared.length > 0 ? (
+        <>
+          <dt className="text-muted-foreground col-span-2 pt-1 font-medium">
+            {t("sessions.event.declared")}
+          </dt>
+          {declared.map(([field, value]) => (
+            <React.Fragment key={field}>
+              <dt className="text-muted-foreground font-mono">{field}</dt>
+              <dd className="min-w-0 font-mono break-all">
+                {value ?? <span className="text-muted-foreground font-sans">—</span>}
+              </dd>
+            </React.Fragment>
+          ))}
         </>
       ) : null}
     </dl>
