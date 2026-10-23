@@ -13,7 +13,7 @@ the dashboard:
 install -m 0600 /dev/null "$HOME/.abyss/backend.token"
 printf '%s\n' "$ABYSS_API_TOKEN" > "$HOME/.abyss/backend.token"
 
-npx --yes @lexmount.com/abyss-dashboard@0.2.0 \
+npx --yes @lexmount.com/abyss-dashboard@0.3.0 \
   --backend http://127.0.0.1:8080 \
   --token-file "$HOME/.abyss/backend.token"
 ```
@@ -22,6 +22,6 @@ Open <http://127.0.0.1:5173>. The local Node.js server injects the bearer token
 into proxied `/api` requests; the token is never compiled into or returned with
 the browser assets.
 
-Run `npx --yes @lexmount.com/abyss-dashboard@0.2.0 --help` for all options and
+Run `npx --yes @lexmount.com/abyss-dashboard@0.3.0 --help` for all options and
 environment-variable equivalents. The server binds only to IPv4 loopback by
 default.
