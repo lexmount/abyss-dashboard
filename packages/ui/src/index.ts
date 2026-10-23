@@ -28,3 +28,7 @@ export * from "./event/session-timeline";
 export * from "./event/session-trajectory";
 export * from "./layout/dashboard-shell";
 export * from "./layout/sidebar-config";
+
+export * from "./usage/comparison-model";
+export * from "./usage/comparison-chart";
+export * from "./usage/activity-heatmap";

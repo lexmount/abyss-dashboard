@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 // first render, and React then holds the page back for its fallback before
 // any data request starts, which cost every visit about 300 ms.
 import Dashboard from "@/app/dashboard/page";
+import Comparison from "@/app/dashboard/comparison-page";
 import NotFound from "@/app/not-found/page";
 import Sessions from "@/app/sessions/page";
 import SessionDetail from "@/app/sessions/detail-page";
@@ -21,6 +22,10 @@ export const routes: RouteConfig[] = [
   {
     path: "/dashboard",
     element: <Dashboard />,
+  },
+  {
+    path: "/comparison",
+    element: <Comparison />,
   },
   {
     path: "/sessions",
