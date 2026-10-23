@@ -39,3 +39,7 @@ export * from "./streams/turn-timeline";
 export * from "./streams/turns";
 export type * from "./streams/types";
 export * from "./layout/sidebar-config";
+
+export * from "./usage/comparison-model";
+export * from "./usage/comparison-chart";
+export * from "./usage/activity-heatmap";

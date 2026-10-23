@@ -34,14 +34,14 @@ describe("BaseLayout", () => {
       <MemoryRouter initialEntries={["/dashboard"]}>
         <I18nProvider>
           <SidebarConfigProvider>
-            <BaseLayout title="Agent 看板">内容</BaseLayout>
+            <BaseLayout title="总览">内容</BaseLayout>
           </SidebarConfigProvider>
         </I18nProvider>
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("link", { name: /AbyssAgent 活动控制台/ })).toBeVisible();
-    expect(screen.getByRole("link", { name: "Agent 看板" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Abyss 控制台" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "总览" })).toBeVisible();
     expect(screen.getByRole("link", { name: "会话" })).toBeVisible();
     expect(screen.queryByText("管理")).not.toBeInTheDocument();
     expect(screen.queryByText("账号")).not.toBeInTheDocument();
@@ -68,7 +68,7 @@ describe("BaseLayout", () => {
       <MemoryRouter initialEntries={["/dashboard"]}>
         <I18nProvider>
           <SidebarConfigProvider>
-            <BaseLayout title="Agent 看板">内容</BaseLayout>
+            <BaseLayout title="总览">内容</BaseLayout>
           </SidebarConfigProvider>
         </I18nProvider>
       </MemoryRouter>,
@@ -77,7 +77,7 @@ describe("BaseLayout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
 
     const drawer = screen.getByRole("dialog", { name: "Sidebar" });
-    expect(within(drawer).getByRole("link", { name: "Agent 看板" })).toBeVisible();
+    expect(within(drawer).getByRole("link", { name: "总览" })).toBeVisible();
     expect(within(drawer).getByRole("link", { name: "会话" })).toBeVisible();
   });
 
