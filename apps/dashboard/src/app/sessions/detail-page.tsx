@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   exchangePreviewWindow,
   landingOccurrence,
@@ -6,10 +6,14 @@ import {
   SessionEventInspector,
   sessionMatches,
   SessionStreamsView,
+  shownSegments,
+  spawnedSubagents,
   StreamSearchBox,
-  streamLayout,
   streamOccurrences,
-  type SegmentExchangesState,
+  turnHead,
+  turnSegmentOrder,
+  type SessionTurn,
+  type ShownSegment,
   type SessionEventDetailState,
   type SessionSearchView,
   type StreamOccurrence,
@@ -23,6 +27,7 @@ import {
   fetchSessionHeader,
   fetchSessionSegment,
   fetchSessionStreams,
+  fetchSessionTurns,
   fetchUsageEvent,
   searchWithinSession,
   usageAttachmentUrl,
@@ -40,7 +45,11 @@ import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 import { eventInspectorLabels } from "@/lib/inspector-labels";
 import { entryLabelText } from "@/lib/entry-label";
-import { sessionStreamsLabels, streamSearchBoxLabels } from "@/lib/stream-labels";
+import {
+  sessionStreamsLabels,
+  streamSearchBoxLabels,
+  turnName,
+} from "@/lib/stream-labels";
 import { cn } from "@/lib/utils";
 
 /** Stable anchor, resolved to its current segment when the page opens. */
@@ -76,6 +85,13 @@ export default function SessionDetailPage() {
     queryFn: () => fetchSessionStreams(sessionPk),
     enabled: sessionPk !== "",
   });
+  const turnsQuery = useQuery({
+    // The turns are cut from the same structure as the streams.
+    queryKey: ["session-turns", sessionPk, streamsQuery.dataUpdatedAt],
+    queryFn: () => fetchSessionTurns(sessionPk),
+    enabled: streamsQuery.data !== undefined,
+  });
+  const turns = turnsQuery.data?.turns;
   const locationQuery = useQuery({
     // A refreshed stream structure can move an event into a new segment.
     queryKey: [
@@ -131,22 +147,43 @@ export default function SessionDetailPage() {
     [setSearchParams],
   );
   const shownSegment =
-    eventLocation?.segment ?? segment ?? streamsQuery.data?.segments[0]?.head ?? null;
-  const segmentQuery = useQuery({
-    queryKey: ["session-segment", sessionPk, shownSegment],
-    queryFn: () =>
-      fetchSessionSegment(sessionPk, shownSegment ?? "", exchangePreviewWindow),
-    enabled: streamsQuery.data !== undefined && !locatingEvent && shownSegment !== null,
+    eventLocation?.segment ??
+    segment ??
+    (turns?.[0] === undefined ? undefined : turnHead(turns[0])) ??
+    streamsQuery.data?.segments[0]?.head ??
+    null;
+  // An executor's whole main line, or the one side request chosen.
+  const shownHeads = React.useMemo(
+    () =>
+      shownSegment === null
+        ? []
+        : turns === undefined
+          ? [shownSegment]
+          : shownSegments(turns, shownSegment),
+    [turns, shownSegment],
+  );
+  const segmentQueries = useQueries({
+    queries: shownHeads.map((head) => ({
+      queryKey: ["session-segment", sessionPk, head],
+      queryFn: () => fetchSessionSegment(sessionPk, head, exchangePreviewWindow),
+      enabled: streamsQuery.data !== undefined && !locatingEvent,
+    })),
   });
-  const segmentExchanges: SegmentExchangesState = segmentQuery.isError
-    ? { status: "error", message: segmentQuery.error.message }
-    : segmentQuery.data
-      ? {
-          status: "ready",
-          segment: segmentQuery.data.segment,
-          exchanges: segmentQuery.data.exchanges,
-        }
-      : { status: "loading" };
+  const shownExchanges: ShownSegment[] = shownHeads.map((head, index) => {
+    const query = segmentQueries[index];
+    return {
+      head,
+      state: query?.isError
+        ? { status: "error", message: query.error.message }
+        : query?.data
+          ? {
+              status: "ready",
+              segment: query.data.segment,
+              exchanges: query.data.exchanges,
+            }
+          : { status: "loading" },
+    };
+  });
   const queryClient = useQueryClient();
   const loadConversation = React.useCallback(
     (eventPk: string) =>
@@ -163,7 +200,7 @@ export default function SessionDetailPage() {
   const streamSegments = streamsQuery.data?.segments;
   // The subagents each segment spawned, as the timeline places them.
   const spawned = React.useMemo(
-    () => streamLayout(streamSegments ?? []).spawned,
+    () => spawnedSubagents(streamSegments ?? []),
     [streamSegments],
   );
   const selectSegment = (head: string) =>
@@ -176,6 +213,7 @@ export default function SessionDetailPage() {
   const search = useStreamSearch({
     sessionPk,
     streams: streamsQuery.data,
+    turns,
     initialQuery: searchParams.get(querySearchParam) ?? "",
     landingEventPk: anchoredEventId,
     onQueryChange: (query) =>
@@ -204,14 +242,22 @@ export default function SessionDetailPage() {
   }, [locale]);
 
   // The exchange of the event inspected, among those of the segment shown.
-  const inspectedExchange =
+  const inspected =
     inspectedEventId === null
       ? undefined
-      : segmentQuery.data?.exchanges.find(
-          (exchange) =>
-            exchange.request_pk === inspectedEventId ||
-            exchange.response_pk === inspectedEventId,
-        );
+      : segmentQueries
+          .map((query) => query.data)
+          .flatMap((data) =>
+            data === undefined
+              ? []
+              : data.exchanges.map((exchange) => ({ segment: data.segment, exchange })),
+          )
+          .find(
+            ({ exchange }) =>
+              exchange.request_pk === inspectedEventId ||
+              exchange.response_pk === inspectedEventId,
+          );
+  const inspectedExchange = inspected?.exchange;
 
   // The inspector receives recorded fields; derived location is rendered by the host.
   const inspectedEvent = eventQuery.data ? { ...eventQuery.data } : null;
@@ -225,9 +271,11 @@ export default function SessionDetailPage() {
     ? headerQuery
     : streamsQuery.isError
       ? streamsQuery
-      : locationQuery.isError
-        ? locationQuery
-        : null;
+      : turnsQuery.isError
+        ? turnsQuery
+        : locationQuery.isError
+          ? locationQuery
+          : null;
 
   return (
     <BaseLayout sidebar={{ collapsible: "icon" }} foldSidebarWhileAway={summaryRef}>
@@ -259,7 +307,7 @@ export default function SessionDetailPage() {
           />
         ) : null}
 
-        {streamsQuery.isLoading || locatingEvent ? (
+        {streamsQuery.isLoading || turnsQuery.isLoading || locatingEvent ? (
           <Card>
             <CardContent className="text-muted-foreground py-10 text-center text-sm">
               {t("sessions.detail.loading")}
@@ -267,7 +315,7 @@ export default function SessionDetailPage() {
           </Card>
         ) : null}
 
-        {streamsQuery.data && !locatingEvent ? (
+        {streamsQuery.data && turns && !locatingEvent ? (
           <div>
             {/* The search spans the whole session, so it sits above the
                 timeline and the cards, and stays in view as the page scrolls. */}
@@ -286,8 +334,9 @@ export default function SessionDetailPage() {
             </div>
             <SessionStreamsView
               segments={streamsQuery.data.segments}
+              turns={turns}
               segment={shownSegment}
-              exchanges={segmentExchanges}
+              exchanges={shownExchanges}
               anchoredEventId={eventLocation?.event_pk ?? null}
               anchoredExchangeId={eventLocation?.exchange ?? null}
               selectedEventId={inspectedEventId}
@@ -315,8 +364,8 @@ export default function SessionDetailPage() {
                         />
                         <EventSubagentProperties
                           segment={
-                            inspectedExchange
-                              ? (segmentQuery.data?.segment ?? null)
+                            inspected
+                              ? inspected.segment
                               : (eventQuery.data?.location?.segment ?? null)
                           }
                           exchange={inspectedExchange}
@@ -357,16 +406,14 @@ function EventLocationProperties({
   const { t, formatNumber } = useI18n();
   return (
     <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1.5 border-b p-4 text-xs">
-      <dt className="text-muted-foreground">{t("sessions.event.segment")}</dt>
+      <dt className="text-muted-foreground">{t("sessions.event.turn")}</dt>
       <dd>
         <Link
           to={`/sessions/${encodeURIComponent(sessionPk)}?event=${encodeURIComponent(eventPk)}`}
           className="text-ring underline-offset-4 hover:underline"
         >
           {location
-            ? t("sessions.event.segmentNumber", {
-                number: formatNumber(location.segment_index),
-              })
+            ? turnName(t, formatNumber, location.turn)
             : t("sessions.event.locate")}
         </Link>
       </dd>
@@ -404,10 +451,6 @@ function EventSubagentProperties({
   onSelectSegment: (head: string) => void;
 }) {
   const { t, formatNumber } = useI18n();
-  const ordinalOf = React.useMemo(
-    () => new Map(segments.map((item, ordinal) => [item.head, ordinal])),
-    [segments],
-  );
   const own = segments.find((item) => item.head === segment);
   const anchor =
     own?.attached_to == null
@@ -417,10 +460,7 @@ function EventSubagentProperties({
   if (!anchor && children.length === 0 && !exchange) {
     return null;
   }
-  const turn = (head: string) =>
-    t("sessions.event.segmentNumber", {
-      number: formatNumber((ordinalOf.get(head) ?? 0) + 1),
-    });
+  const turn = (item: StreamSegment) => turnName(t, formatNumber, item.turn);
   const link = (label: React.ReactNode, head: string) => (
     <button
       key={head}
@@ -435,7 +475,7 @@ function EventSubagentProperties({
     ? [
         ["subagent_id", exchange.subagent_id],
         ["parent_subagent_id", exchange.parent_subagent_id],
-        ["root_turn_id", exchange.root_turn_id],
+        ["turn_id", exchange.turn_id],
       ]
     : [];
   return (
@@ -447,7 +487,7 @@ function EventSubagentProperties({
         <>
           <dt className="text-muted-foreground">{t("sessions.event.derivedFrom")}</dt>
           <dd className="inline-flex flex-wrap items-baseline gap-2">
-            {link(turn(anchor.head), anchor.head)}
+            {link(turn(anchor), anchor.head)}
             {own?.attached_by === "time" ? (
               <span className="border-muted-foreground/50 text-muted-foreground rounded-full border border-dashed px-1.5 text-[10px]">
                 {t("sessions.streams.byTime")}
@@ -465,7 +505,7 @@ function EventSubagentProperties({
                 <>
                   <span className="font-mono">{child.subagent_id}</span>
                   {" · "}
-                  {turn(child.head)}
+                  {turn(child)}
                 </>,
                 child.head,
               ),
@@ -502,6 +542,7 @@ function EventSubagentProperties({
 function useStreamSearch({
   sessionPk,
   streams,
+  turns,
   initialQuery,
   landingEventPk,
   onQueryChange,
@@ -509,6 +550,8 @@ function useStreamSearch({
 }: {
   sessionPk: string;
   streams: SessionStreamsResponse | undefined;
+  /** The session's turns, which order the segments. */
+  turns: readonly SessionTurn[] | undefined;
   initialQuery: string;
   /** The event the page opened on with its search, or null. */
   landingEventPk: string | null;
@@ -552,9 +595,10 @@ function useStreamSearch({
     () => (result ? sessionMatches(result) : null),
     [result],
   );
+  // Occurrences step through the segments as the timeline lists them.
   const segments = React.useMemo(
-    () => streams?.segments.map((segment) => segment.head) ?? [],
-    [streams],
+    () => turnSegmentOrder(turns ?? [], streams?.segments ?? []),
+    [turns, streams],
   );
   const occurrences = React.useMemo(
     () => (result ? streamOccurrences(segments, result) : []),
@@ -736,7 +780,7 @@ function SessionStats({
     },
     {
       label: t("sessions.detail.turnCount"),
-      // Requests that open a turn, as the session list counts them.
+      // The session's turns, as the session list counts them.
       value: formatNumber(header.turn_count),
     },
     {

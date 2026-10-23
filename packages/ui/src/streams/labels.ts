@@ -4,34 +4,32 @@
  * the view has them.
  */
 export interface SessionStreamsLabels {
-  /** Above the timeline; `segments` is how many the session has. */
-  summary: (segments: number) => string;
+  /** Above the timeline; `turns` is how many numbered turns the session has. */
+  summary: (turns: number) => string;
   /** Accessible name of the timeline. */
   timeline: string;
-  /** A segment's name in the timeline, such as "Turn 3". */
-  segmentNumber: (number: string) => string;
-  /** Exchanges in a segment, outside a search. */
+  /** A turn by its number, such as "Turn 3". */
+  turnNumber: (number: string) => string;
+  /** Names the segments before the session's first turn. */
+  noTurn: string;
+  /** Exchanges in a turn, an executor, or a segment, outside a search. */
   segmentExchanges: (count: string) => string;
-  /** Search occurrences in a segment. */
+  /** Search occurrences in a turn, an executor, or a segment. */
   segmentMatches: (count: string) => string;
-  /** A segment that neither has new user words nor continues another. */
+  /** A turn or a side request without user words. */
   noUserInput: string;
-  /** A segment or exchange continuing the given segment, numbered from one. */
-  continuesSegment: (number: number) => string;
-  /** Names a subagent's segments, before its declared id. */
+  /** Above a turn that starts without a base: a new context. */
+  newContext: string;
+  /** The main line among a turn's executors. */
+  mainLine: string;
+  /** Names a subagent, before its short id. */
   subagent: string;
-  /** Marks a subagent segment attached to the turn that spawned it. */
-  derived: string;
-  /** Marks an attachment made by time rather than by a declared turn. */
-  byTime: string;
+  /** An executor's side requests, how many. */
+  sideRequests: (count: string) => string;
   /** Before the subagents a segment spawned, above its exchanges. */
   spawned: string;
   /** While the chosen segment's exchanges load. */
   loading: string;
-  /** An exchange without a base, and why. */
-  noBase: (reason: string) => string;
-  /** The exchange an exchange continues, and by which rule. */
-  after: (exchange: string, rule: string) => string;
 
   request: string;
   response: string;
@@ -95,4 +93,13 @@ export interface StreamSearchBoxLabels {
   previous: string;
   next: string;
   clear: string;
+}
+
+/** A turn's name: its number, or the stand-in for none. */
+export function turnName(
+  labels: Pick<SessionStreamsLabels, "turnNumber" | "noTurn">,
+  formatNumber: (value: number) => string,
+  turn: number | null,
+): string {
+  return turn === null ? labels.noTurn : labels.turnNumber(formatNumber(turn));
 }

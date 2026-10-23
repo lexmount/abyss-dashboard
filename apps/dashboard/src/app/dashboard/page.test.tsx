@@ -66,6 +66,17 @@ describe("RawEventsTable", () => {
     ).toBe(true);
   });
 
+  it("names each located event's turn by its number, or as in no turn", () => {
+    const location = { segment: "a", segment_kind: "root", exchange: "a" } as const;
+    renderRawEventsTable([
+      { ...baseUsageEvent, location: { ...location, turn: 7 } },
+      { ...baseUsageEvent, id: "event-other", location: { ...location, turn: null } },
+    ]);
+
+    expect(screen.getByRole("link", { name: /Turn 7/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /No turn/ })).toBeInTheDocument();
+  });
+
   it("renders agent and device context columns without crowding the session cell", () => {
     renderRawEventsTable([
       {

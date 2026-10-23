@@ -1,3 +1,4 @@
+import type { SessionTurnsResponse } from "@lexmount.com/abyss-ui";
 import { fetchJson } from "@/api/http";
 
 export interface SummaryResponse {
@@ -232,8 +233,8 @@ export function fetchRawEvents(
 /** An event's current place in the derived session structure. */
 export interface EventStreamLocation {
   segment: string;
-  /** Position in the session's segment list, starting at one. */
-  segment_index: number;
+  /** Number of the event's turn in the session, from one, or null for none. */
+  turn: number | null;
   segment_kind: "root" | "turn" | "branch";
   exchange: string;
 }
@@ -278,6 +279,10 @@ export interface StreamSegment {
   attached_to: string | null;
   /** By the declared turn id, or by time when no turn was declared. */
   attached_by: "declared" | "time" | null;
+  /** The turn of the segment's first exchange; segments of one turn share it. */
+  turn_id: string | null;
+  /** Number of that turn in the session, from one. */
+  turn: number | null;
 }
 
 /** Where a request's new user words are, and how they begin. */
@@ -295,6 +300,15 @@ export function fetchSessionStreams(
 ): Promise<SessionStreamsResponse> {
   return fetchJson<SessionStreamsResponse>(
     `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/streams`,
+  );
+}
+
+/** The session's turns, the timeline's rows; the types live with the view. */
+export type { SessionTurnsResponse } from "@lexmount.com/abyss-ui";
+
+export function fetchSessionTurns(sessionPk: string): Promise<SessionTurnsResponse> {
+  return fetchJson<SessionTurnsResponse>(
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/turns`,
   );
 }
 
@@ -388,7 +402,10 @@ export interface SegmentExchange {
   /** Ids the client declared in its request headers, as sent. */
   subagent_id: string | null;
   parent_subagent_id: string | null;
-  root_turn_id: string | null;
+  /** The turn the exchange belongs to, or null for none. */
+  turn_id: string | null;
+  /** Number of that turn in the session, from one. */
+  turn: number | null;
 }
 
 function windowParams(window: PreviewWindow, params = new URLSearchParams()) {
