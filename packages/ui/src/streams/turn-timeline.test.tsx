@@ -27,6 +27,7 @@ const start = "2026-10-20T01:00:00Z";
 function executor(more: Partial<TurnExecutor>): TurnExecutor {
   return {
     subagent_id: null,
+    parent_subagent_id: null,
     main: [],
     side: [],
     exchange_count: 1,
@@ -113,5 +114,44 @@ describe("TurnTimeline", () => {
     fireEvent.click(screen.getByRole("button", { name: /Side requests ×1/ }));
     fireEvent.click(document.querySelector<HTMLElement>('[data-side="s"]')!);
     expect(onSelect).toHaveBeenLastCalledWith("s");
+  });
+
+  it("hangs the subagents a subagent started under it", () => {
+    renderTimeline([
+      turn(1, [
+        executor({ main: ["m"] }),
+        executor({ subagent_id: "a1", main: ["a"] }),
+        executor({ subagent_id: "a2", parent_subagent_id: "a1", main: ["b"] }),
+        executor({ subagent_id: "b1", main: ["c"] }),
+        // Its parent is not in the turn: under the main lane.
+        executor({
+          subagent_id: "c1",
+          parent_subagent_id: "gone",
+          main: ["d"],
+        }),
+      ]),
+    ]);
+
+    const rows = [...document.querySelectorAll<HTMLElement>("[data-executor]")];
+    expect(
+      rows.map((row) => [row.dataset.executor, row.style.marginLeft]),
+    ).toEqual([
+      ["main", ""],
+      ["a1", ""],
+      ["a2", "14px"],
+      ["b1", ""],
+      ["c1", ""],
+    ]);
+    // Only a2 comes off another subagent's dot.
+    expect(
+      [...document.querySelectorAll<SVGPathElement>("[data-derivation]")].map(
+        (path) => [path.dataset.derivation, path.dataset.parent ?? null],
+      ),
+    ).toEqual([
+      ["a1", null],
+      ["a2", "a1"],
+      ["b1", null],
+      ["c1", null],
+    ]);
   });
 });

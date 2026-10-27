@@ -161,6 +161,12 @@ export interface SessionTurn {
 export interface TurnExecutor {
   /** The subagent id, or null for the main line. */
   subagent_id: string | null;
+  /**
+   * The subagent that started this one, as it declares; null when the main
+   * agent did, and for the main line. A turn lists each executor right before
+   * the subagents it started.
+   */
+  parent_subagent_id: string | null;
   /** Heads of the segments on the executor's main line, in order. */
   main: string[];
   /** Heads of its other segments: side requests. */

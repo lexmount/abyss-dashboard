@@ -140,6 +140,7 @@ function turnOf(
     executors: [
       {
         subagent_id: null,
+        parent_subagent_id: null,
         main,
         side: [],
         exchange_count: main.length,

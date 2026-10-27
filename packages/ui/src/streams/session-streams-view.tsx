@@ -154,7 +154,7 @@ export function SessionStreamsView({
   return (
     <div
       ref={viewRef}
-      className="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]"
+      className="grid gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]"
     >
       <Card className="overflow-hidden p-0 lg:sticky lg:top-14 lg:self-start">
         <div className="text-muted-foreground border-b px-3 py-2 text-xs">

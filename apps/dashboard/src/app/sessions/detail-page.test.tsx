@@ -342,6 +342,7 @@ describe("SessionDetailPage subagents", () => {
             ...turn.executors,
             {
               subagent_id: "agent-7",
+              parent_subagent_id: null,
               main: ["c"],
               side: [],
               exchange_count: 1,
@@ -554,6 +555,7 @@ function turns(): SessionTurnsResponse {
         executors: [
           {
             subagent_id: null,
+            parent_subagent_id: null,
             main: ["a"],
             side: ["b"],
             exchange_count: 2,

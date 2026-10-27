@@ -47,14 +47,43 @@ const gutterInsetPx = 6;
 /** A turn row's dot sits this far below the row's top: its padding and half a line. */
 const turnDotYPx = 15;
 
+/**
+ * For each executor of a turn, the executor that started it: the index of
+ * the subagent it names as its parent, which the turn lists before it; -1
+ * for the main line and for a subagent the main agent started or whose parent
+ * is not in the turn.
+ */
+function executorParents(turn: SessionTurn): number[] {
+  return turn.executors.map((executor, at) =>
+    executor.parent_subagent_id === null
+      ? -1
+      : turn.executors.findIndex(
+          (other, index) =>
+            index < at && other.subagent_id === executor.parent_subagent_id,
+        ),
+  );
+}
+
+/** How deep each subagent sits under the main lane, from its parents: 1 and down. */
+function executorDepths(parents: readonly number[]): number[] {
+  const depths: number[] = [];
+  parents.forEach((parent) => {
+    depths.push(parent < 0 ? 1 : (depths[parent] ?? 0) + 1);
+  });
+  return depths;
+}
+
+/** Where a subagent's dot sits: one lane further right for each level down. */
+const subX = (depth: number) => edgePx + lanePx * Math.max(1, depth);
+
 /** A dot's key: a turn's own, or one of its executors'. */
 const turnKey = (turn: number) => `t${turn}`;
 const executorKey = (turn: number, executor: number) => `e${turn}.${executor}`;
 
 /**
  * The session's turns, one row each, with each turn's executors under it: the
- * main line first, then its subagents, each with its side requests folded
- * under a count; a turn that is only a main line has none under it. A line
+ * main line first, then its subagents as the tree of who started whom, each
+ * with its side requests folded under a count; a turn that is only a main line has none under it. A line
  * beside the rows carries the context from turn to turn; a turn without a
  * base starts afresh. While the session is searched, each row shows its
  * matches, and the ones without any fade.
@@ -187,6 +216,7 @@ export function TurnTimeline({
           const head = turnHead(turn);
           // A turn that is only a main line shows no executor row under it.
           const mainOnly = onlyMainLine(turn);
+          const depths = executorDepths(executorParents(turn));
           return (
             <li key={turn.turn_id ?? `none-${index}`} data-turn={turn.turn}>
               {turn.new_context && index > 0 ? (
@@ -244,6 +274,7 @@ export function TurnTimeline({
                     <ExecutorRow
                       key={executor.subagent_id ?? "main"}
                       dot={executorKey(index, at)}
+                      indent={lanePx * ((depths[at] ?? 1) - 1)}
                       executor={executor}
                       chosen={
                         open && place.executor === at
@@ -331,7 +362,6 @@ function Gutter({
     return null;
   }
   const x0 = edgePx;
-  const xSub = edgePx + lanePx;
   /** The lowest dot on a turn's main lane: its main line's, else its own. */
   const bottomOf = (index: number) => {
     const main = turns[index]?.executors.findIndex(
@@ -354,6 +384,14 @@ function Gutter({
       ?.subagent_id != null;
   const selectedY =
     selected === null || !selectedSub ? undefined : dots.get(selected);
+  const selectedX =
+    selectedTurn === null
+      ? subX(1)
+      : subX(
+          executorDepths(executorParents(turns[selectedTurn]!))[
+            Number(selected?.split(".")[1])
+          ] ?? 1,
+        );
   return (
     <svg
       aria-hidden
@@ -384,11 +422,18 @@ function Gutter({
         if (top === undefined) {
           return null;
         }
-        // The subagents hang off one thin spine down from the turn's dot,
-        // each by a short bend into its own dot.
+        // The subagents the main agent started hang off one thin spine down
+        // from the turn's dot, each by a short bend into its own dot; the
+        // ones a subagent started hang the same way off their parent's dot.
+        const parents = executorParents(turn);
+        const depths = executorDepths(parents);
         const subs = turn.executors.flatMap((executor, at) => {
           const y = dots.get(executorKey(index, at));
-          return executor.subagent_id === null || y === undefined ? [] : [y];
+          return executor.subagent_id === null ||
+            parents[at]! >= 0 ||
+            y === undefined
+            ? []
+            : [y];
         });
         const lastSub = subs.length === 0 ? undefined : Math.max(...subs);
         // Below the main line's row, where the main lane does not run.
@@ -408,19 +453,37 @@ function Gutter({
               if (y === undefined) {
                 return null;
               }
-              return executor.subagent_id === null ? (
-                <path
-                  key={at}
-                  d={`M ${x0} ${top} L ${x0} ${y}`}
-                  fill="none"
-                  stroke={laneColor}
-                  strokeWidth={1.5}
-                />
-              ) : (
+              if (executor.subagent_id === null) {
+                return (
+                  <path
+                    key={at}
+                    d={`M ${x0} ${top} L ${x0} ${y}`}
+                    fill="none"
+                    stroke={laneColor}
+                    strokeWidth={1.5}
+                  />
+                );
+              }
+              const parent = parents[at]!;
+              const parentY =
+                parent < 0 ? undefined : dots.get(executorKey(index, parent));
+              // From the parent's dot when a subagent started it, else from
+              // the spine.
+              const fromX = parentY === undefined ? x0 : subX(depths[parent]!);
+              const fromY =
+                parentY === undefined
+                  ? Math.max(top, y - bendPx)
+                  : Math.min(parentY + subDotPx, y - bendPx);
+              return (
                 <path
                   key={at}
                   data-derivation={executor.subagent_id}
-                  d={`M ${x0} ${Math.max(top, y - bendPx)} Q ${x0} ${y}, ${xSub - subDotPx} ${y}`}
+                  data-parent={
+                    parentY === undefined
+                      ? undefined
+                      : (executor.parent_subagent_id ?? undefined)
+                  }
+                  d={`M ${fromX} ${fromY} L ${fromX} ${y - bendPx} Q ${fromX} ${y}, ${subX(depths[at]!) - subDotPx} ${y}`}
                   fill="none"
                   stroke={subColor}
                   strokeWidth={1.5}
@@ -432,7 +495,7 @@ function Gutter({
       })}
       {selectedY !== undefined ? (
         <circle
-          cx={xSub}
+          cx={selectedX}
           cy={selectedY}
           r={7.5}
           fill="var(--ring)"
@@ -445,6 +508,7 @@ function Gutter({
           return null;
         }
         const shown = index === selectedTurn;
+        const depths = executorDepths(executorParents(turn));
         return (
           <React.Fragment key={index}>
             <circle
@@ -466,7 +530,7 @@ function Gutter({
               return (
                 <circle
                   key={at}
-                  cx={xSub}
+                  cx={subX(depths[at] ?? 1)}
                   cy={dot}
                   r={subDotPx}
                   fill="var(--card)"
@@ -485,6 +549,7 @@ function Gutter({
 /** One executor of a turn, and its side requests when unfolded. */
 function ExecutorRow({
   dot,
+  indent,
   executor,
   chosen,
   selectedRef,
@@ -498,6 +563,8 @@ function ExecutorRow({
 }: {
   /** Key of the executor's dot in the gutter. */
   dot: string;
+  /** How far right of the first subagent level the row starts. */
+  indent: number;
   executor: TurnExecutor;
   /** `main` when its main line is shown, a side head when that is, else null. */
   chosen: string | null;
@@ -524,7 +591,10 @@ function ExecutorRow({
     0,
   );
   return (
-    <li data-executor={executor.subagent_id ?? "main"}>
+    <li
+      data-executor={executor.subagent_id ?? "main"}
+      style={indent > 0 ? { marginLeft: indent } : undefined}
+    >
       <button
         ref={chosen === "main" ? selectedRef : undefined}
         data-dot={dot}
