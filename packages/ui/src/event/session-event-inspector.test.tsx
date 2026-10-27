@@ -112,17 +112,33 @@ describe("SessionEventInspector", () => {
     });
 
     fireEvent.click(screen.getByRole("tab", { name: "Request headers (6)" }));
-    const items = within(screen.getByRole("tabpanel")).getAllByRole("listitem");
+    // By name, duplicates in recorded order.
+    const items = headerRows();
     expect(items.map((item) => item.textContent)).toEqual([
-      "x-b: 2",
-      "authorization: <redacted>",
-      "x-a: 1",
-      "x-b: 3",
-      "x-raw: /w== base64",
-      "x-empty: ",
+      "authorization<redacted>",
+      "x-a1",
+      "x-b2",
+      "x-b3",
+      "x-empty",
+      "x-raw/w== base64",
     ]);
-    expect(within(items[4]).getByText("base64")).toBeInTheDocument();
+    expect(within(items[5]).getByText("base64")).toBeInTheDocument();
     expect(within(items[0]).queryByText("base64")).not.toBeInTheDocument();
+
+    // Raw, exactly as recorded.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Raw" }));
+    expect(
+      within(screen.getByRole("tabpanel")).getByText(/^x-b: 2/).textContent,
+    ).toBe(
+      [
+        "x-b: 2",
+        "authorization: <redacted>",
+        "x-a: 1",
+        "x-b: 3",
+        "x-raw (base64): /w==",
+        "x-empty: ",
+      ].join("\n"),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     expect(writeText).toHaveBeenCalledWith(
@@ -154,14 +170,59 @@ describe("SessionEventInspector", () => {
       screen.queryByRole("tab", { name: /Request headers/ }),
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Response headers (4)" }));
-    const items = within(screen.getByRole("tabpanel")).getAllByRole("listitem");
+    const items = headerRows();
     expect(items.map((item) => item.textContent)).toEqual([
-      "set-cookie: <redacted>",
-      "content-type: text/event-stream",
-      "set-cookie: <redacted>",
-      "x-raw: gA== base64",
+      "content-typetext/event-stream",
+      "set-cookie<redacted>",
+      "set-cookie<redacted>",
+      "x-rawgA== base64",
     ]);
     expect(within(items[3]).getByText("base64")).toBeInTheDocument();
+  });
+
+  it("shows the metadata as a tree to open, or raw", () => {
+    const long = "x".repeat(400);
+    renderInspector({
+      status: "ready",
+      event: eventWithMetadata("request", {
+        purpose: "prewarm",
+        omitted: ["images"],
+        conversation: {
+          completeness: "complete",
+          entries: Array.from({ length: 150 }, (_, index) => ({
+            role: "user",
+            text: index === 0 ? long : `t${index}`,
+          })),
+        },
+      }),
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "Metadata" }));
+    const panel = screen.getByRole("tabpanel");
+    // The root is open; what is under it is closed, with a preview.
+    // The root's preview and its member line.
+    expect(within(panel).getAllByText('"prewarm"')).toHaveLength(2);
+    expect(panel).toHaveTextContent('omitted: (1) ["images"]');
+    expect(panel).toHaveTextContent(
+      'conversation: {completeness: "complete", entries: Array(150)}',
+    );
+    // Only in the preview: the member lines are not there yet.
+    expect(within(panel).getAllByText("completeness")).toHaveLength(1);
+
+    fireEvent.click(member(panel, "conversation"));
+    fireEvent.click(member(panel, "entries"));
+    // More than a hundred items come in ranges.
+    expect(within(panel).getByText("[0 … 99]")).toBeInTheDocument();
+    expect(within(panel).getByText("[100 … 149]")).toBeInTheDocument();
+    fireEvent.click(within(panel).getByText("[0 … 99]"));
+    fireEvent.click(member(panel, "0"));
+    // A long string shows its start until opened.
+    fireEvent.click(
+      within(panel).getByRole("button", { name: "Show all 400" }),
+    );
+    expect(within(panel).getByText(JSON.stringify(long))).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Raw" }));
+    expect(within(panel).getByText(/"purpose": "prewarm"/)).toBeInTheDocument();
   });
 
   it("hides the headers tab when the event has no headers", () => {
@@ -395,6 +456,7 @@ const labels: SessionEventInspectorLabels = {
   imageLabel: (index) => `Image ${index}`,
   openImage: (label) => `Open ${label}`,
   base64: "base64",
+  raw: "Raw",
   roleSystem: "System",
   roleDeveloper: "Developer",
   roleUser: "User",
@@ -406,3 +468,17 @@ const labels: SessionEventInspectorLabels = {
   showLess: "Show less",
   incomplete: (completeness) => `Conversation ${completeness}`,
 };
+
+/** The rows of the headers tab, name and value each. */
+function headerRows(): HTMLElement[] {
+  return Array.from(
+    screen.getByRole("tabpanel").querySelectorAll<HTMLElement>("dl > div"),
+  );
+}
+
+/** The line of a tree member that opens it, by the member's key. */
+function member(panel: HTMLElement, key: string): HTMLElement {
+  return within(panel)
+    .getAllByRole("button")
+    .find((button) => button.textContent?.startsWith(`${key}: `))!;
+}

@@ -82,6 +82,11 @@
   --usage-cache-write: #fa0555;
   --usage-input: #2f7fe0;
   --usage-output: #0e9f8f;
+  /* JSON and header syntax, after the browser's developer tools. */
+  --syntax-key: #881391;
+  --syntax-string: #c41a16;
+  --syntax-number: #1c00cf;
+  --syntax-literal: #0d22aa;
   --sidebar: #f3f0f8;
   --sidebar-foreground: #211d26;
   --sidebar-primary: #21182c;
@@ -136,6 +141,10 @@ html:lang(ja) {
   --usage-cache-write: #fa0555;
   --usage-input: #3b8ef0;
   --usage-output: #12a594;
+  --syntax-key: #d59cf0;
+  --syntax-string: #f28b54;
+  --syntax-number: #9980ff;
+  --syntax-literal: #7cacf8;
   --sidebar: #08050f;
   --sidebar-foreground: #f6f5fb;
   --sidebar-primary: #f6f5fb;

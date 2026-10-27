@@ -3,6 +3,7 @@ import * as React from "react";
 import { Badge } from "../components/badge";
 import { Button } from "../components/button";
 import { cn } from "../utils";
+import { JsonTree } from "./json-tree";
 import {
   conversationOf,
   leadingInstructionCount,
@@ -68,6 +69,8 @@ export interface SessionEventInspectorLabels {
   openImage: (label: string) => string;
   /** Marks a header value shown as base64 because it was not UTF-8. */
   base64: string;
+  /** Switches headers and metadata to their raw text, as recorded. */
+  raw: string;
   roleSystem: string;
   roleDeveloper: string;
   roleUser: string;
@@ -238,7 +241,11 @@ export function SessionEventInspector({
       ) : tab === "headers" ? (
         <HeadersPanel headers={headers} labels={labels} />
       ) : tab === "metadata" ? (
-        <MetadataPanel metadata={detail.event.metadata} />
+        <MetadataPanel
+          metadata={detail.event.metadata}
+          formatNumber={formatNumber}
+          labels={labels}
+        />
       ) : (
         <>
           {properties}
@@ -551,12 +558,20 @@ function entryLabel(
   }
 }
 
-function CopyButton({ text, label }: { text: string; label: string }) {
+function CopyButton({
+  text,
+  label,
+  className,
+}: {
+  text: string;
+  label: string;
+  className?: string;
+}) {
   return (
     <Button
       variant="outline"
       size="icon"
-      className="bg-background absolute top-2 right-2 size-7"
+      className={cn("bg-background absolute top-2 right-2 size-7", className)}
       aria-label={label}
       title={label}
       onClick={() => {
@@ -624,7 +639,11 @@ function AttachmentsPanel({
   );
 }
 
-/** Headers exactly as recorded, in order and with duplicates kept. */
+/**
+ * Headers as the browser's developer tools show them: a name column and a
+ * value column, sorted by name with duplicates kept in recorded order; or,
+ * raw, one `name: value` line each exactly in recorded order.
+ */
 function HeadersPanel({
   headers,
   labels,
@@ -632,6 +651,7 @@ function HeadersPanel({
   headers: RecordedHeader[];
   labels: SessionEventInspectorLabels;
 }) {
+  const [raw, setRaw] = React.useState(false);
   // Header names cannot contain spaces or parentheses, so the copied marker
   // cannot be mistaken for part of a name.
   const text = headers
@@ -641,41 +661,122 @@ function HeadersPanel({
         : `${header.name} (base64): ${header.valueBase64}`,
     )
     .join("\n");
+  const sorted = React.useMemo(
+    () =>
+      headers
+        .map((header, index) => ({ header, index }))
+        .sort(
+          (a, b) =>
+            a.header.name.localeCompare(b.header.name) || a.index - b.index,
+        ),
+    [headers],
+  );
   return (
-    <div className="relative">
-      <CopyButton text={text} label={labels.copy} />
-      <ol className="space-y-0.5 p-3 pr-12 font-mono text-xs leading-relaxed">
-        {headers.map((header, index) => (
-          <li key={index} className="break-all whitespace-pre-wrap">
-            {"value" in header ? (
-              `${header.name}: ${header.value}`
-            ) : (
-              <>
-                {`${header.name}: ${header.valueBase64}`}{" "}
-                <Badge
-                  variant="outline"
-                  className="px-1 py-0 align-middle font-sans text-[10px]"
-                >
-                  {labels.base64}
-                </Badge>
-              </>
-            )}
-          </li>
-        ))}
-      </ol>
+    <div>
+      <PanelToolbar raw={raw} onRaw={setRaw} copyText={text} labels={labels} />
+      {raw ? (
+        <pre className="p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">
+          {text}
+        </pre>
+      ) : (
+        <dl className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] text-xs">
+          {sorted.map(({ header, index }) => (
+            <div
+              key={index}
+              className="hover:bg-muted/50 col-span-2 grid grid-cols-subgrid gap-x-4 px-3 py-1"
+            >
+              <dt className="text-muted-foreground font-medium break-all">
+                {header.name}
+              </dt>
+              <dd className="font-mono break-all whitespace-pre-wrap">
+                {"value" in header ? (
+                  header.value === "<redacted>" ? (
+                    <span className="text-muted-foreground italic">
+                      {header.value}
+                    </span>
+                  ) : (
+                    header.value
+                  )
+                ) : (
+                  <>
+                    {header.valueBase64}{" "}
+                    <Badge
+                      variant="outline"
+                      className="px-1 py-0 align-middle font-sans text-[10px]"
+                    >
+                      {labels.base64}
+                    </Badge>
+                  </>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   );
 }
 
-function MetadataPanel({ metadata }: { metadata: unknown }) {
+/** The metadata as a tree to open member by member, or raw as indented JSON. */
+function MetadataPanel({
+  metadata,
+  formatNumber,
+  labels,
+}: {
+  metadata: unknown;
+  formatNumber: (value: number) => string;
+  labels: SessionEventInspectorLabels;
+}) {
+  const [raw, setRaw] = React.useState(false);
   const json = React.useMemo(
     () => JSON.stringify(metadata, null, 2),
     [metadata],
   );
   return (
-    <pre className="p-3 font-mono text-xs break-all whitespace-pre-wrap">
-      {json}
-    </pre>
+    <div>
+      <PanelToolbar raw={raw} onRaw={setRaw} copyText={json} labels={labels} />
+      {raw ? (
+        <pre className="p-3 font-mono text-xs break-all whitespace-pre-wrap">
+          {json}
+        </pre>
+      ) : (
+        <div className="p-2">
+          <JsonTree
+            value={metadata}
+            formatNumber={formatNumber}
+            showMore={labels.showMore}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A tab's bar: the raw switch and a copy of the raw text. */
+function PanelToolbar({
+  raw,
+  onRaw,
+  copyText,
+  labels,
+}: {
+  raw: boolean;
+  onRaw: (raw: boolean) => void;
+  copyText: string;
+  labels: SessionEventInspectorLabels;
+}) {
+  return (
+    <div className="bg-background sticky top-0 z-10 flex items-center justify-end gap-3 border-b px-3 py-1.5">
+      <label className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1.5 text-xs select-none">
+        <input
+          type="checkbox"
+          checked={raw}
+          onChange={(event) => onRaw(event.target.checked)}
+          className="accent-primary size-3.5"
+        />
+        {labels.raw}
+      </label>
+      <CopyButton text={copyText} label={labels.copy} className="static" />
+    </div>
   );
 }
 
