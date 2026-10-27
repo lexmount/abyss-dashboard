@@ -40,7 +40,13 @@ import {
 import { apiErrorKind } from "@/api/http";
 import { BaseLayout } from "@/components/layouts/base-layout";
 import { QueryErrorCard } from "@/components/query-error";
-import { Card, CardContent } from "@lexmount.com/abyss-ui";
+import {
+  Card,
+  CardContent,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 import { eventInspectorLabels } from "@/lib/inspector-labels";
@@ -791,7 +797,7 @@ function SessionStats({
     {
       label: t("sessions.detail.model"),
       value: header.models.join(", ") || "—",
-      title: header.models.join("\n"),
+      full: header.models.join("\n"),
       mono: true,
     },
   ];
@@ -803,18 +809,53 @@ function SessionStats({
           className={cn("min-w-0 px-4 py-3", index > 0 && "md:border-l")}
         >
           <dt className="text-muted-foreground text-xs">{stat.label}</dt>
-          <dd
+          <TruncatedValue
+            value={stat.value}
+            full={stat.full}
             className={cn(
-              "mt-1 truncate text-sm font-medium tabular-nums",
+              "mt-1 text-sm font-medium tabular-nums",
               stat.mono && "font-mono text-[13px]",
             )}
-            title={stat.title}
-          >
-            {stat.value}
-          </dd>
+          />
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * A value cut to one line, shown whole on hover while it does not fit, so
+ * nothing it holds is lost to the cut.
+ */
+function TruncatedValue({
+  value,
+  full = value,
+  className,
+}: {
+  value: string;
+  /** The whole value for the hover, when it reads better than `value`. */
+  full?: string;
+  className: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLElement>(null);
+  return (
+    <Tooltip
+      open={open}
+      onOpenChange={(next) => {
+        const element = ref.current;
+        setOpen(next && element !== null && element.scrollWidth > element.clientWidth);
+      }}
+    >
+      <TooltipTrigger asChild>
+        <dd ref={ref} className={cn("truncate", className)}>
+          {value}
+        </dd>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-sm whitespace-pre-line break-all">
+        {full}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
