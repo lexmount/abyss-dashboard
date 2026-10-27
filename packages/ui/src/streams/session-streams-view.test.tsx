@@ -49,6 +49,7 @@ const labels: SessionStreamsLabels = {
   reasoningTokens: "Reasoning",
   incomplete: (completeness) => `Incomplete (${completeness})`,
   newPart: "New from here",
+  backToTop: "Back to top",
   loadingConversation: "Loading event content...",
   omitted: (count) => `${count} entries left out`,
   omittedMatches: (count, matches) =>
@@ -58,8 +59,6 @@ const labels: SessionStreamsLabels = {
   showLess: "Show less",
   characters: (count) => `${count} characters`,
   showRest: (count) => `Show all (${count} characters)`,
-  input: "Input",
-  output: "Result",
   noText: "No text",
   roleSystem: "System prompt",
   roleDeveloper: "Developer instructions",
@@ -512,5 +511,33 @@ describe("SessionStreamsView, with events to open", () => {
       exchanges: [{ head: "a", state: { status: "error", message: "Gone" } }],
     });
     expect(screen.getByText("Gone")).toBeInTheDocument();
+  });
+});
+
+describe("Back to top", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("shows once the page scrolls past the view, and scrolls back to the top", () => {
+    let top = 120;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      () => ({ top }) as DOMRect,
+    );
+    const scrollTo = vi.fn();
+    vi.stubGlobal("scrollTo", scrollTo);
+    renderView();
+    expect(screen.queryByRole("button", { name: "Back to top" })).toBeNull();
+
+    top = -400;
+    fireEvent.scroll(window);
+    fireEvent.click(screen.getByRole("button", { name: "Back to top" }));
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "smooth" });
+
+    top = 0;
+    fireEvent.scroll(window);
+    expect(screen.queryByRole("button", { name: "Back to top" })).toBeNull();
+    vi.unstubAllGlobals();
   });
 });

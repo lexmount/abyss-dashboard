@@ -396,7 +396,7 @@ function Incomplete({
 }
 
 /**
- * Entries of a card along a rule: each run the preview gives, the entries
+ * Entries of a card, one row each: each run the preview gives, the entries
  * left out between and after the runs, and a mark where a request's new
  * part begins.
  */
@@ -468,19 +468,13 @@ function EntryList({
     next = chunk.from + chunk.entries.length;
   }
   gap(next, preview.entries_total);
-  return (
-    <div className="px-2 py-2 sm:px-3">
-      <div className="border-border ml-1 space-y-1 border-l-2 py-1 pl-2 sm:pl-3">
-        {items}
-      </div>
-    </div>
-  );
+  return <div className="divide-y">{items}</div>;
 }
 
 /** Where a request's new part begins, after the context it carries. */
 function NewPartMark({ label }: { label: string }) {
   return (
-    <div className="text-ring flex items-center gap-2 py-1 text-[11px] font-medium">
+    <div className="text-ring flex items-center gap-2 px-4 py-1.5 text-[11px] font-medium">
       <span className="bg-ring/30 h-px flex-1" />
       {label}
       <span className="bg-ring/30 h-px flex-1" />
@@ -511,24 +505,24 @@ function LeftOut({
       ? labels.omittedMatches(formatNumber(count), formatNumber(matches))
       : labels.omitted(formatNumber(count));
   const frame = cn(
-    "text-muted-foreground w-full rounded-lg border border-dashed px-2.5 py-1.5 text-left text-xs",
-    matches > 0 && "border-ring/50",
+    "text-muted-foreground w-full px-4 py-2 text-left text-xs",
+    matches > 0 && "text-ring",
   );
   return (
-    <div className="py-1">
+    <div>
       {whole === null ? (
         <p className={frame}>{text}</p>
       ) : whole.loading ? (
-        <p className="text-muted-foreground text-xs">
+        <p className="text-muted-foreground px-4 py-2 text-xs">
           {labels.loadingConversation}
         </p>
       ) : whole.error !== null ? (
-        <LoadError error={whole.error} className="" labels={labels} />
+        <LoadError error={whole.error} className="px-4 py-2" labels={labels} />
       ) : (
         <button
           type="button"
           onClick={whole.load}
-          className={cn(frame, "hover:text-foreground hover:bg-muted/60")}
+          className={cn(frame, "hover:text-foreground hover:bg-muted/40")}
         >
           {text}
         </button>
@@ -636,7 +630,6 @@ const EntryBlock = React.memo(function EntryBlock({
   const Chevron = expanded ? ChevronDown : ChevronRight;
   const activeField = (field: StreamOccurrence["field"]) =>
     active?.field === field ? active.occurrence : undefined;
-  const ring = active ? "ring-ring ring-2" : null;
   // The entry opens its event; the controls inside it act on their own.
   const stop = (event: React.SyntheticEvent) => event.stopPropagation();
   const toggle = (event: React.SyntheticEvent) => {
@@ -690,70 +683,10 @@ const EntryBlock = React.memo(function EntryBlock({
     </button>
   ) : null;
 
-  if (!prose) {
-    const tool = entry.role === "tool_call" || entry.role === "tool_result";
-    return (
-      <div className="py-1">
-        <div
-          {...selectable}
-          className={cn(
-            "rounded-lg border transition-colors outline-none",
-            clickable && "cursor-pointer",
-            collapsed
-              ? cn("bg-muted/30", clickable && "hover:bg-muted/60")
-              : "bg-card",
-            ring,
-          )}
-        >
-          <div className="flex flex-wrap items-center gap-2 px-2.5 py-2 text-xs">
-            <span className="text-muted-foreground shrink-0">{label}</span>
-            {entry.name ? (
-              <span className="shrink-0 font-medium">
-                <Highlighted
-                  text={entry.name}
-                  ranges={matches?.name}
-                  active={activeField("name")}
-                />
-              </span>
-            ) : null}
-            <span className="text-muted-foreground ml-auto shrink-0 tabular-nums">
-              {labels.characters(
-                formatNumber(entry.text_length ?? text.length),
-              )}
-            </span>
-          </div>
-          <div className="cursor-auto space-y-2 border-t p-2.5" onClick={stop}>
-            {tool ? (
-              <ContentBlock
-                label={
-                  entry.role === "tool_call" ? labels.input : labels.output
-                }
-                text={visibleText}
-                collapsed={collapsed}
-                ranges={matches?.text}
-                active={activeField("text")}
-              />
-            ) : (
-              <SearchScrollBox
-                className={cn(
-                  "font-mono text-xs break-words whitespace-pre-wrap",
-                  collapsed ? "line-clamp-6" : "max-h-96 overflow-auto",
-                )}
-                text={visibleText}
-                collapsed={collapsed}
-                ranges={matches?.text}
-                active={activeField("text")}
-              />
-            )}
-            {rest}
-            {more}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const body = text ? (
+  const tool = entry.role === "tool_call" || entry.role === "tool_result";
+  const body = !text ? (
+    <div className="text-muted-foreground text-xs italic">{labels.noText}</div>
+  ) : prose ? (
     <div
       className={cn(
         "text-sm leading-relaxed break-words whitespace-pre-wrap",
@@ -767,43 +700,54 @@ const EntryBlock = React.memo(function EntryBlock({
       />
     </div>
   ) : (
-    <div className="text-muted-foreground text-xs italic">{labels.noText}</div>
+    <SearchScrollBox
+      className={cn(
+        "font-mono text-xs whitespace-pre-wrap",
+        tool ? "break-all" : "break-words",
+        collapsed ? "line-clamp-6" : "max-h-96 overflow-auto",
+      )}
+      // A trailing line break would leave a blank line under the text.
+      text={visibleText.trimEnd()}
+      collapsed={collapsed}
+      ranges={matches?.text}
+      active={activeField("text")}
+    />
   );
 
-  if (entry.role === "user") {
-    return (
-      <div className="py-1">
-        <div
-          {...selectable}
+  // Every entry is one row: what it is, then its text.
+  return (
+    <div
+      {...selectable}
+      className={cn(
+        "px-4 py-2.5 transition-colors outline-none",
+        entry.role === "user" && "shadow-[inset_3px_0_0_var(--color-ring)]",
+        clickable && "hover:bg-muted/40 cursor-pointer",
+        active && "ring-ring ring-2 ring-inset",
+      )}
+    >
+      <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs">
+        <span
           className={cn(
-            "border-ring/20 bg-ring/[0.06] rounded-lg border px-3.5 py-2.5 outline-none",
-            clickable && "cursor-pointer",
-            ring,
+            "shrink-0 font-medium",
+            entry.role === "user" ? "text-ring" : "text-muted-foreground",
           )}
         >
-          <div className="text-ring text-xs font-medium">{label}</div>
-          <div className="mt-1.5">{body}</div>
-          {rest}
-          {more}
-        </div>
-      </div>
-    );
-  }
-
-  // Replies read as plain prose.
-  return (
-    <div className="py-1">
-      <div
-        {...selectable}
-        className={cn(
-          "rounded-lg px-1 py-1 outline-none",
-          clickable && "hover:bg-muted/40 cursor-pointer",
-          ring,
-        )}
-      >
-        <div className="text-muted-foreground mb-1.5 text-xs font-medium">
           {label}
-        </div>
+        </span>
+        {entry.name ? (
+          <span className="shrink-0 font-medium">
+            <Highlighted
+              text={entry.name}
+              ranges={matches?.name}
+              active={activeField("name")}
+            />
+          </span>
+        ) : null}
+        <span className="text-muted-foreground ml-auto shrink-0 tabular-nums">
+          {labels.characters(formatNumber(entry.text_length ?? text.length))}
+        </span>
+      </div>
+      <div className="cursor-auto" onClick={prose ? undefined : stop}>
         {body}
         {rest}
         {more}
@@ -848,42 +792,6 @@ function RestOfText({
     >
       {labels.showRest(formatNumber(length))}
     </button>
-  );
-}
-
-/** A tool call's input or a tool result's output, under its label. */
-function ContentBlock({
-  label,
-  text,
-  collapsed,
-  ranges,
-  active,
-}: {
-  label: string;
-  text: string;
-  collapsed: boolean;
-  ranges: readonly TextRange[] | undefined;
-  /** Index of the occurrence being viewed within this text, if any. */
-  active?: number;
-}) {
-  return (
-    <div className="bg-muted/40 overflow-hidden rounded-md border">
-      <div className="text-muted-foreground border-b px-3 py-1 text-[11px] font-medium tracking-wide uppercase">
-        {label}
-      </div>
-      <div className="p-3">
-        <SearchScrollBox
-          className={cn(
-            "font-mono text-xs break-all whitespace-pre-wrap",
-            collapsed ? "line-clamp-6" : "max-h-96 overflow-auto",
-          )}
-          text={text}
-          collapsed={collapsed}
-          ranges={ranges}
-          active={active}
-        />
-      </div>
-    </div>
   );
 }
 

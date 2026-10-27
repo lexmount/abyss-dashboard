@@ -1,4 +1,6 @@
 import * as React from "react";
+import { ArrowUp } from "lucide-react";
+import { Button } from "../components/button";
 import { Card, CardContent } from "../components/card";
 import {
   ExchangeCard,
@@ -138,6 +140,8 @@ export function SessionStreamsView({
     columnRef,
     exchanges.some(({ state }) => state.status === "loading"),
   );
+  const viewRef = React.useRef<HTMLDivElement>(null);
+  const scrolledPast = useScrolledPast(viewRef);
   const card: ExchangeCardContext = {
     onOpenEvent,
     loadConversation,
@@ -148,7 +152,10 @@ export function SessionStreamsView({
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
+    <div
+      ref={viewRef}
+      className="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]"
+    >
       <Card className="overflow-hidden p-0 lg:sticky lg:top-14 lg:self-start">
         <div className="text-muted-foreground border-b px-3 py-2 text-xs">
           {labels.summary(turns.filter((turn) => turn.turn !== null).length)}
@@ -167,9 +174,11 @@ export function SessionStreamsView({
         />
       </Card>
       <div ref={cardsRef} className="flex min-w-0 items-start gap-4">
+        {/* Short of room, the inspector gives way before the cards do, down
+            to its own floor; the cards keep theirs. */}
         <div
           ref={columnRef}
-          className="min-w-0 flex-1 space-y-3"
+          className="min-w-[min(28rem,calc(50%-0.5rem))] flex-1 space-y-3"
           style={{ minHeight: held }}
         >
           {exchanges.map(({ head, state }, index) => (
@@ -194,15 +203,45 @@ export function SessionStreamsView({
               />
             </React.Fragment>
           ))}
+          {scrolledPast ? (
+            // Takes no room: it floats at the column's lower right.
+            <div className="pointer-events-none sticky bottom-6 h-0">
+              <Button
+                variant="outline"
+                size="icon"
+                className="pointer-events-auto absolute right-0 bottom-0 rounded-full shadow-md"
+                aria-label={labels.backToTop}
+                title={labels.backToTop}
+                onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+              >
+                <ArrowUp className="size-4" />
+              </Button>
+            </div>
+          ) : null}
         </div>
         {inspector ? (
-          <div className="sticky top-14 flex h-[calc(100svh-4.5rem)] shrink-0">
+          <div className="sticky top-14 flex h-[calc(100svh-4.5rem)] min-w-[min(20rem,calc(50%-0.5rem))] shrink">
             {inspector}
           </div>
         ) : null}
       </div>
     </div>
   );
+}
+
+/** Whether the page has scrolled past the top of `ref`'s element. */
+function useScrolledPast(ref: React.RefObject<HTMLElement | null>): boolean {
+  const [past, setPast] = React.useState(false);
+  React.useEffect(() => {
+    const update = () => {
+      const top = ref.current?.getBoundingClientRect().top;
+      setPast(top !== undefined && top < 0);
+    };
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    return () => window.removeEventListener("scroll", update);
+  }, [ref]);
+  return past;
 }
 
 /**

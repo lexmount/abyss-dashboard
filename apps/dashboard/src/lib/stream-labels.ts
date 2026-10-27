@@ -38,6 +38,7 @@ export function sessionStreamsLabels(t: Translate): SessionStreamsLabels {
     reasoningTokens: t("sessions.trajectory.reasoningTokens"),
     incomplete: (completeness) => t("sessions.event.incomplete", { completeness }),
     newPart: t("sessions.streams.newPart"),
+    backToTop: t("sessions.streams.backToTop"),
     loadingConversation: t("sessions.event.loading"),
     omitted: (count) => t("sessions.streams.omitted", { count }),
     omittedMatches: (count, matches) =>
@@ -50,8 +51,6 @@ export function sessionStreamsLabels(t: Translate): SessionStreamsLabels {
     showLess: t("sessions.trajectory.showLess"),
     characters: (count) => t("sessions.event.characters", { count }),
     showRest: (count) => t("sessions.event.showMore", { count }),
-    input: t("sessions.trajectory.input"),
-    output: t("sessions.trajectory.output"),
     noText: t("sessions.event.noText"),
     roleSystem: t("sessions.trajectory.system"),
     roleDeveloper: t("sessions.trajectory.developer"),

@@ -261,7 +261,7 @@ export function SessionEventInspector({
     <aside
       aria-label={labels.title}
       className={cn(
-        "bg-background flex min-w-0 flex-col max-lg:absolute max-lg:inset-0 max-lg:z-10 lg:relative lg:w-(--event-inspector-width) lg:shrink-0 lg:border-l",
+        "bg-background flex min-w-0 flex-col max-lg:absolute max-lg:inset-0 max-lg:z-10 lg:relative lg:w-(--event-inspector-width) lg:shrink lg:border-l",
         className,
       )}
       style={{ "--event-inspector-width": `${width}px` } as React.CSSProperties}

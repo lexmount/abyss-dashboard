@@ -49,6 +49,8 @@ export interface SessionStreamsLabels {
   incomplete: (completeness: string) => string;
   /** Where a request's new part begins. */
   newPart: string;
+  /** The control that scrolls the page back to its top. */
+  backToTop: string;
   /** While an event's whole conversation loads. */
   loadingConversation: string;
   /**
@@ -67,9 +69,6 @@ export interface SessionStreamsLabels {
   characters: (count: string) => string;
   /** Loads the rest of a text cut short; `count` is its whole length. */
   showRest: (count: string) => string;
-  /** A tool call's input and a tool result's output. */
-  input: string;
-  output: string;
   noText: string;
 
   /** Entry roles; a role not listed here shows as sent. */
