@@ -350,80 +350,34 @@ describe("Entry text folding, for every role", () => {
     ).not.toBeInTheDocument();
   });
 
-  it.each(roles)("previews and toggles long %s text", (role) => {
-    for (const text of [
-      "opening " + "x".repeat(2500) + " tail-marker",
-      Array.from({ length: 9 }, (_, index) => `line ${index + 1}`).join("\n"),
-    ]) {
-      const entry = renderEntry({ role, text });
-      const tail = text.endsWith("tail-marker") ? "tail-marker" : "line 9";
-      expect(entry.textContent).toContain(text.slice(0, 7));
-      expect(entry.textContent).not.toContain(tail);
-      expect(entry.querySelector(".line-clamp-6")).not.toBeNull();
-      fireEvent.click(within(entry).getByRole("button", { name: "Show more" }));
-      expect(entry.textContent).toContain(tail);
-      expect(entry.querySelector(".line-clamp-6")).toBeNull();
-      const scrollBox = entry.querySelector("pre");
-      if (scrollBox) scrollBox.scrollTop = 120;
-      fireEvent.click(within(entry).getByRole("button", { name: "Show less" }));
-      expect(entry.textContent).not.toContain(tail);
-      if (scrollBox) expect(scrollBox.scrollTop).toBe(0);
-      cleanup();
-    }
+  it.each(roles)("shows %s text on one line, from its start", (role) => {
+    const text = "opening\nsecond " + "x".repeat(2500) + " tail-marker";
+    const entry = renderEntry({ role, text, text_length: 4000 });
+    const line = entry.querySelector<HTMLElement>("[title]")!;
+    expect(line.textContent?.startsWith("opening\nsecond x")).toBe(true);
+    expect(entry.textContent).not.toContain("tail-marker");
+    // The whole text is read in the inspector; the row has nothing to open.
+    expect(within(entry).queryByRole("button")).not.toBeInTheDocument();
+    expect(entry).toHaveTextContent("4000 characters");
   });
 
-  it.each(roles)(
-    "opens %s text when the search hits past the collapsed start",
-    (role) => {
-      const text = "x".repeat(2500) + "needle";
-      const entry = renderEntry(
-        { role, text },
-        {
-          search: {
-            query: "needle",
-            matches: new Map([
-              ["r1", new Map([[0, { name: [], text: [[2500, 2506]] }]])],
-            ]),
-            segmentMatches: null,
-            active: null,
-            revealRequest: 0,
-          },
+  it("marks the search's hits on an entry's line", () => {
+    const entry = renderEntry(
+      { role: "tool_result", text: "before needle after" },
+      {
+        search: {
+          query: "needle",
+          matches: new Map([
+            ["r1", new Map([[0, { name: [], text: [[7, 13]] }]])],
+          ]),
+          segmentMatches: null,
+          active: null,
+          revealRequest: 0,
         },
-      );
-      expect(within(entry).getByText("needle").tagName).toBe("MARK");
-      expect(entry.querySelector(".line-clamp-6")).toBeNull();
-      fireEvent.click(within(entry).getByRole("button", { name: "Show less" }));
-      expect(within(entry).queryByText("needle")).not.toBeInTheDocument();
-    },
-  );
-
-  it.each([60, 2400])(
-    "loads a tool result from a %i-character preview without opening its inspector",
-    async (previewLength) => {
-      const text = "x".repeat(2500) + "loaded-tail";
-      const onOpenEvent = vi.fn();
-      const loadConversation = vi.fn(() =>
-        Promise.resolve({
-          ...whole("r1"),
-          entries_total: 1,
-          chunks: [{ from: 0, entries: [{ role: "tool_result", text }] }],
-        }),
-      );
-      const entry = renderEntry(
-        {
-          role: "tool_result",
-          text: text.slice(0, previewLength),
-          text_length: text.length,
-        },
-        { loadConversation, onOpenEvent },
-      );
-      expect(loadConversation).not.toHaveBeenCalled();
-      fireEvent.click(within(entry).getByRole("button", { name: "Show more" }));
-      await waitFor(() => expect(entry.textContent).toContain("loaded-tail"));
-      expect(loadConversation).toHaveBeenCalledExactlyOnceWith("r1");
-      expect(onOpenEvent).not.toHaveBeenCalled();
-    },
-  );
+      },
+    );
+    expect(within(entry).getByText("needle").tagName).toBe("MARK");
+  });
 });
 
 describe("SessionStreamsView, with events to open", () => {
@@ -446,7 +400,8 @@ describe("SessionStreamsView, with events to open", () => {
     expect(reply).toHaveAttribute("role", "button");
     expect(reply).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(reply);
-    expect(onOpenEvent).toHaveBeenLastCalledWith("s1");
+    // At the entry chosen.
+    expect(onOpenEvent).toHaveBeenLastCalledWith("s1", 0);
   });
 
   it("shows the inspector the host gives beside the cards", () => {

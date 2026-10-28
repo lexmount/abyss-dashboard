@@ -316,6 +316,42 @@ describe("SessionEventInspector", () => {
     expect(entry).not.toHaveTextContent("line 59");
   });
 
+  it("opens at the entry the reader chose, whole", () => {
+    const long = Array.from({ length: 60 }, (_, line) => `line ${line}`).join(
+      "\n",
+    );
+    const event = eventWithMetadata("request", {
+      headers: [{ name: "x-a", value: "1" }],
+      conversation: {
+        entries: [
+          { role: "system", text: "be brief" },
+          { role: "tool_result", text: long },
+        ],
+      },
+    });
+    const { rerender } = renderInspector({ status: "ready", event });
+    fireEvent.click(screen.getByRole("tab", { name: "Request headers (1)" }));
+
+    const inspector = (request: number) => (
+      <SessionEventInspector
+        detail={{ status: "ready", event }}
+        focusEntry={{ index: 1, request }}
+        attachmentUrl={(id) => `/attachments/${id}`}
+        formatDateTime={(value) => value}
+        formatNumber={(value) => value.toString()}
+        labels={labels}
+      />
+    );
+    rerender(inspector(1));
+    // Back on the content, the chosen entry marked and whole.
+    const [first, chosen] = within(screen.getByRole("tabpanel")).getAllByRole(
+      "listitem",
+    );
+    expect(first).not.toHaveAttribute("data-focused");
+    expect(chosen).toHaveAttribute("data-focused");
+    expect(chosen).toHaveTextContent("line 59");
+  });
+
   it("adds a host's tabs after the content and keeps the chosen tab across events", () => {
     const tabs = [
       { id: "facts", label: "Facts", content: <p>derived facts</p> },

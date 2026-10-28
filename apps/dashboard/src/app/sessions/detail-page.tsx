@@ -79,6 +79,12 @@ export default function SessionDetailPage() {
   const anchoredEventId = searchParams.get(eventSearchParam);
   const inspectedEventId = searchParams.get(inspectSearchParam);
   const segment = searchParams.get(segmentSearchParam);
+  // The entry the reader chose last, which the inspector opens at.
+  const [focusedEntry, setFocusedEntry] = React.useState<{
+    eventPk: string;
+    index: number;
+    request: number;
+  } | null>(null);
 
   const headerQuery = useQuery({
     queryKey: ["session-header", sessionPk],
@@ -340,9 +346,18 @@ export default function SessionDetailPage() {
               anchoredExchangeId={eventLocation?.exchange ?? null}
               selectedEventId={inspectedEventId}
               onSelectSegment={selectSegment}
-              onOpenEvent={(eventPk) =>
-                updateParams({ [inspectSearchParam]: eventPk }, { replace: true })
-              }
+              onOpenEvent={(eventPk, entryIndex) => {
+                setFocusedEntry((last) =>
+                  entryIndex === undefined
+                    ? null
+                    : {
+                        eventPk,
+                        index: entryIndex,
+                        request: (last?.request ?? 0) + 1,
+                      },
+                );
+                updateParams({ [inspectSearchParam]: eventPk }, { replace: true });
+              }}
               loadConversation={loadConversation}
               formatTime={formatTime}
               formatDateTime={formatDateTime}
@@ -354,6 +369,9 @@ export default function SessionDetailPage() {
                   <SessionEventInspector
                     key={inspectedEventId}
                     detail={detail}
+                    focusEntry={
+                      focusedEntry?.eventPk === inspectedEventId ? focusedEntry : null
+                    }
                     properties={
                       <>
                         <EventLocationProperties

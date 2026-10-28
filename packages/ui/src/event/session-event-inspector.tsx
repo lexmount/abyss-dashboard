@@ -105,6 +105,12 @@ export interface SessionEventInspectorProps {
   /** Host-provided derived properties, shown before the recorded scalar fields. */
   properties?: React.ReactNode;
   /**
+   * An entry of the event's conversation the reader chose, by its index: the
+   * content tab opens scrolled to it, whole and marked. `request` is new each
+   * time the reader chooses, so choosing the same entry again goes back to it.
+   */
+  focusEntry?: { index: number; request: number } | null;
+  /**
    * `panel` (default) is a resizable side panel with its own header and close
    * button. `embedded` shows only the tabs, for a host that already shows the
    * event's side, model, and time, such as a card in a list.
@@ -125,6 +131,7 @@ export function SessionEventInspector({
   heading,
   extraTabs = [],
   properties,
+  focusEntry = null,
   variant = "panel",
   onClose,
   attachmentUrl,
@@ -136,6 +143,13 @@ export function SessionEventInspector({
   const [width, setWidth] = React.useState(INSPECTOR_DEFAULT_WIDTH_PX);
   // The tab chosen last stays as the panel shows other events.
   const [chosenTab, setTab] = React.useState("content");
+  // Choosing an entry shows it, in the content tab.
+  const focusRequest = focusEntry?.request;
+  React.useEffect(() => {
+    if (focusRequest !== undefined) {
+      setTab("content");
+    }
+  }, [focusRequest]);
   const event = detail.status === "ready" ? detail.event : null;
   const headers = React.useMemo(
     () => (event ? recordedHeaders(event.metadata) : []),
@@ -223,6 +237,7 @@ export function SessionEventInspector({
         conversation ? (
           <ConversationPanel
             conversation={conversation}
+            focusEntry={focusEntry}
             formatNumber={formatNumber}
             labels={labels}
           />
@@ -424,10 +439,12 @@ function entryPreview(text: string): string | null {
 /** The conversation's entries in recorded order, one per protocol block. */
 function ConversationPanel({
   conversation,
+  focusEntry,
   formatNumber,
   labels,
 }: {
   conversation: Conversation;
+  focusEntry: { index: number; request: number } | null;
   formatNumber: (value: number) => string;
   labels: SessionEventInspectorLabels;
 }) {
@@ -455,6 +472,9 @@ function ConversationPanel({
               key={index}
               entry={entry}
               instruction={index < instructions}
+              focusRequest={
+                focusEntry?.index === index ? focusEntry.request : null
+              }
               formatNumber={formatNumber}
               labels={labels}
             />
@@ -468,20 +488,46 @@ function ConversationPanel({
 function ConversationEntryItem({
   entry,
   instruction,
+  focusRequest,
   formatNumber,
   labels,
 }: {
   entry: ConversationEntry;
   /** Part of the system prompt the conversation starts with. */
   instruction: boolean;
+  /** The reader's latest choice of this entry, or null when not chosen. */
+  focusRequest: number | null;
   formatNumber: (value: number) => string;
   labels: SessionEventInspectorLabels;
 }) {
-  const [expanded, setExpanded] = React.useState(false);
+  const [expanded, setExpanded] = React.useState(focusRequest !== null);
   const preview = React.useMemo(() => entryPreview(entry.text), [entry.text]);
   const tool = entry.role === "tool_call" || entry.role === "tool_result";
+  const ref = React.useRef<HTMLLIElement>(null);
+  // A chosen entry opens whole and comes to the top of the tab, which
+  // scrolls on its own; the page stays where it is.
+  React.useLayoutEffect(() => {
+    const item = ref.current;
+    if (focusRequest === null || !item) {
+      return;
+    }
+    setExpanded(true);
+    const panel = item.closest<HTMLElement>("[role=tabpanel]");
+    if (panel) {
+      panel.scrollTop +=
+        item.getBoundingClientRect().top - panel.getBoundingClientRect().top;
+    }
+  }, [focusRequest]);
   return (
-    <li className="px-3 py-2">
+    <li
+      ref={ref}
+      data-focused={focusRequest !== null || undefined}
+      className={cn(
+        "px-3 py-2",
+        focusRequest !== null &&
+          "bg-ring/5 shadow-[inset_3px_0_0_var(--color-ring)]",
+      )}
+    >
       <div className="flex flex-wrap items-center gap-2 pr-10 text-xs">
         <Badge variant={instruction ? "secondary" : "outline"}>
           {entryLabel(entry.role, instruction, labels)}
