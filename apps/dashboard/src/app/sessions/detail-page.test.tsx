@@ -423,23 +423,13 @@ describe("SessionDetailPage subagents", () => {
     return (await screen.findByTestId("subagent-properties")) as HTMLElement;
   };
 
-  it("lists the subagents a turn spawned above its exchanges and in its event", async () => {
+  it("leaves the subagents a segment spawned to the timeline", async () => {
     renderPage("/sessions/s-1?segment=a");
-    const spawned = await waitFor(() => {
-      const found = document.querySelector<HTMLElement>("[data-spawned]");
-      expect(found).toBeInTheDocument();
-      return found as HTMLElement;
-    });
-    expect(spawned).toHaveTextContent("Subagents spawned");
-
     const properties = await openProperties("r1");
-    expect(properties).toHaveTextContent("Subagents spawned");
+
     expect(properties).toHaveTextContent("Declared ids");
-    await userEvent.click(
-      within(properties).getByRole("button", { name: "agent-7 · Turn 1" }),
-    );
-    expect(screen.getByTestId("location")).toHaveTextContent("?segment=c");
-    expect(screen.getByTestId("location")).not.toHaveTextContent("inspect=");
+    expect(properties).not.toHaveTextContent("agent-7");
+    expect(document.querySelector("[data-spawned]")).toBeNull();
   });
 
   it("shows where a subagent was derived from, by time, and the ids it declared", async () => {

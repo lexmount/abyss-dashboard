@@ -7,7 +7,6 @@ import {
   sessionMatches,
   SessionStreamsView,
   shownSegments,
-  spawnedSubagents,
   StreamSearchBox,
   streamOccurrences,
   turnHead,
@@ -203,12 +202,6 @@ export default function SessionDetailPage() {
     [queryClient],
   );
   const streamsLabels = React.useMemo(() => sessionStreamsLabels(t), [t]);
-  const streamSegments = streamsQuery.data?.segments;
-  // The subagents each segment spawned, as the timeline places them.
-  const spawned = React.useMemo(
-    () => spawnedSubagents(streamSegments ?? []),
-    [streamSegments],
-  );
   const selectSegment = (head: string) =>
     updateParams({
       [segmentSearchParam]: head,
@@ -376,7 +369,6 @@ export default function SessionDetailPage() {
                           }
                           exchange={inspectedExchange}
                           segments={streamsQuery.data.segments}
-                          spawned={spawned}
                           onSelectSegment={selectSegment}
                         />
                       </>
@@ -437,15 +429,14 @@ function EventLocationProperties({
 
 /**
  * Where the inspected event's segment stands among the session's subagents:
- * the turn it was spawned from and how it was attached there, the subagents
- * it spawned, and the ids the event's exchange declared, under the fields'
- * own names. Moving to a segment is not opening an event.
+ * the turn it was spawned from and how it was attached there, and the ids
+ * the event's exchange declared, under the fields' own names. Moving to a
+ * segment is not opening an event.
  */
 function EventSubagentProperties({
   segment,
   exchange,
   segments,
-  spawned,
   onSelectSegment,
 }: {
   /** Head of the event's segment, once known. */
@@ -453,7 +444,6 @@ function EventSubagentProperties({
   /** The event's exchange, once the segment's exchanges have loaded. */
   exchange: SegmentExchange | undefined;
   segments: readonly StreamSegment[];
-  spawned: ReadonlyMap<string, StreamSegment[]>;
   onSelectSegment: (head: string) => void;
 }) {
   const { t, formatNumber } = useI18n();
@@ -462,8 +452,7 @@ function EventSubagentProperties({
     own?.attached_to == null
       ? undefined
       : segments.find((item) => item.head === own.attached_to);
-  const children = segment === null ? [] : (spawned.get(segment) ?? []);
-  if (!anchor && children.length === 0 && !exchange) {
+  if (!anchor && !exchange) {
     return null;
   }
   const turn = (item: StreamSegment) => turnName(t, formatNumber, item.turn);
@@ -499,23 +488,6 @@ function EventSubagentProperties({
                 {t("sessions.streams.byTime")}
               </span>
             ) : null}
-          </dd>
-        </>
-      ) : null}
-      {children.length > 0 ? (
-        <>
-          <dt className="text-muted-foreground">{t("sessions.event.spawned")}</dt>
-          <dd className="grid gap-1">
-            {children.map((child) =>
-              link(
-                <>
-                  <span className="font-mono">{child.subagent_id}</span>
-                  {" · "}
-                  {turn(child)}
-                </>,
-                child.head,
-              ),
-            )}
           </dd>
         </>
       ) : null}

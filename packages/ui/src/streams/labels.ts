@@ -26,8 +26,6 @@ export interface SessionStreamsLabels {
   subagent: string;
   /** An executor's side requests, how many. */
   sideRequests: (count: string) => string;
-  /** Before the subagents a segment spawned, above its exchanges. */
-  spawned: string;
   /** While the chosen segment's exchanges load. */
   loading: string;
 

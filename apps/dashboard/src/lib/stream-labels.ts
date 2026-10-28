@@ -21,7 +21,6 @@ export function sessionStreamsLabels(t: Translate): SessionStreamsLabels {
     mainLine: t("sessions.streams.mainLine"),
     subagent: t("sessions.streams.subagent"),
     sideRequests: (count) => t("sessions.streams.sideRequests", { count }),
-    spawned: t("sessions.streams.spawned"),
     loading: t("sessions.detail.loading"),
     request: t("common.request"),
     response: t("common.response"),

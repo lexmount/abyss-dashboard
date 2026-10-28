@@ -197,7 +197,6 @@ export const messages = {
     "sessions.streams.subagent": "子 agent",
     "sessions.streams.derived": "派生",
     "sessions.streams.byTime": "按时间",
-    "sessions.streams.spawned": "派出的子 agent",
     "sessions.streams.noEntries": "没有对话内容",
     "sessions.streams.requestMissing": "请求事件缺失",
     "sessions.streams.responseMissing": "响应事件缺失",
@@ -267,7 +266,6 @@ export const messages = {
     "sessions.event.segmentId": "段 ID",
     "sessions.event.exchangeId": "交换 ID",
     "sessions.event.derivedFrom": "派生自",
-    "sessions.event.spawned": "派出的子 agent",
     "sessions.event.declared": "声明的 id",
     "sessions.list.description":
       "共 {count} 个会话，按最后活跃时间排序。点击任意一行查看会话详情。",
@@ -504,7 +502,6 @@ export const messages = {
     "sessions.streams.subagent": "Subagent",
     "sessions.streams.derived": "Derived",
     "sessions.streams.byTime": "by time",
-    "sessions.streams.spawned": "Subagents spawned",
     "sessions.streams.noEntries": "No conversation entries",
     "sessions.streams.requestMissing": "The request event is missing",
     "sessions.streams.responseMissing": "The response event is missing",
@@ -574,7 +571,6 @@ export const messages = {
     "sessions.event.segmentId": "Segment ID",
     "sessions.event.exchangeId": "Exchange ID",
     "sessions.event.derivedFrom": "Derived from",
-    "sessions.event.spawned": "Subagents spawned",
     "sessions.event.declared": "Declared ids",
     "sessions.list.description":
       "{count} sessions, most recently active first. Select a row to open the session.",
@@ -811,7 +807,6 @@ export const messages = {
     "sessions.streams.subagent": "サブエージェント",
     "sessions.streams.derived": "派生",
     "sessions.streams.byTime": "時刻による",
-    "sessions.streams.spawned": "起動したサブエージェント",
     "sessions.streams.noEntries": "会話の内容はありません",
     "sessions.streams.requestMissing": "リクエストイベントがありません",
     "sessions.streams.responseMissing": "レスポンスイベントがありません",
@@ -882,7 +877,6 @@ export const messages = {
     "sessions.event.segmentId": "セグメント ID",
     "sessions.event.exchangeId": "交換 ID",
     "sessions.event.derivedFrom": "派生元",
-    "sessions.event.spawned": "起動したサブエージェント",
     "sessions.event.declared": "宣言された ID",
     "sessions.list.description":
       "全 {count} セッション（最終アクティビティ順）。行を選択すると詳細を開きます。",

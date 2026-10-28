@@ -32,7 +32,6 @@ const labels: SessionStreamsLabels = {
   mainLine: "Main line",
   subagent: "Subagent",
   sideRequests: (count) => `Side requests ×${count}`,
-  spawned: "Subagents spawned",
   loading: "Loading session timeline...",
   request: "Request",
   response: "Response",
@@ -284,50 +283,6 @@ describe("SessionStreamsView, read only", () => {
         card("r1").querySelector('[data-entry-index="4"]'),
       ).toBeInTheDocument(),
     );
-  });
-
-  it("still goes to the subagents a segment spawned", () => {
-    const subagent: StreamSegment = {
-      ...segments[0],
-      head: "c",
-      start: "2026-10-20T01:02:30Z",
-      end: "2026-10-20T01:02:40Z",
-      subagent_id: "agent-7",
-      attached_to: "a",
-      attached_by: "declared",
-    };
-    const first = turnOf(1, ["a"]);
-    const { onSelectSegment } = renderView({
-      segments: [...segments, subagent],
-      turns: [
-        {
-          ...first,
-          executors: [
-            ...first.executors,
-            { ...first.executors[0], subagent_id: "agent-7", main: ["c"] },
-          ],
-        },
-        turnOf(2, ["b"]),
-      ],
-    });
-
-    // The subagent sits under the turn it works in, after the main line.
-    const timeline = screen.getByRole("listbox", { name: "Turn timeline" });
-    const rows = timeline.querySelectorAll<HTMLElement>("[data-executor]");
-    expect([...rows].map((row) => row.dataset.executor)).toEqual([
-      "main",
-      "agent-7",
-    ]);
-    fireEvent.click(within(rows[1]).getByRole("button", { name: /agent-7/ }));
-    expect(onSelectSegment).toHaveBeenLastCalledWith("c");
-
-    const spawned = document.querySelector<HTMLElement>("[data-spawned]")!;
-    expect(spawned).toHaveTextContent("Subagents spawned");
-    // The subagent works within the turn that spawned it.
-    fireEvent.click(
-      within(spawned).getByRole("button", { name: "agent-7 · Turn 1" }),
-    );
-    expect(onSelectSegment).toHaveBeenLastCalledWith("c");
   });
 
   it("notes what is left out as text when the host cannot load it", () => {

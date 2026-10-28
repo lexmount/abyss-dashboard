@@ -76,35 +76,3 @@ export function turnSegmentOrder(
   }
   return order;
 }
-
-/**
- * The subagents each segment spawned: the first segment of each subagent's
- * tree, by the head of the segment it is attached to, in session order.
- * Trees follow `parent`; parents come before their children.
- */
-export function spawnedSubagents(
-  segments: readonly StreamSegment[],
-): Map<string, StreamSegment[]> {
-  const heads = new Set(segments.map((segment) => segment.head));
-  const rootOf = new Map<string, string>();
-  const spawned = new Map<string, StreamSegment[]>();
-  for (const segment of segments) {
-    const parentRoot =
-      segment.parent === null ? undefined : rootOf.get(segment.parent);
-    if (parentRoot !== undefined) {
-      rootOf.set(segment.head, parentRoot);
-      continue;
-    }
-    rootOf.set(segment.head, segment.head);
-    const anchor = segment.attached_to ?? null;
-    if (segment.subagent_id && anchor !== null && heads.has(anchor)) {
-      const list = spawned.get(anchor);
-      if (list) {
-        list.push(segment);
-      } else {
-        spawned.set(anchor, [segment]);
-      }
-    }
-  }
-  return spawned;
-}
