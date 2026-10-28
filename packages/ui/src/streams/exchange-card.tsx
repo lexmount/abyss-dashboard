@@ -496,33 +496,92 @@ function EntryList({
 const revealGapPx = 8;
 /** Height of the session's search, which the card headers stick under. */
 const searchBarPx = 44;
+/** Shortest and longest time the page takes to scroll to what it reveals. */
+const scrollMinMs = 300;
+const scrollMaxMs = 600;
+/** How long the rows a view went to glow. */
+const flashMs = 1600;
 
 /**
- * Scrolls the page to where a card's request begins its new part, just below
- * the card's sticky header; without that mark, to the card's end.
+ * Scrolls the page smoothly to where a card's request begins its new part,
+ * just below the card's sticky header, and lights up the new entries once
+ * the page stops; without that mark, to the card's end, lighting up its last
+ * entry.
  */
 function revealNewPart(article: HTMLElement) {
   const mark = article.querySelector<HTMLElement>("[data-new-part]");
+  const entries = [
+    ...article.querySelectorAll<HTMLElement>("[data-entry-index]"),
+  ];
+  let top: number;
+  let lit: HTMLElement[];
   if (mark) {
     const header =
       article.querySelector<HTMLElement>("[data-card-header]")?.offsetHeight ??
       0;
-    window.scrollTo({
-      top:
-        window.scrollY +
-        mark.getBoundingClientRect().top -
-        searchBarPx -
-        header -
-        revealGapPx,
-      behavior: "instant",
-    });
+    top =
+      window.scrollY +
+      mark.getBoundingClientRect().top -
+      searchBarPx -
+      header -
+      revealGapPx;
+    lit = entries.filter(
+      (entry) =>
+        mark.compareDocumentPosition(entry) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  } else {
+    top =
+      window.scrollY +
+      article.getBoundingClientRect().bottom -
+      window.innerHeight +
+      revealGapPx;
+    lit = entries.slice(-1);
+  }
+  scrollPage(top, () => flash(lit));
+}
+
+/**
+ * Scrolls the page to `top` easing in and out, longer for a longer way, then
+ * runs `then` as it arrives; at once when the reader asks for less motion.
+ */
+function scrollPage(top: number, then: () => void) {
+  const from = window.scrollY;
+  const distance = top - from;
+  const still =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (still || Math.abs(distance) < 1) {
+    window.scrollTo({ top, behavior: "instant" });
+    then();
     return;
   }
-  const bottom = article.getBoundingClientRect().bottom;
-  window.scrollTo({
-    top: window.scrollY + bottom - window.innerHeight + revealGapPx,
-    behavior: "instant",
-  });
+  const duration = Math.min(scrollMaxMs, scrollMinMs + Math.abs(distance) / 10);
+  const start = performance.now();
+  const step = (now: number) => {
+    const progress = Math.min(1, (now - start) / duration);
+    const eased =
+      progress < 0.5
+        ? 2 * progress * progress
+        : 1 - (-2 * progress + 2) ** 2 / 2;
+    window.scrollTo({ top: from + distance * eased, behavior: "instant" });
+    if (progress < 1) {
+      window.requestAnimationFrame(step);
+    } else {
+      then();
+    }
+  };
+  window.requestAnimationFrame(step);
+}
+
+/** Lights up `rows` once, starting over when they glow already. */
+function flash(rows: readonly HTMLElement[]) {
+  for (const row of rows) {
+    row.removeAttribute("data-flash");
+    // Reading the layout restarts the animation on the same row.
+    void row.offsetWidth;
+    row.setAttribute("data-flash", "");
+    window.setTimeout(() => row.removeAttribute("data-flash"), flashMs);
+  }
 }
 
 /** Where a request's new part begins, after the context it carries. */
@@ -689,7 +748,7 @@ const EntryBlock = React.memo(function EntryBlock({
     <div
       {...selectable}
       className={cn(
-        "flex min-w-0 items-center gap-2 px-3 py-1.5 text-xs transition-colors outline-none",
+        "data-[flash]:animate-jump-flash flex min-w-0 items-center gap-2 px-3 py-1.5 text-xs transition-colors outline-none",
         clickable && "hover:bg-muted/40 cursor-pointer",
         active && "ring-ring ring-2 ring-inset",
       )}

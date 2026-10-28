@@ -312,10 +312,30 @@ describe("SessionStreamsView, read only", () => {
     fireEvent.click(
       within(card("r1")).getByRole("button", { name: "2 entries left out" }),
     );
-    // Below the search (44px) and a gap of 8px; the header has no height here.
-    await waitFor(() =>
-      expect(scrollTo).toHaveBeenCalledWith({ top: 848, behavior: "instant" }),
+    // Below the search (44px) and a gap of 8px; the header has no height
+    // here. The page eases there, and the new entries glow as it arrives.
+    await waitFor(
+      () =>
+        expect(scrollTo).toHaveBeenLastCalledWith({
+          top: 848,
+          behavior: "instant",
+        }),
+      // The easing runs on animation frames, which a busy machine slows.
+      { timeout: 3000 },
     );
+    await waitFor(
+      () =>
+        expect(
+          card("r1").querySelector('[data-entry-index="1"]'),
+        ).toHaveAttribute("data-flash"),
+      { timeout: 3000 },
+    );
+    expect(card("r1").querySelector('[data-entry-index="1"]')).toHaveAttribute(
+      "data-flash",
+    );
+    expect(
+      card("r1").querySelector('[data-entry-index="0"]'),
+    ).not.toHaveAttribute("data-flash");
     rect.mockRestore();
     vi.unstubAllGlobals();
   });
