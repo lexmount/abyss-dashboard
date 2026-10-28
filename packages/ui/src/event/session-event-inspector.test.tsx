@@ -157,6 +157,7 @@ describe("SessionEventInspector", () => {
     renderInspector({
       status: "ready",
       event: eventWithMetadata("response", {
+        path: "/v1/messages?beta=true",
         headers: [
           { name: "set-cookie", value: "<redacted>" },
           { name: "content-type", value: "text/event-stream" },
@@ -178,6 +179,23 @@ describe("SessionEventInspector", () => {
       "x-rawgA== base64",
     ]);
     expect(within(items[3]).getByText("base64")).toBeInTheDocument();
+    // The request's path, which both events carry, sits above the headers.
+    const path = within(screen.getByRole("tabpanel")).getByText(
+      "/v1/messages?beta=true",
+    );
+    expect(path.previousElementSibling?.textContent).toBe("Request path");
+  });
+
+  it("shows the headers tab for a path alone", () => {
+    renderInspector({
+      status: "ready",
+      event: eventWithMetadata("request", { path: "/v1/responses" }),
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "Request headers (0)" }));
+    expect(
+      within(screen.getByRole("tabpanel")).getByText("/v1/responses"),
+    ).toBeInTheDocument();
+    expect(headerRows()).toEqual([]);
   });
 
   it("lists the call's purpose and the content left out among the properties", () => {
@@ -479,6 +497,7 @@ const labels: SessionEventInspectorLabels = {
   openImage: (label) => `Open ${label}`,
   base64: "base64",
   raw: "Raw",
+  requestPath: "Request path",
   roleSystem: "System",
   roleDeveloper: "Developer",
   roleUser: "User",

@@ -51,6 +51,16 @@ export function recordedOmitted(metadata: unknown): string[] {
 }
 
 /**
+ * The request path and query in `metadata.path`, as the request named them;
+ * both events of an exchange carry it. Null when absent.
+ */
+export function recordedPath(metadata: unknown): string | null {
+  return isRecord(metadata) && typeof metadata.path === "string"
+    ? metadata.path
+    : null;
+}
+
+/**
  * One protocol block of a request or response, in its recorded place. `text`
  * is a tool call's arguments or a tool result's output for those roles.
  */
