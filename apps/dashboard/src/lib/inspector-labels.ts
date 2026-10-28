@@ -19,7 +19,6 @@ export function eventInspectorLabels(
     tabAttachments: t("sessions.event.tabAttachments"),
     tabRequestHeaders: t("sessions.event.tabRequestHeaders"),
     tabResponseHeaders: t("sessions.event.tabResponseHeaders"),
-    tabMetadata: t("sessions.event.tabMetadata"),
     tabProperties: t("sessions.event.tabProperties"),
     toolCall: t("sessions.detail.toolCall"),
     toolResult: t("sessions.detail.toolResult"),

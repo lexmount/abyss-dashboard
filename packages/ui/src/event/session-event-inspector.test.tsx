@@ -180,51 +180,39 @@ describe("SessionEventInspector", () => {
     expect(within(items[3]).getByText("base64")).toBeInTheDocument();
   });
 
-  it("shows the metadata as a tree to open, or raw", () => {
-    const long = "x".repeat(400);
+  it("lists the call's purpose and the content left out among the properties", () => {
     renderInspector({
       status: "ready",
       event: eventWithMetadata("request", {
-        purpose: "prewarm",
-        omitted: ["images"],
-        conversation: {
-          completeness: "complete",
-          entries: Array.from({ length: 150 }, (_, index) => ({
-            role: "user",
-            text: index === 0 ? long : `t${index}`,
-          })),
-        },
+        purpose: "session_title",
+        omitted: ["tool_content", "images"],
+        conversation: { entries: [] },
       }),
     });
-    fireEvent.click(screen.getByRole("tab", { name: "Metadata" }));
+    expect(screen.queryByRole("tab", { name: "Metadata" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
     const panel = screen.getByRole("tabpanel");
-    // The root is open; what is under it is closed, with a preview.
-    // The root's preview and its member line.
-    expect(within(panel).getAllByText('"prewarm"')).toHaveLength(2);
-    expect(panel).toHaveTextContent('omitted: (1) ["images"]');
-    expect(panel).toHaveTextContent(
-      'conversation: {completeness: "complete", entries: Array(150)}',
-    );
-    // Only in the preview: the member lines are not there yet.
-    expect(within(panel).getAllByText("completeness")).toHaveLength(1);
+    expect(
+      within(panel).getByText("purpose").nextElementSibling,
+    ).toHaveTextContent("session_title");
+    expect(
+      within(panel).getByText("omitted").nextElementSibling,
+    ).toHaveTextContent("tool_content, images");
+    cleanup();
 
-    fireEvent.click(member(panel, "conversation"));
-    fireEvent.click(member(panel, "entries"));
-    // More than a hundred items come in ranges.
-    expect(within(panel).getByText("[0 … 99]")).toBeInTheDocument();
-    expect(within(panel).getByText("[100 … 149]")).toBeInTheDocument();
-    fireEvent.click(within(panel).getByText("[0 … 99]"));
-    fireEvent.click(member(panel, "0"));
-    // A long string shows its start until opened.
-    fireEvent.click(
-      within(panel).getByRole("button", { name: "Show all 400" }),
-    );
-    expect(within(panel).getByText(JSON.stringify(long))).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "Raw" }));
-    expect(within(panel).getByText(/"purpose": "prewarm"/)).toBeInTheDocument();
+    // Neither shows when the event has none.
+    renderInspector({
+      status: "ready",
+      event: eventWithMetadata("request", { omitted: [] }),
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
+    expect(
+      within(screen.getByRole("tabpanel")).queryByText("purpose"),
+    ).toBeNull();
+    expect(
+      within(screen.getByRole("tabpanel")).queryByText("omitted"),
+    ).toBeNull();
   });
-
   it("hides the headers tab when the event has no headers", () => {
     for (const metadata of [
       { conversation: [] },
@@ -381,7 +369,6 @@ describe("SessionEventInspector", () => {
       "Content",
       "Facts",
       "Request headers (1)",
-      "Metadata",
       "Properties",
     ]);
     fireEvent.click(screen.getByRole("tab", { name: "Facts" }));
@@ -483,7 +470,6 @@ const labels: SessionEventInspectorLabels = {
   tabAttachments: "Attachments",
   tabRequestHeaders: "Request headers",
   tabResponseHeaders: "Response headers",
-  tabMetadata: "Metadata",
   tabProperties: "Properties",
   toolCall: "Tool call",
   toolResult: "Tool result",
@@ -510,11 +496,4 @@ function headerRows(): HTMLElement[] {
   return Array.from(
     screen.getByRole("tabpanel").querySelectorAll<HTMLElement>("dl > div"),
   );
-}
-
-/** The line of a tree member that opens it, by the member's key. */
-function member(panel: HTMLElement, key: string): HTMLElement {
-  return within(panel)
-    .getAllByRole("button")
-    .find((button) => button.textContent?.startsWith(`${key}: `))!;
 }

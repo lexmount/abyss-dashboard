@@ -31,6 +31,25 @@ export function recordedHeaders(metadata: unknown): RecordedHeader[] {
   });
 }
 
+/** What the Agent made the call for, in `metadata.purpose`; null when absent. */
+export function recordedPurpose(metadata: unknown): string | null {
+  return isRecord(metadata) && typeof metadata.purpose === "string"
+    ? metadata.purpose
+    : null;
+}
+
+/**
+ * The content categories the collector's policy left out, in
+ * `metadata.omitted`; empty when it left out none.
+ */
+export function recordedOmitted(metadata: unknown): string[] {
+  return isRecord(metadata) && Array.isArray(metadata.omitted)
+    ? metadata.omitted.filter(
+        (category): category is string => typeof category === "string",
+      )
+    : [];
+}
+
 /**
  * One protocol block of a request or response, in its recorded place. `text`
  * is a tool call's arguments or a tool result's output for those roles.

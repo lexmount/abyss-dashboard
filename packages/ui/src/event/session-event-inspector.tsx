@@ -3,11 +3,12 @@ import * as React from "react";
 import { Badge } from "../components/badge";
 import { Button } from "../components/button";
 import { cn } from "../utils";
-import { JsonTree } from "./json-tree";
 import {
   conversationOf,
   leadingInstructionCount,
   recordedHeaders,
+  recordedOmitted,
+  recordedPurpose,
   type Conversation,
   type ConversationEntry,
   type RecordedHeader,
@@ -59,7 +60,6 @@ export interface SessionEventInspectorLabels {
   tabAttachments: string;
   tabRequestHeaders: string;
   tabResponseHeaders: string;
-  tabMetadata: string;
   tabProperties: string;
   toolCall: string;
   toolResult: string;
@@ -69,7 +69,7 @@ export interface SessionEventInspectorLabels {
   openImage: (label: string) => string;
   /** Marks a header value shown as base64 because it was not UTF-8. */
   base64: string;
-  /** Switches headers and metadata to their raw text, as recorded. */
+  /** Switches the headers to their raw text, as recorded. */
   raw: string;
   roleSystem: string;
   roleDeveloper: string;
@@ -179,7 +179,6 @@ export function SessionEventInspector({
           },
         ]
       : []),
-    { id: "metadata", label: labels.tabMetadata },
     { id: "properties", label: labels.tabProperties },
   ];
   // A tab the shown event does not have, such as attachments chosen on an
@@ -255,12 +254,6 @@ export function SessionEventInspector({
         />
       ) : tab === "headers" ? (
         <HeadersPanel headers={headers} labels={labels} />
-      ) : tab === "metadata" ? (
-        <MetadataPanel
-          metadata={detail.event.metadata}
-          formatNumber={formatNumber}
-          labels={labels}
-        />
       ) : (
         <>
           {properties}
@@ -763,41 +756,6 @@ function HeadersPanel({
   );
 }
 
-/** The metadata as a tree to open member by member, or raw as indented JSON. */
-function MetadataPanel({
-  metadata,
-  formatNumber,
-  labels,
-}: {
-  metadata: unknown;
-  formatNumber: (value: number) => string;
-  labels: SessionEventInspectorLabels;
-}) {
-  const [raw, setRaw] = React.useState(false);
-  const json = React.useMemo(
-    () => JSON.stringify(metadata, null, 2),
-    [metadata],
-  );
-  return (
-    <div>
-      <PanelToolbar raw={raw} onRaw={setRaw} copyText={json} labels={labels} />
-      {raw ? (
-        <pre className="p-3 font-mono text-xs break-all whitespace-pre-wrap">
-          {json}
-        </pre>
-      ) : (
-        <div className="p-2">
-          <JsonTree
-            value={metadata}
-            formatNumber={formatNumber}
-            showMore={labels.showMore}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** A tab's bar: the raw switch and a copy of the raw text. */
 function PanelToolbar({
   raw,
@@ -826,7 +784,11 @@ function PanelToolbar({
   );
 }
 
-/** Lists every scalar field of the event verbatim, so nothing recorded is hidden. */
+/**
+ * Lists every scalar field of the event verbatim, then the call's purpose and
+ * the content left out when the collector recorded them, so nothing recorded
+ * is hidden.
+ */
 function PropertiesPanel({
   event,
   formatNumber,
@@ -834,11 +796,21 @@ function PropertiesPanel({
   event: SessionEventDetail;
   formatNumber: (value: number) => string;
 }) {
-  const rows = Object.entries(event).filter(
-    ([key, value]) =>
-      !nonScalarFields.has(key) &&
-      (value === null || typeof value !== "object"),
-  );
+  const purpose = recordedPurpose(event.metadata);
+  const omitted = recordedOmitted(event.metadata);
+  const rows: [string, unknown][] = [
+    ...Object.entries(event).filter(
+      ([key, value]) =>
+        !nonScalarFields.has(key) &&
+        (value === null || typeof value !== "object"),
+    ),
+    // What the collector said of the call and of its content, kept in the
+    // metadata; each only when the event has it.
+    ...(purpose === null ? [] : [["purpose", purpose] as [string, unknown]]),
+    ...(omitted.length === 0
+      ? []
+      : [["omitted", omitted.join(", ")] as [string, unknown]]),
+  ];
   return (
     <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1.5 p-4 text-xs">
       {rows.map(([key, value]) => (
