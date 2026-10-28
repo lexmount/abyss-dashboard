@@ -97,7 +97,23 @@ export const ExchangeCard = React.memo(function ExchangeCard({
     loadConversation,
   );
   const shown = wholeState.data ?? preview;
-  const loadWhole = React.useCallback(() => setWholeAsked(true), []);
+  // The reader asked for what the preview leaves out: once it is in, the
+  // page goes to where the request's new part begins, or to the card's end.
+  const [revealAsked, setRevealAsked] = React.useState(false);
+  const articleRef = React.useRef<HTMLElement>(null);
+  const loaded = wholeState.data !== null && wholeState.data !== undefined;
+  React.useLayoutEffect(() => {
+    const article = articleRef.current;
+    if (!revealAsked || !loaded || !article) {
+      return;
+    }
+    setRevealAsked(false);
+    revealNewPart(article);
+  }, [revealAsked, loaded]);
+  const loadWhole = React.useCallback(() => {
+    setWholeAsked(true);
+    setRevealAsked(true);
+  }, []);
   const whole = React.useMemo(
     (): WholeText | null =>
       loadConversation
@@ -123,6 +139,7 @@ export const ExchangeCard = React.memo(function ExchangeCard({
 
   return (
     <article
+      ref={articleRef}
       data-event-id={eventPk ?? undefined}
       data-side={side}
       data-selected={selected || undefined}
@@ -475,10 +492,46 @@ function EntryList({
   return <div className="divide-y">{items}</div>;
 }
 
+/** Room kept above what a card reveals, below the search and its header. */
+const revealGapPx = 8;
+/** Height of the session's search, which the card headers stick under. */
+const searchBarPx = 44;
+
+/**
+ * Scrolls the page to where a card's request begins its new part, just below
+ * the card's sticky header; without that mark, to the card's end.
+ */
+function revealNewPart(article: HTMLElement) {
+  const mark = article.querySelector<HTMLElement>("[data-new-part]");
+  if (mark) {
+    const header =
+      article.querySelector<HTMLElement>("[data-card-header]")?.offsetHeight ??
+      0;
+    window.scrollTo({
+      top:
+        window.scrollY +
+        mark.getBoundingClientRect().top -
+        searchBarPx -
+        header -
+        revealGapPx,
+      behavior: "instant",
+    });
+    return;
+  }
+  const bottom = article.getBoundingClientRect().bottom;
+  window.scrollTo({
+    top: window.scrollY + bottom - window.innerHeight + revealGapPx,
+    behavior: "instant",
+  });
+}
+
 /** Where a request's new part begins, after the context it carries. */
 function NewPartMark({ label }: { label: string }) {
   return (
-    <div className="text-ring flex items-center gap-2 px-4 py-1.5 text-[11px] font-medium">
+    <div
+      data-new-part
+      className="text-ring flex items-center gap-2 px-4 py-1.5 text-[11px] font-medium"
+    >
       <span className="bg-ring/30 h-px flex-1" />
       {label}
       <span className="bg-ring/30 h-px flex-1" />

@@ -295,6 +295,31 @@ describe("SessionStreamsView, read only", () => {
     expect(header("s1")).toHaveTextContent(/Output 1/);
   });
 
+  it("goes to the request's new part once what was left out is loaded", async () => {
+    const scrollTo = vi.fn();
+    vi.stubGlobal("scrollTo", scrollTo);
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        return {
+          top: this.hasAttribute("data-new-part") ? 900 : 0,
+          bottom: 0,
+        } as DOMRect;
+      });
+    renderView({
+      loadConversation: (eventPk) => Promise.resolve(whole(eventPk)),
+    });
+    fireEvent.click(
+      within(card("r1")).getByRole("button", { name: "2 entries left out" }),
+    );
+    // Below the search (44px) and a gap of 8px; the header has no height here.
+    await waitFor(() =>
+      expect(scrollTo).toHaveBeenCalledWith({ top: 848, behavior: "instant" }),
+    );
+    rect.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
   it("notes what is left out as text when the host cannot load it", () => {
     renderView();
 
