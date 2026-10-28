@@ -314,10 +314,10 @@ function CardHeader({
       >
         {at ? formatTime(at) : "—"}
       </span>
-      {tokens ? (
+      {/* A request's input split is in the inspector's properties. */}
+      {tokens && !request ? (
         <TokenBreakdown
           tokens={tokens}
-          request={request}
           labels={labels}
           formatNumber={formatNumber}
         />
@@ -353,21 +353,20 @@ function CardHeader({
  * Input counts cached and uncached input together; cache reads and writes,
  * and reasoning within the output, show when there are any.
  */
+/** A response's tokens: its output, and any other counts it has. */
 function TokenBreakdown({
   tokens,
-  request,
   labels,
   formatNumber,
 }: {
   tokens: TokenCounts;
-  request: boolean;
   labels: SessionStreamsLabels;
   formatNumber: (value: number) => string;
 }) {
   const input = tokens.input + tokens.cache_read + tokens.cache_write;
   const parts: [label: string, value: number, shown: boolean][] = [
-    [labels.inputTokens, input, input > 0 || request],
-    [labels.outputTokens, tokens.output, tokens.output > 0 || !request],
+    [labels.inputTokens, input, input > 0],
+    [labels.outputTokens, tokens.output, true],
     [labels.cacheReadTokens, tokens.cache_read, tokens.cache_read > 0],
     [labels.cacheWriteTokens, tokens.cache_write, tokens.cache_write > 0],
     [labels.reasoningTokens, tokens.reasoning, tokens.reasoning > 0],

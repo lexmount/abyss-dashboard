@@ -285,6 +285,16 @@ describe("SessionStreamsView, read only", () => {
     );
   });
 
+  it("splits a response's tokens in its header, not a request's", () => {
+    renderView();
+    const header = (eventPk: string) =>
+      card(eventPk).querySelector<HTMLElement>("[data-card-header]")!;
+    // The request's split is in the inspector's properties.
+    expect(header("r1")).toHaveTextContent("2 tokens");
+    expect(header("r1")).not.toHaveTextContent(/Input/);
+    expect(header("s1")).toHaveTextContent(/Output 1/);
+  });
+
   it("notes what is left out as text when the host cannot load it", () => {
     renderView();
 
