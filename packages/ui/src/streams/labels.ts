@@ -22,6 +22,11 @@ export interface SessionStreamsLabels {
   newContext: string;
   /** The main line among a turn's executors. */
   mainLine: string;
+  /**
+   * One of several lines of context in a turn of a session that declares no
+   * sub-agents, numbered within the turn.
+   */
+  line: (number: string) => string;
   /** Names a subagent, before its short id. */
   subagent: string;
   /** An executor's side requests, how many. */

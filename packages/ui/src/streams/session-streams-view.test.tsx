@@ -30,6 +30,7 @@ const labels: SessionStreamsLabels = {
   noUserInput: "No user input",
   newContext: "New context",
   mainLine: "Main line",
+  line: (number) => `Line ${number}`,
   subagent: "Subagent",
   sideRequests: (count) => `Side requests ×${count}`,
   loading: "Loading session timeline...",

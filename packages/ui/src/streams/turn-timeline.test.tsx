@@ -18,6 +18,7 @@ const labels: TurnTimelineLabels = {
   noUserInput: "No user input",
   newContext: "New context",
   mainLine: "Main line",
+  line: (number) => `Line ${number}`,
   subagent: "Subagent",
   sideRequests: (count) => `Side requests ×${count}`,
 };
@@ -97,6 +98,26 @@ describe("TurnTimeline", () => {
     expect(
       rows.map((row) => row.querySelector("[data-new-context]") !== null),
     ).toEqual([false, false, true]);
+  });
+
+  it("numbers the lines of a turn grouped without sub-agents", () => {
+    renderTimeline([
+      turn(1, [
+        executor({ main: ["a"] }),
+        executor({ main: ["b"] }),
+        executor({ subagent_id: "agent-7", main: ["c"] }),
+      ]),
+    ]);
+
+    const names = [
+      ...document.querySelectorAll<HTMLElement>("[data-executor]"),
+    ].map((item) => [
+      item.dataset.executor,
+      item.querySelector("button")?.textContent,
+    ]);
+    expect(names.map(([key]) => key)).toEqual(["line-1", "line-2", "agent-7"]);
+    expect(names[0]?.[1]).toContain("Line 1");
+    expect(names[1]?.[1]).toContain("Line 2");
   });
 
   it("goes to a turn, and to a side request once unfolded", () => {

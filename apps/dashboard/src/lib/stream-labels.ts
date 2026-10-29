@@ -19,6 +19,7 @@ export function sessionStreamsLabels(t: Translate): SessionStreamsLabels {
     noUserInput: t("sessions.streams.noUserInput"),
     newContext: t("sessions.streams.newContext"),
     mainLine: t("sessions.streams.mainLine"),
+    line: (number) => t("sessions.streams.line", { number }),
     subagent: t("sessions.streams.subagent"),
     sideRequests: (count) => t("sessions.streams.sideRequests", { count }),
     loading: t("sessions.detail.loading"),

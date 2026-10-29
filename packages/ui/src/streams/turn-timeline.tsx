@@ -15,6 +15,7 @@ export type TurnTimelineLabels = Pick<
   | "noUserInput"
   | "newContext"
   | "mainLine"
+  | "line"
   | "subagent"
   | "sideRequests"
 >;
@@ -217,6 +218,7 @@ export function TurnTimeline({
           // A turn that is only a main line shows no executor row under it.
           const mainOnly = onlyMainLine(turn);
           const depths = executorDepths(executorParents(turn));
+          const lineNumbers = numberLines(turn);
           return (
             <li key={turn.turn_id ?? `none-${index}`} data-turn={turn.turn}>
               {turn.new_context && index > 0 ? (
@@ -272,7 +274,8 @@ export function TurnTimeline({
                 >
                   {turn.executors.map((executor, at) => (
                     <ExecutorRow
-                      key={executor.subagent_id ?? "main"}
+                      key={executor.subagent_id ?? `line-${at}`}
+                      line={lineNumbers[at]}
                       dot={executorKey(index, at)}
                       indent={lanePx * ((depths[at] ?? 1) - 1)}
                       executor={executor}
@@ -546,9 +549,25 @@ function Gutter({
   );
 }
 
+/**
+ * The numbers of a turn's groups without a sub-agent, from 1, when there is
+ * more than one: a session that declares no sub-agents groups a turn by its
+ * lines of context. A single one is the main line and has none.
+ */
+function numberLines(turn: SessionTurn): (number | undefined)[] {
+  const lines = turn.executors.filter(
+    (executor) => executor.subagent_id === null,
+  );
+  let next = 0;
+  return turn.executors.map((executor) =>
+    executor.subagent_id === null && lines.length > 1 ? (next += 1) : undefined,
+  );
+}
+
 /** One executor of a turn, and its side requests when unfolded. */
 function ExecutorRow({
   dot,
+  line,
   indent,
   executor,
   chosen,
@@ -563,6 +582,8 @@ function ExecutorRow({
 }: {
   /** Key of the executor's dot in the gutter. */
   dot: string;
+  /** Its number among the turn's lines; absent when it is the only one. */
+  line: number | undefined;
   /** How far right of the first subagent level the row starts. */
   indent: number;
   executor: TurnExecutor;
@@ -592,7 +613,9 @@ function ExecutorRow({
   );
   return (
     <li
-      data-executor={executor.subagent_id ?? "main"}
+      data-executor={
+        executor.subagent_id ?? (line === undefined ? "main" : `line-${line}`)
+      }
       style={indent > 0 ? { marginLeft: indent } : undefined}
     >
       <button
@@ -608,7 +631,11 @@ function ExecutorRow({
       >
         <span className="truncate">
           {executor.subagent_id === null ? (
-            labels.mainLine
+            line === undefined ? (
+              labels.mainLine
+            ) : (
+              labels.line(formatNumber(line))
+            )
           ) : (
             <>
               {labels.subagent}
