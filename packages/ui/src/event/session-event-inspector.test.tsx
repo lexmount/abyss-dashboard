@@ -29,15 +29,14 @@ describe("SessionEventInspector", () => {
       event_type: "response",
       llm_model: "gpt-5",
       observed_at: "2026-09-01T00:00:00Z",
-      metadata: {
-        conversation: {
-          entries: [
-            { role: "assistant", text: "complete response text" },
-            { role: "tool_call", name: "exec", call_id: "call-1", text: "ls" },
-          ],
-          completeness: "complete",
-        },
+      conversation: {
+        entries: [
+          { role: "assistant", text: "complete response text" },
+          { role: "tool_call", name: "exec", call_id: "call-1", text: "ls" },
+        ],
+        completeness: "complete",
       },
+      metadata: {},
       attachments: [],
       response_id: "resp_1",
       host_name: "workstation",
@@ -58,6 +57,7 @@ describe("SessionEventInspector", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
     expect(screen.getByText("response_id")).toBeInTheDocument();
     expect(screen.getByText("workstation")).toBeInTheDocument();
+    expect(screen.queryByText("conversation")).not.toBeInTheDocument();
     expect(screen.queryByText("metadata")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -70,8 +70,8 @@ describe("SessionEventInspector", () => {
         variant="embedded"
         detail={{
           status: "ready",
-          event: eventWithMetadata("request", {
-            conversation: { entries: [{ role: "user", text: "body" }] },
+          event: eventWithConversation("request", {
+            entries: [{ role: "user", text: "body" }],
           }),
         }}
         attachmentUrl={(id) => `/attachments/${id}`}
@@ -201,11 +201,11 @@ describe("SessionEventInspector", () => {
   it("lists the call's purpose and the content left out among the properties", () => {
     renderInspector({
       status: "ready",
-      event: eventWithMetadata("request", {
-        purpose: "session_title",
-        omitted: ["tool_content", "images"],
-        conversation: { entries: [] },
-      }),
+      event: eventWithConversation(
+        "request",
+        { entries: [] },
+        { purpose: "session_title", omitted: ["tool_content", "images"] },
+      ),
     });
     expect(screen.queryByRole("tab", { name: "Metadata" })).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
@@ -233,7 +233,7 @@ describe("SessionEventInspector", () => {
   });
   it("hides the headers tab when the event has no headers", () => {
     for (const metadata of [
-      { conversation: [] },
+      {},
       { headers: [] },
       // Superseded fields are not read.
       { request_headers: [{ name: "a", value: "1" }] },
@@ -256,27 +256,25 @@ describe("SessionEventInspector", () => {
   it("shows conversation entries in order with their roles", () => {
     renderInspector({
       status: "ready",
-      event: eventWithMetadata("request", {
-        conversation: {
-          entries: [
-            { role: "system", text: "billing line" },
-            { role: "developer", text: "You are Codex" },
-            { role: "user", text: "count the lines" },
-            { role: "system", text: "# Environment" },
-            { role: "reasoning", text: "" },
-            {
-              role: "tool_call",
-              call_id: "call_1",
-              name: "Bash",
-              text: '{"command":"wc -l notes.txt"}',
-            },
-            { role: "tool_result", call_id: "call_1", text: "2 notes.txt" },
-            { role: "unknown", text: "agent message" },
-            { role: "assistant", text: "It has 2 lines." },
-            { role: "future_role", text: "kept" },
-          ],
-          completeness: "complete",
-        },
+      event: eventWithConversation("request", {
+        entries: [
+          { role: "system", text: "billing line" },
+          { role: "developer", text: "You are Codex" },
+          { role: "user", text: "count the lines" },
+          { role: "system", text: "# Environment" },
+          { role: "reasoning", text: "" },
+          {
+            role: "tool_call",
+            call_id: "call_1",
+            name: "Bash",
+            text: '{"command":"wc -l notes.txt"}',
+          },
+          { role: "tool_result", call_id: "call_1", text: "2 notes.txt" },
+          { role: "unknown", text: "agent message" },
+          { role: "assistant", text: "It has 2 lines." },
+          { role: "future_role", text: "kept" },
+        ],
+        completeness: "complete",
       }),
     });
 
@@ -302,11 +300,9 @@ describe("SessionEventInspector", () => {
     );
     renderInspector({
       status: "ready",
-      event: eventWithMetadata("response", {
-        conversation: {
-          entries: [{ role: "assistant", text: long }],
-          completeness: "partial",
-        },
+      event: eventWithConversation("response", {
+        entries: [{ role: "assistant", text: long }],
+        completeness: "partial",
       }),
     });
 
@@ -326,15 +322,16 @@ describe("SessionEventInspector", () => {
     const long = Array.from({ length: 60 }, (_, line) => `line ${line}`).join(
       "\n",
     );
-    const event = eventWithMetadata("request", {
-      headers: [{ name: "x-a", value: "1" }],
-      conversation: {
+    const event = eventWithConversation(
+      "request",
+      {
         entries: [
           { role: "system", text: "be brief" },
           { role: "tool_result", text: long },
         ],
       },
-    });
+      { headers: [{ name: "x-a", value: "1" }] },
+    );
     const { rerender } = renderInspector({ status: "ready", event });
     fireEvent.click(screen.getByRole("tab", { name: "Request headers (1)" }));
 
@@ -421,8 +418,8 @@ describe("SessionEventInspector", () => {
         {...props}
         detail={{
           status: "ready",
-          event: eventWithMetadata("response", {
-            conversation: { entries: [{ role: "assistant", text: "reply" }] },
+          event: eventWithConversation("response", {
+            entries: [{ role: "assistant", text: "reply" }],
           }),
         }}
       />,
@@ -437,8 +434,8 @@ describe("SessionEventInspector", () => {
   it("says there is no text for events without entries", () => {
     renderInspector({
       status: "ready",
-      event: eventWithMetadata("request", {
-        conversation: { messages: [{ role: "user", text: "old shape" }] },
+      event: eventWithConversation("request", {
+        messages: [{ role: "user", text: "old shape" }],
       }),
     });
 
@@ -456,6 +453,14 @@ function eventWithMetadata(eventType: string, metadata: unknown) {
     metadata,
     attachments: [],
   };
+}
+
+function eventWithConversation(
+  eventType: string,
+  conversation: unknown,
+  metadata: unknown = {},
+) {
+  return { ...eventWithMetadata(eventType, metadata), conversation };
 }
 
 function renderInspector(

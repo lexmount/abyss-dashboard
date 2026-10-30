@@ -61,7 +61,10 @@ export interface EventListResponse {
  * request bodies, often hundreds of kilobytes per event, and a list shows none
  * of them.
  */
-export type UsageEventListItem = Omit<UsageEvent, "metadata" | "attachments">;
+export type UsageEventListItem = Omit<
+  UsageEvent,
+  "conversation" | "metadata" | "attachments"
+>;
 
 export interface UsageEvent {
   id: string;
@@ -84,6 +87,7 @@ export interface UsageEvent {
   reasoning_tokens: number;
   total_tokens: number;
   observed_at: string;
+  conversation?: unknown;
   metadata: unknown;
   attachments: UsageEventAttachment[];
   location?: EventStreamLocation | null;

@@ -79,14 +79,14 @@ export interface Conversation {
 }
 
 /**
- * `metadata.conversation` when it holds `entries`, in recorded order; null
- * for events recorded before conversations had entries.
+ * An event's `conversation` when it holds `entries`, in recorded order; null
+ * for events recorded without one.
  */
-export function conversationOf(metadata: unknown): Conversation | null {
-  if (!isRecord(metadata) || !isRecord(metadata.conversation)) {
+export function conversationOf(conversation: unknown): Conversation | null {
+  if (!isRecord(conversation)) {
     return null;
   }
-  const { entries, completeness } = metadata.conversation;
+  const { entries, completeness } = conversation;
   if (!Array.isArray(entries)) {
     return null;
   }

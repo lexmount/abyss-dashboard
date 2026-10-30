@@ -38,6 +38,7 @@ export interface SessionEventDetail {
   event_type: string;
   llm_model: string;
   observed_at: string;
+  conversation?: unknown;
   metadata: unknown;
   attachments: SessionImageAttachment[];
 }
@@ -160,7 +161,7 @@ export function SessionEventInspector({
   );
   const path = event ? recordedPath(event.metadata) : null;
   const conversation = React.useMemo(
-    () => (event ? conversationOf(event.metadata) : null),
+    () => (event ? conversationOf(event.conversation) : null),
     [event],
   );
   const request = event?.event_type === "request";
@@ -845,4 +846,4 @@ function PropertiesPanel({
 }
 
 /** Fields shown in their own tabs rather than as properties. */
-const nonScalarFields = new Set(["metadata", "attachments"]);
+const nonScalarFields = new Set(["conversation", "metadata", "attachments"]);
