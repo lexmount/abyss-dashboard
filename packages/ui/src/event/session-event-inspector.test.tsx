@@ -438,13 +438,10 @@ describe("SessionEventInspector", () => {
   it("says there is no text for events without entries", () => {
     renderInspector({
       status: "ready",
-      event: eventWithConversation("request", {
-        messages: [{ role: "user", text: "old shape" }],
-      }),
+      event: eventWithConversation("request", { entries: [] }),
     });
 
     expect(screen.getByText("No text")).toBeInTheDocument();
-    expect(screen.queryByText("old shape")).not.toBeInTheDocument();
   });
 });
 

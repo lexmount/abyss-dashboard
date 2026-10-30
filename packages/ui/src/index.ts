@@ -13,7 +13,6 @@ export * from "./components/language-menu";
 export * from "./components/loading-spinner";
 export * from "./components/mode-toggle-button";
 export * from "./components/popover";
-export * from "./components/scroll-area";
 export * from "./components/select";
 export * from "./components/separator";
 export * from "./components/sheet";

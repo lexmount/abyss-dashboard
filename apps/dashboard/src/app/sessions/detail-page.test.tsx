@@ -227,7 +227,7 @@ describe("SessionDetailPage search", () => {
     await waitFor(() => expect(window.scrollTo).toHaveBeenCalled());
   });
 
-  it("resolves an event's new segment even when its link carries the old segment", async () => {
+  it("resolves an event's new segment even when its link carries another segment", async () => {
     renderPage("/sessions/s-1?segment=a&event=r2");
 
     await waitFor(() =>

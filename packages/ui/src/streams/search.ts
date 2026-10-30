@@ -7,8 +7,7 @@
 import type { SessionTextSearchResponse, TextRange } from "./types";
 
 /** Fields of an entry searched, in the order their occurrences are numbered. */
-export const searchableFields = ["name", "text"] as const;
-export type SearchableField = (typeof searchableFields)[number];
+export type SearchableField = "name" | "text";
 
 /** Where the query is in one conversation entry, field by field. */
 export type EntryMatches = Readonly<
@@ -137,7 +136,7 @@ export function landingOccurrence(
 }
 
 /** Occurrences in one entry. */
-export function occurrenceCount(entry: EntryMatches | undefined): number {
+function occurrenceCount(entry: EntryMatches | undefined): number {
   return entry ? entry.name.length + entry.text.length : 0;
 }
 
@@ -188,67 +187,4 @@ export function highlightSegments(
     segments.push({ text: text.slice(cursor), range: null });
   }
   return segments;
-}
-
-/**
- * The text with each run of whitespace made one space and its ends trimmed,
- * cut to `maxLength`, with the ranges moved to where they land in it.
- */
-export function collapseWhitespace(
-  text: string,
-  ranges: readonly TextRange[] | undefined,
-  maxLength: number,
-): { text: string; ranges: TextRange[] | undefined } {
-  if (!ranges) {
-    return {
-      text: text.replace(/\s+/g, " ").trim().slice(0, maxLength),
-      ranges,
-    };
-  }
-  // Where in the text each code unit of the result comes from.
-  let collapsed = "";
-  const sources: number[] = [];
-  let cursor = 0;
-  const copy = (end: number) => {
-    collapsed += text.slice(cursor, end);
-    for (let index = cursor; index < end; index += 1) {
-      sources.push(index);
-    }
-  };
-  for (const run of text.matchAll(/\s+/g)) {
-    copy(run.index);
-    collapsed += " ";
-    sources.push(run.index);
-    cursor = run.index + run[0].length;
-  }
-  copy(text.length);
-  const start = collapsed.startsWith(" ") ? 1 : 0;
-  const end = Math.min(
-    Math.max(
-      start,
-      collapsed.endsWith(" ") ? collapsed.length - 1 : collapsed.length,
-    ),
-    start + maxLength,
-  );
-  const at = (source: number) =>
-    Math.min(Math.max(lowerBound(sources, source), start), end) - start;
-  return {
-    text: collapsed.slice(start, end),
-    ranges: ranges.map(([from, to]): TextRange => [at(from), at(to)]),
-  };
-}
-
-/** The first index whose value is at least `value`, in ascending values. */
-function lowerBound(values: readonly number[], value: number): number {
-  let low = 0;
-  let high = values.length;
-  while (low < high) {
-    const middle = (low + high) >> 1;
-    if (values[middle] < value) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
-  return low;
 }

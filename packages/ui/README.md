@@ -101,14 +101,3 @@ steps:
       cache: npm
   - run: npm ci
 ```
-
-## Pending API change
-
-The source package no longer exports the legacy `SessionTimeline`,
-`SessionTrajectory`, or their turn-based view models. The standalone dashboard
-uses stream segments and resolves event links through the backend event location
-endpoint. `SessionImageAttachment` remains exported with `SessionEventInspector`.
-
-This is a breaking change for consumers of the removed components. In particular,
-`abyss-frontend` still uses `SessionTimeline` from its pinned published package;
-that consumer must migrate before upgrading to a release containing this change.

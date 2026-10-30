@@ -118,44 +118,6 @@ export function leadingInstructionCount(entries: ConversationEntry[]): number {
   return index === -1 ? entries.length : index;
 }
 
-/** Tool segments of the retired `metadata.content_segments`, read by the old timeline. */
-export interface ToolContentSegment {
-  type: "tool_call" | "tool_result";
-  itemId: string | null;
-  callId: string | null;
-  name: string | null;
-  content: string | null;
-}
-
-export function toolContentSegments(metadata: unknown): ToolContentSegment[] {
-  if (!isRecord(metadata) || !Array.isArray(metadata.content_segments)) {
-    return [];
-  }
-
-  return metadata.content_segments.flatMap((value): ToolContentSegment[] => {
-    if (
-      !isRecord(value) ||
-      (value.type !== "tool_call" && value.type !== "tool_result")
-    ) {
-      return [];
-    }
-    const isToolCall = value.type === "tool_call";
-    return [
-      {
-        type: value.type,
-        itemId: stringValue(value.item_id),
-        callId: stringValue(value.call_id),
-        name: isToolCall ? stringValue(value.name) : null,
-        content: stringValue(isToolCall ? value.input : value.output),
-      },
-    ];
-  });
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value : null;
 }

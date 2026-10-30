@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionTextSearchResponse } from "./types";
 import {
-  collapseWhitespace,
   highlightSegments,
   landingOccurrence,
   matchesBySegment,
@@ -269,38 +268,5 @@ describe("highlightSegments", () => {
     expect(highlightSegments("plain", [])).toEqual([
       { text: "plain", range: null },
     ]);
-  });
-});
-
-describe("collapseWhitespace", () => {
-  it("puts a text on one line as before without ranges", () => {
-    expect(collapseWhitespace("  a\n\n  b\tc  ", undefined, 300)).toEqual({
-      text: "a b c",
-      ranges: undefined,
-    });
-  });
-
-  it("moves the ranges with the text", () => {
-    const text = '\n  {"path":\n    "aether.aucept.in"}';
-    const start = text.indexOf("aether");
-    const line = collapseWhitespace(text, [[start, start + 16]], 300);
-    expect(line.text).toBe('{"path": "aether.aucept.in"}');
-    expect(
-      highlightSegments(line.text, line.ranges ?? []).filter(
-        (segment) => segment.range !== null,
-      ),
-    ).toEqual([{ text: "aether.aucept.in", range: 0 }]);
-  });
-
-  it("keeps a range that spans collapsed whitespace", () => {
-    const line = collapseWhitespace("a  b   c", [[0, 4]], 300);
-    expect(line).toEqual({ text: "a b c", ranges: [[0, 3]] });
-  });
-
-  it("cuts ranges past the end", () => {
-    expect(collapseWhitespace("abc def", [[4, 7]], 5)).toEqual({
-      text: "abc d",
-      ranges: [[4, 5]],
-    });
   });
 });
