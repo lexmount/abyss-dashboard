@@ -73,8 +73,6 @@ export interface SessionEventInspectorLabels {
   base64: string;
   /** Switches the headers to their raw text, as recorded. */
   raw: string;
-  /** Names the request path shown above the headers. */
-  requestPath: string;
   roleSystem: string;
   roleDeveloper: string;
   roleUser: string;
@@ -176,7 +174,7 @@ export function SessionEventInspector({
           },
         ]
       : []),
-    ...(headers.length > 0 || path !== null
+    ...(headers.length > 0
       ? [
           {
             id: "headers" as const,
@@ -258,11 +256,15 @@ export function SessionEventInspector({
           labels={labels}
         />
       ) : tab === "headers" ? (
-        <HeadersPanel path={path} headers={headers} labels={labels} />
+        <HeadersPanel headers={headers} labels={labels} />
       ) : (
         <>
           {properties}
-          <PropertiesPanel event={detail.event} formatNumber={formatNumber} />
+          <PropertiesPanel
+            event={detail.event}
+            path={path}
+            formatNumber={formatNumber}
+          />
         </>
       )}
     </div>
@@ -684,17 +686,14 @@ function AttachmentsPanel({
 }
 
 /**
- * Headers as the browser's developer tools show them: the request path on
- * top, then a name column and a value column, sorted by name with duplicates
- * kept in recorded order; or, raw, one `name: value` line each exactly in
- * recorded order.
+ * Headers as the browser's developer tools show them: a name column and a
+ * value column, sorted by name with duplicates kept in recorded order; or,
+ * raw, one `name: value` line each exactly in recorded order.
  */
 function HeadersPanel({
-  path,
   headers,
   labels,
 }: {
-  path: string | null;
   headers: RecordedHeader[];
   labels: SessionEventInspectorLabels;
 }) {
@@ -721,14 +720,6 @@ function HeadersPanel({
   return (
     <div>
       <PanelToolbar raw={raw} onRaw={setRaw} copyText={text} labels={labels} />
-      {path !== null ? (
-        <dl className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-x-4 border-b px-3 py-1.5 text-xs">
-          <dt className="text-muted-foreground font-medium">
-            {labels.requestPath}
-          </dt>
-          <dd className="font-mono break-all whitespace-pre-wrap">{path}</dd>
-        </dl>
-      ) : null}
       {raw ? (
         <pre className="p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">
           {text}
@@ -807,9 +798,11 @@ function PanelToolbar({
  */
 function PropertiesPanel({
   event,
+  path,
   formatNumber,
 }: {
   event: SessionEventDetail;
+  path: string | null;
   formatNumber: (value: number) => string;
 }) {
   const purpose = recordedPurpose(event.metadata);
@@ -822,6 +815,7 @@ function PropertiesPanel({
     ),
     // What the collector said of the call and of its content, kept in the
     // metadata; each only when the event has it.
+    ...(path === null ? [] : [["path", path] as [string, unknown]]),
     ...(purpose === null ? [] : [["purpose", purpose] as [string, unknown]]),
     ...(omitted.length === 0
       ? []

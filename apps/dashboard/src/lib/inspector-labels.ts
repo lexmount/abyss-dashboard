@@ -28,7 +28,6 @@ export function eventInspectorLabels(
     openImage: (label) => t("sessions.detail.openImage", { label }),
     base64: t("sessions.event.base64"),
     raw: t("sessions.event.raw"),
-    requestPath: t("sessions.event.requestPath"),
     roleSystem: t("sessions.event.roleSystem"),
     roleDeveloper: t("sessions.event.roleDeveloper"),
     roleUser: t("sessions.event.roleUser"),

@@ -179,23 +179,27 @@ describe("SessionEventInspector", () => {
       "x-rawgA== base64",
     ]);
     expect(within(items[3]).getByText("base64")).toBeInTheDocument();
-    // The request's path, which both events carry, sits above the headers.
-    const path = within(screen.getByRole("tabpanel")).getByText(
-      "/v1/messages?beta=true",
-    );
-    expect(path.previousElementSibling?.textContent).toBe("Request path");
+    // The request's path is no header: it is among the properties.
+    expect(
+      within(screen.getByRole("tabpanel")).queryByText(
+        "/v1/messages?beta=true",
+      ),
+    ).not.toBeInTheDocument();
   });
 
-  it("shows the headers tab for a path alone", () => {
+  it("lists the request path among the properties, not the headers", () => {
     renderInspector({
       status: "ready",
       event: eventWithMetadata("request", { path: "/v1/responses" }),
     });
-    fireEvent.click(screen.getByRole("tab", { name: "Request headers (0)" }));
     expect(
-      within(screen.getByRole("tabpanel")).getByText("/v1/responses"),
-    ).toBeInTheDocument();
-    expect(headerRows()).toEqual([]);
+      screen.queryByRole("tab", { name: /Request headers/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
+    const path = within(screen.getByRole("tabpanel")).getByText(
+      "/v1/responses",
+    );
+    expect(path.previousElementSibling?.textContent).toBe("path");
   });
 
   it("lists the call's purpose and the content left out among the properties", () => {
@@ -502,7 +506,6 @@ const labels: SessionEventInspectorLabels = {
   openImage: (label) => `Open ${label}`,
   base64: "base64",
   raw: "Raw",
-  requestPath: "Request path",
   roleSystem: "System",
   roleDeveloper: "Developer",
   roleUser: "User",
