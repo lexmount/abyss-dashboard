@@ -54,7 +54,6 @@ const labels: SessionStreamsLabels = {
   showLess: "Show less",
   characters: (count) => `${count} characters`,
   showRest: (count) => `Show all (${count} characters)`,
-  noText: "No text",
   roleSystem: "System prompt",
   roleDeveloper: "Developer instructions",
   roleUser: "User input",

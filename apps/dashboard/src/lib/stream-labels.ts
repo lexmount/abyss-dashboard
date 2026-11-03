@@ -46,7 +46,6 @@ export function sessionStreamsLabels(t: Translate): SessionStreamsLabels {
     showLess: t("sessions.streams.showLess"),
     characters: (count) => t("sessions.event.characters", { count }),
     showRest: (count) => t("sessions.event.showMore", { count }),
-    noText: t("sessions.event.noText"),
     roleSystem: t("sessions.event.roleSystem"),
     roleDeveloper: t("sessions.event.roleDeveloper"),
     roleUser: t("sessions.event.roleUser"),

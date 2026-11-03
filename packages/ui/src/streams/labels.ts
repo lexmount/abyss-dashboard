@@ -67,7 +67,6 @@ export interface SessionStreamsLabels {
   characters: (count: string) => string;
   /** Loads the rest of a text cut short; `count` is its whole length. */
   showRest: (count: string) => string;
-  noText: string;
 
   /** Entry roles; a role not listed here shows as sent. */
   roleSystem: string;
