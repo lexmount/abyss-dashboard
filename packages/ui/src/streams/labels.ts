@@ -43,11 +43,6 @@ export interface SessionStreamsLabels {
   /** Unit after a card's token total. */
   tokens: string;
   tokensUnavailable: string;
-  inputTokens: string;
-  outputTokens: string;
-  cacheReadTokens: string;
-  cacheWriteTokens: string;
-  reasoningTokens: string;
   /** Notes a conversation the collector could not decode completely. */
   incomplete: (completeness: string) => string;
   /** Where a request's new part begins. */

@@ -12,7 +12,6 @@ import type {
   ConversationPreview,
   ConversationPreviewEntry,
   SegmentExchange,
-  TokenCounts,
 } from "./types";
 
 /**
@@ -331,14 +330,6 @@ function CardHeader({
       >
         {at ? formatTime(at) : "—"}
       </span>
-      {/* A request's input split is in the inspector's properties. */}
-      {tokens && !request ? (
-        <TokenBreakdown
-          tokens={tokens}
-          labels={labels}
-          formatNumber={formatNumber}
-        />
-      ) : null}
     </>
   );
   return (
@@ -363,41 +354,6 @@ function CardHeader({
         </button>
       )}
     </div>
-  );
-}
-
-/**
- * Input counts cached and uncached input together; cache reads and writes,
- * and reasoning within the output, show when there are any.
- */
-/** A response's tokens: its output, and any other counts it has. */
-function TokenBreakdown({
-  tokens,
-  labels,
-  formatNumber,
-}: {
-  tokens: TokenCounts;
-  labels: SessionStreamsLabels;
-  formatNumber: (value: number) => string;
-}) {
-  const input = tokens.input + tokens.cache_read + tokens.cache_write;
-  const parts: [label: string, value: number, shown: boolean][] = [
-    [labels.inputTokens, input, input > 0],
-    [labels.outputTokens, tokens.output, true],
-    [labels.cacheReadTokens, tokens.cache_read, tokens.cache_read > 0],
-    [labels.cacheWriteTokens, tokens.cache_write, tokens.cache_write > 0],
-    [labels.reasoningTokens, tokens.reasoning, tokens.reasoning > 0],
-  ];
-  return (
-    <span className="text-muted-foreground flex w-full flex-wrap gap-x-3 gap-y-1 tabular-nums">
-      {parts
-        .filter(([, , shown]) => shown)
-        .map(([label, value]) => (
-          <span key={label}>
-            {label} {formatNumber(value)}
-          </span>
-        ))}
-    </span>
   );
 }
 
@@ -766,7 +722,6 @@ const EntryBlock = React.memo(function EntryBlock({
       <span
         className={cn(
           "min-w-0 flex-1 truncate",
-          !text && "text-muted-foreground italic",
           prose ? "text-[13px]" : "font-mono",
         )}
         title={text ? line : undefined}
@@ -776,9 +731,7 @@ const EntryBlock = React.memo(function EntryBlock({
             {from > 0 ? "…" : null}
             <Highlighted text={line} ranges={lineRanges} active={lineActive} />
           </>
-        ) : (
-          labels.noText
-        )}
+        ) : null}
       </span>
       <span className="text-muted-foreground shrink-0 tabular-nums">
         {labels.characters(formatNumber(entry.text_length ?? text.length))}

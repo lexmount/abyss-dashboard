@@ -42,11 +42,6 @@ const labels: SessionStreamsLabels = {
   unknownModel: "Unknown model",
   tokens: "tokens",
   tokensUnavailable: "Token usage unavailable",
-  inputTokens: "Input",
-  outputTokens: "Output",
-  cacheReadTokens: "Cache read",
-  cacheWriteTokens: "Cache write",
-  reasoningTokens: "Reasoning",
   incomplete: (completeness) => `Incomplete (${completeness})`,
   newPart: "New from here",
   backToTop: "Back to top",
@@ -286,14 +281,15 @@ describe("SessionStreamsView, read only", () => {
     );
   });
 
-  it("splits a response's tokens in its header, not a request's", () => {
+  it("shows each side's token total in its header, without a split", () => {
     renderView();
     const header = (eventPk: string) =>
       card(eventPk).querySelector<HTMLElement>("[data-card-header]")!;
-    // The request's split is in the inspector's properties.
+    // Both sides' splits are in the inspector's properties.
     expect(header("r1")).toHaveTextContent("2 tokens");
     expect(header("r1")).not.toHaveTextContent(/Input/);
-    expect(header("s1")).toHaveTextContent(/Output 1/);
+    expect(header("s1")).toHaveTextContent("2 tokens");
+    expect(header("s1")).not.toHaveTextContent(/Output/);
   });
 
   it("goes to the request's new part once what was left out is loaded", async () => {

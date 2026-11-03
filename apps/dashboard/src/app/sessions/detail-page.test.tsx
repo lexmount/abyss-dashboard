@@ -161,7 +161,7 @@ describe("SessionDetailPage search", () => {
     expect(within(timeline).getByText("2 hits")).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
-        name: "2 entries left out (1 matches), click to load",
+        name: "2 entries left out (1 matches)",
       }),
     ).toBeInTheDocument();
     expect(mocks.fetchEventConversation).not.toHaveBeenCalled();
