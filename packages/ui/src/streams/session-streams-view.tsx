@@ -154,7 +154,7 @@ export function SessionStreamsView({
       ref={viewRef}
       className="grid gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]"
     >
-      <Card className="overflow-hidden p-0 lg:sticky lg:top-14 lg:self-start">
+      <Card className="gap-0 overflow-hidden p-0 lg:sticky lg:top-14 lg:self-start">
         <div className="text-muted-foreground border-b px-3 py-2 text-xs">
           {labels.summary(turns.filter((turn) => turn.turn !== null).length)}
         </div>
