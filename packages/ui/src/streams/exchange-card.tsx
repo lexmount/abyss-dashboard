@@ -724,7 +724,6 @@ const EntryBlock = React.memo(function EntryBlock({
           "min-w-0 flex-1 truncate",
           prose ? "text-[13px]" : "font-mono",
         )}
-        title={text ? line : undefined}
       >
         {text ? (
           <>

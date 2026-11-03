@@ -737,7 +737,6 @@ function MetricCards({
               <Badge
                 variant="outline"
                 data-live={live}
-                title={live ? t("common.liveTitle") : t("common.livePausedTitle")}
                 className={cn(!live && "text-muted-foreground")}
               >
                 <card.icon className="size-3.5" />

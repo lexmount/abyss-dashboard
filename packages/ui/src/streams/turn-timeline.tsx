@@ -640,9 +640,7 @@ function ExecutorRow({
             <>
               {labels.subagent}
               {" · "}
-              <span className="font-mono" title={executor.subagent_id}>
-                {shortId(executor.subagent_id)}
-              </span>
+              <span className="font-mono">{shortId(executor.subagent_id)}</span>
             </>
           )}
         </span>

@@ -405,8 +405,7 @@ describe("Entry text folding, for every role", () => {
   it.each(roles)("shows %s text on one line, from its start", (role) => {
     const text = "opening\nsecond " + "x".repeat(2500) + " tail-marker";
     const entry = renderEntry({ role, text, text_length: 4000 });
-    const line = entry.querySelector<HTMLElement>("[title]")!;
-    expect(line.textContent?.startsWith("opening\nsecond x")).toBe(true);
+    expect(entry.textContent).toContain("opening\nsecond x");
     expect(entry.textContent).not.toContain("tail-marker");
     // The whole text is read in the inspector; the row has nothing to open.
     expect(within(entry).queryByRole("button")).not.toBeInTheDocument();
