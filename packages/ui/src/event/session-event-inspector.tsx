@@ -6,14 +6,10 @@ import { cn } from "../utils";
 import {
   conversationOf,
   leadingInstructionCount,
-  recordedHeaders,
-  recordedOmitted,
-  recordedPath,
-  recordedPurpose,
   type Conversation,
   type ConversationEntry,
-  type RecordedHeader,
 } from "./event-content";
+
 export interface SessionImageAttachment {
   id: string;
   position: number;
@@ -30,16 +26,47 @@ const CONTENT_MIN_WIDTH_PX = 280;
 const INSPECTOR_RESIZE_STEP_PX = 16;
 
 /**
- * One raw request or response event exactly as recorded. Any additional
- * scalar fields are listed verbatim in the properties tab.
+ * One HTTP header as the collector recorded it: `value` when the bytes were
+ * UTF-8, otherwise `value_base64`.
  */
+export type SessionEventHeader =
+  { name: string; value: string } | { name: string; value_base64: string };
+
+/** The token counters reported for one side of a call. */
+export interface SessionEventTokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+}
+
+/** One raw request or response event, grouped as the collector reported it. */
 export interface SessionEventDetail {
   id: string;
+  event_id: string;
   event_type: string;
-  llm_model: string;
   observed_at: string;
+  agent: { name: string; version: string | null };
+  device: {
+    host_name: string | null;
+    platform: string | null;
+    os_version: string | null;
+  };
+  llm: { provider: string; model: string };
+  purpose: string | null;
+  declared: {
+    subagent_id: string | null;
+    parent_subagent_id: string | null;
+    turn_id: string | null;
+  };
+  response_id: string | null;
+  previous_response_id: string | null;
+  http: { path: string | null; headers: SessionEventHeader[] };
+  token_usage: SessionEventTokenUsage;
+  omitted: string[];
   conversation?: unknown;
-  metadata: unknown;
   attachments: SessionImageAttachment[];
 }
 
@@ -86,6 +113,26 @@ export interface SessionEventInspectorLabels {
   showLess: string;
   /** Notes a conversation the collector could not decode completely. */
   incomplete: (completeness: string) => string;
+  sectionCall: string;
+  sectionUsage: string;
+  sectionIdentity: string;
+  sectionHttp: string;
+  sectionDevice: string;
+  agent: string;
+  provider: string;
+  model: string;
+  purpose: string;
+  omitted: string;
+  inputTokens: string;
+  cacheReadTokens: string;
+  cacheWriteTokens: string;
+  outputTokens: string;
+  reasoningTokens: string;
+  totalTokens: string;
+  path: string;
+  hostName: string;
+  platform: string;
+  osVersion: string;
 }
 
 /**
@@ -104,7 +151,10 @@ export interface SessionEventInspectorProps {
   heading?: string;
   /** Tabs shown right after the content tab. */
   extraTabs?: readonly SessionEventInspectorTab[];
-  /** Host-provided derived properties, shown before the recorded scalar fields. */
+  /**
+   * Host-provided properties, such as where the event stands in the session,
+   * shown after the recorded ones; `EventPropertySection` matches their look.
+   */
   properties?: React.ReactNode;
   /**
    * An entry of the event's conversation the reader chose, by its index: the
@@ -153,11 +203,7 @@ export function SessionEventInspector({
     }
   }, [focusRequest]);
   const event = detail.status === "ready" ? detail.event : null;
-  const headers = React.useMemo(
-    () => (event ? recordedHeaders(event.metadata) : []),
-    [event],
-  );
-  const path = event ? recordedPath(event.metadata) : null;
+  const headers = event?.http.headers ?? [];
   const conversation = React.useMemo(
     () => (event ? conversationOf(event.conversation) : null),
     [event],
@@ -259,12 +305,12 @@ export function SessionEventInspector({
         <HeadersPanel headers={headers} labels={labels} />
       ) : (
         <>
-          {properties}
           <PropertiesPanel
             event={detail.event}
-            path={path}
             formatNumber={formatNumber}
+            labels={labels}
           />
+          {properties}
         </>
       )}
     </div>
@@ -301,7 +347,7 @@ export function SessionEventInspector({
           </div>
           {event ? (
             <div className="text-muted-foreground truncate text-xs">
-              {event.llm_model} · {formatDateTime(event.observed_at)}
+              {event.llm.model} · {formatDateTime(event.observed_at)}
             </div>
           ) : null}
         </div>
@@ -694,7 +740,7 @@ function HeadersPanel({
   headers,
   labels,
 }: {
-  headers: RecordedHeader[];
+  headers: SessionEventHeader[];
   labels: SessionEventInspectorLabels;
 }) {
   const [raw, setRaw] = React.useState(false);
@@ -704,7 +750,7 @@ function HeadersPanel({
     .map((header) =>
       "value" in header
         ? `${header.name}: ${header.value}`
-        : `${header.name} (base64): ${header.valueBase64}`,
+        : `${header.name} (base64): ${header.value_base64}`,
     )
     .join("\n");
   const sorted = React.useMemo(
@@ -745,7 +791,7 @@ function HeadersPanel({
                   )
                 ) : (
                   <>
-                    {header.valueBase64}{" "}
+                    {header.value_base64}{" "}
                     <Badge
                       variant="outline"
                       className="px-1 py-0 align-middle font-sans text-[10px]"
@@ -791,53 +837,152 @@ function PanelToolbar({
   );
 }
 
+/** One row of a properties section: a label and the value it names. */
+export interface EventPropertyRow {
+  label: string;
+  value: React.ReactNode;
+  /** Shows the value as an identifier, in a monospace face. */
+  mono?: boolean;
+}
+
 /**
- * Lists every scalar field of the event verbatim, then the call's purpose and
- * the content left out when the collector recorded them, so nothing recorded
- * is hidden.
+ * A titled group of properties, listing only the rows given; nothing when
+ * there are none.
  */
-function PropertiesPanel({
-  event,
-  path,
-  formatNumber,
+export function EventPropertySection({
+  title,
+  rows,
 }: {
-  event: SessionEventDetail;
-  path: string | null;
-  formatNumber: (value: number) => string;
+  title: string;
+  rows: readonly EventPropertyRow[];
 }) {
-  const purpose = recordedPurpose(event.metadata);
-  const omitted = recordedOmitted(event.metadata);
-  const rows: [string, unknown][] = [
-    ...Object.entries(event).filter(
-      ([key, value]) =>
-        !nonScalarFields.has(key) &&
-        (value === null || typeof value !== "object"),
-    ),
-    // What the collector said of the call and of its content, kept in the
-    // metadata; each only when the event has it.
-    ...(path === null ? [] : [["path", path] as [string, unknown]]),
-    ...(purpose === null ? [] : [["purpose", purpose] as [string, unknown]]),
-    ...(omitted.length === 0
-      ? []
-      : [["omitted", omitted.join(", ")] as [string, unknown]]),
-  ];
+  if (rows.length === 0) {
+    return null;
+  }
   return (
-    <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1.5 p-4 text-xs">
-      {rows.map(([key, value]) => (
-        <React.Fragment key={key}>
-          <dt className="text-muted-foreground font-mono">{key}</dt>
-          <dd className="font-mono break-all tabular-nums">
-            {value === null || value === undefined
-              ? "—"
-              : typeof value === "number"
-                ? formatNumber(value)
-                : String(value)}
-          </dd>
-        </React.Fragment>
-      ))}
-    </dl>
+    <section className="border-b px-4 py-3 last:border-b-0">
+      <h3 className="text-muted-foreground mb-1.5 text-[11px] font-medium">
+        {title}
+      </h3>
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1.5 text-xs">
+        {rows.map((row) => (
+          <React.Fragment key={row.label}>
+            <dt className="text-muted-foreground">{row.label}</dt>
+            <dd
+              className={cn(
+                "min-w-0 break-all tabular-nums",
+                row.mono && "font-mono",
+              )}
+            >
+              {row.value}
+            </dd>
+          </React.Fragment>
+        ))}
+      </dl>
+    </section>
   );
 }
 
-/** Fields shown in their own tabs rather than as properties. */
-const nonScalarFields = new Set(["conversation", "metadata", "attachments"]);
+/** Counters a request carries; the others belong to its response. */
+const requestCounters = new Set<keyof SessionEventTokenUsage>([
+  "input_tokens",
+  "cache_read_tokens",
+  "cache_write_tokens",
+]);
+const responseCounters = new Set<keyof SessionEventTokenUsage>([
+  "output_tokens",
+  "reasoning_tokens",
+]);
+
+/**
+ * What the collector reported about the call, in groups, what the page shows
+ * nowhere else first; each group lists only what the event has. A side shows its own token counters, and a
+ * counter of the other side only when it is not zero.
+ */
+function PropertiesPanel({
+  event,
+  formatNumber,
+  labels,
+}: {
+  event: SessionEventDetail;
+  formatNumber: (value: number) => string;
+  labels: SessionEventInspectorLabels;
+}) {
+  const present = (rows: EventPropertyRow[]) =>
+    rows.filter((row) => row.value !== null && row.value !== undefined);
+  const own =
+    event.event_type === "request" ? requestCounters : responseCounters;
+  const counters: [keyof SessionEventTokenUsage, string][] = [
+    ["input_tokens", labels.inputTokens],
+    ["cache_read_tokens", labels.cacheReadTokens],
+    ["cache_write_tokens", labels.cacheWriteTokens],
+    ["output_tokens", labels.outputTokens],
+    ["reasoning_tokens", labels.reasoningTokens],
+  ];
+  const usage: EventPropertyRow[] = [
+    ...counters
+      .filter(([key]) => own.has(key) || event.token_usage[key] !== 0)
+      .map(([key, label]) => ({
+        label,
+        value: formatNumber(event.token_usage[key]),
+      })),
+    {
+      label: labels.totalTokens,
+      value: formatNumber(event.token_usage.total_tokens),
+    },
+  ];
+  const { agent, llm, device, declared } = event;
+  return (
+    <>
+      <EventPropertySection
+        title={labels.sectionHttp}
+        rows={present([
+          { label: labels.path, value: event.http.path, mono: true },
+        ])}
+      />
+      <EventPropertySection
+        title={labels.sectionCall}
+        rows={present([
+          { label: labels.purpose, value: event.purpose, mono: true },
+          {
+            label: labels.omitted,
+            value: event.omitted.length > 0 ? event.omitted.join(", ") : null,
+            mono: true,
+          },
+          { label: labels.provider, value: llm.provider },
+          { label: labels.model, value: llm.model, mono: true },
+          {
+            label: labels.agent,
+            value: agent.version
+              ? `${agent.name} ${agent.version}`
+              : agent.name,
+          },
+        ])}
+      />
+      <EventPropertySection title={labels.sectionUsage} rows={usage} />
+      <EventPropertySection
+        title={labels.sectionIdentity}
+        rows={present(
+          (
+            [
+              ["event_id", event.event_id],
+              ["response_id", event.response_id],
+              ["previous_response_id", event.previous_response_id],
+              ["subagent_id", declared.subagent_id],
+              ["parent_subagent_id", declared.parent_subagent_id],
+              ["turn_id", declared.turn_id],
+            ] as const
+          ).map(([label, value]) => ({ label, value, mono: true })),
+        )}
+      />
+      <EventPropertySection
+        title={labels.sectionDevice}
+        rows={present([
+          { label: labels.hostName, value: device.host_name, mono: true },
+          { label: labels.platform, value: device.platform },
+          { label: labels.osVersion, value: device.os_version },
+        ])}
+      />
+    </>
+  );
+}

@@ -6,7 +6,11 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/contexts/i18n-context";
 import { agentChoices, modelChoices, rowsOfAgents } from "@/lib/usage-choices";
-import { type DailyTokenUsageRow, type UsageEvent, type SummaryRow } from "@/api/usage";
+import {
+  type DailyTokenUsageRow,
+  type UsageEventListItem,
+  type SummaryRow,
+} from "@/api/usage";
 import {
   chartRowsByDay,
   RawEventsTable,
@@ -81,10 +85,8 @@ describe("RawEventsTable", () => {
     renderRawEventsTable([
       {
         ...baseUsageEvent,
-        agent_name: "codex",
-        agent_version: "0.8.1",
-        host_name: "alice-mbp",
-        platform: "macos",
+        agent: { name: "codex", version: "0.8.1" },
+        device: { host_name: "alice-mbp", platform: "macos", os_version: null },
       },
     ]);
 
@@ -102,8 +104,7 @@ describe("RawEventsTable", () => {
     renderRawEventsTable([
       {
         ...baseUsageEvent,
-        agent_name: "claude-desktop",
-        agent_version: "Desktop/0.14.7",
+        agent: { name: "claude-desktop", version: "Desktop/0.14.7" },
       },
     ]);
 
@@ -116,7 +117,7 @@ describe("RawEventsTable", () => {
     renderRawEventsTable([
       {
         ...baseUsageEvent,
-        host_name: null,
+        device: { ...baseUsageEvent.device, host_name: null },
       },
     ]);
 
@@ -550,7 +551,7 @@ describe("UsageDashboard", () => {
   });
 });
 
-function renderRawEventsTable(events: UsageEvent[]) {
+function renderRawEventsTable(events: UsageEventListItem[]) {
   render(
     <MemoryRouter>
       <I18nProvider>
@@ -560,29 +561,24 @@ function renderRawEventsTable(events: UsageEvent[]) {
   );
 }
 
-const baseUsageEvent: UsageEvent = {
+const baseUsageEvent: UsageEventListItem = {
   id: "event-request",
   event_id: "event-request",
-  user_id: "user-1",
-  device_context_id: "device-1",
-  host_name: "alice-mbp",
-  platform: "macos",
   session_pk: "session-pk",
-  agent_name: "codex",
-  agent_version: null,
   session_id: "session-id",
-  llm_provider: "openai",
-  llm_model: "gpt-5",
-  event_type: "request",
-  input_tokens: 1,
-  output_tokens: 2,
-  cache_read_tokens: 0,
-  cache_write_tokens: 0,
-  reasoning_tokens: 0,
-  total_tokens: 3,
   observed_at: "2026-07-01T00:00:00.000Z",
-  metadata: null,
-  attachments: [],
+  event_type: "request",
+  agent: { name: "codex", version: null },
+  device: { host_name: "alice-mbp", platform: "macos", os_version: null },
+  llm: { provider: "openai", model: "gpt-5" },
+  token_usage: {
+    input_tokens: 1,
+    output_tokens: 2,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    reasoning_tokens: 0,
+    total_tokens: 3,
+  },
 };
 
 const baseDailyTokenUsageRow: DailyTokenUsageRow = {

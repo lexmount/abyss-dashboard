@@ -1092,34 +1092,34 @@ export function RawEventsTable({
                         </Button>
                       </TableCell>
                       <TableCell className="overflow-hidden">
-                        <span className="block truncate">{event.llm_model}</span>
+                        <span className="block truncate">{event.llm.model}</span>
                       </TableCell>
                       <TableCell className="overflow-hidden">
                         <div className="min-w-0">
                           <div className="truncate font-medium">
-                            {agentDisplayName(event.agent_name)}
+                            {agentDisplayName(event.agent.name)}
                           </div>
-                          {event.agent_version ? (
+                          {event.agent.version ? (
                             <div className="text-muted-foreground truncate text-xs">
-                              {event.agent_version}
+                              {event.agent.version}
                             </div>
                           ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="tabular-nums">
                         <div className="font-medium">
-                          {formatNumber(event.total_tokens)}
+                          {formatNumber(event.token_usage.total_tokens)}
                         </div>
                         {event.event_type === "request" ? (
                           <div
                             className="text-muted-foreground truncate text-xs"
                             title={t("dashboard.recent.tokenBreakdownTitle", {
-                              input: formatNumber(event.input_tokens),
-                              cached: formatNumber(event.cache_read_tokens),
+                              input: formatNumber(event.token_usage.input_tokens),
+                              cached: formatNumber(event.token_usage.cache_read_tokens),
                             })}
                           >
-                            {compactNumber.format(event.input_tokens)} /{" "}
-                            {compactNumber.format(event.cache_read_tokens)}
+                            {compactNumber.format(event.token_usage.input_tokens)} /{" "}
+                            {compactNumber.format(event.token_usage.cache_read_tokens)}
                           </div>
                         ) : null}
                       </TableCell>
@@ -1136,9 +1136,9 @@ export function RawEventsTable({
                       </TableCell>
                       <TableCell className="overflow-hidden">
                         <div className="min-w-0">
-                          <div className="truncate">{event.platform ?? "-"}</div>
+                          <div className="truncate">{event.device.platform ?? "-"}</div>
                           <div className="text-muted-foreground truncate font-mono text-xs">
-                            {event.host_name || t("common.unknown")}
+                            {event.device.host_name || t("common.unknown")}
                           </div>
                         </div>
                       </TableCell>

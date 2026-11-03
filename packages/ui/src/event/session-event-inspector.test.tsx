@@ -8,7 +8,9 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SessionEventInspector,
+  type SessionEventDetail,
   type SessionEventDetailState,
+  type SessionEventHeader,
   type SessionEventInspectorLabels,
 } from "./session-event-inspector";
 
@@ -23,24 +25,25 @@ describe("SessionEventInspector", () => {
     expect(screen.getByText("Loading")).toBeInTheDocument();
   });
 
-  it("shows the conversation and every scalar field", () => {
-    const event = {
-      id: "event-1",
-      event_type: "response",
-      llm_model: "gpt-5",
-      observed_at: "2026-09-01T00:00:00Z",
-      conversation: {
+  it("shows the conversation and the recorded properties in groups", () => {
+    const event = eventWithConversation(
+      "response",
+      {
         entries: [
           { role: "assistant", text: "complete response text" },
           { role: "tool_call", name: "exec", call_id: "call-1", text: "ls" },
         ],
         completeness: "complete",
       },
-      metadata: {},
-      attachments: [],
-      response_id: "resp_1",
-      host_name: "workstation",
-    };
+      {
+        response_id: "resp_1",
+        device: {
+          host_name: "workstation",
+          platform: "macos",
+          os_version: null,
+        },
+      },
+    );
     const onClose = vi.fn();
     renderInspector({ status: "ready", event }, onClose);
 
@@ -55,13 +58,80 @@ describe("SessionEventInspector", () => {
     ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
-    expect(screen.getByText("response_id")).toBeInTheDocument();
-    expect(screen.getByText("workstation")).toBeInTheDocument();
-    expect(screen.queryByText("conversation")).not.toBeInTheDocument();
-    expect(screen.queryByText("metadata")).not.toBeInTheDocument();
+    expect(sections()).toEqual([
+      [
+        "Call",
+        ["Provider", "openai", "Model", "gpt-5", "Agent", "codex 0.9.0"],
+      ],
+      ["Usage", ["Output", "7", "Reasoning", "2", "Total", "9"]],
+      ["Identifiers", ["event_id", "evt-1", "response_id", "resp_1"]],
+      ["Device", ["Host", "workstation", "Platform", "macos"]],
+    ]);
+    // Internal keys are not shown.
+    expect(screen.queryByText("event-1")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("shows the counters of a request, and another side's only when not zero", () => {
+    renderInspector({
+      status: "ready",
+      event: eventWith("request", {
+        token_usage: {
+          input_tokens: 10,
+          output_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 4,
+          reasoning_tokens: 3,
+          total_tokens: 17,
+        },
+      }),
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
+    expect(sections().find(([title]) => title === "Usage")).toEqual([
+      "Usage",
+      [
+        "Input",
+        "10",
+        "Cache read",
+        "0",
+        "Cache write",
+        "4",
+        "Reasoning",
+        "3",
+        "Total",
+        "17",
+      ],
+    ]);
+  });
+
+  it("lists the declared ids among the identifiers", () => {
+    renderInspector({
+      status: "ready",
+      event: eventWith("request", {
+        previous_response_id: "resp_0",
+        declared: {
+          subagent_id: "agent-2",
+          parent_subagent_id: null,
+          turn_id: "turn-9",
+        },
+      }),
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
+    expect(sections().find(([title]) => title === "Identifiers")).toEqual([
+      "Identifiers",
+      [
+        "event_id",
+        "evt-1",
+        "previous_response_id",
+        "resp_0",
+        "subagent_id",
+        "agent-2",
+        "turn_id",
+        "turn-9",
+      ],
+    ]);
   });
 
   it("embeds only the tabs, without the panel header, close, or resize", () => {
@@ -99,16 +169,14 @@ describe("SessionEventInspector", () => {
     });
     renderInspector({
       status: "ready",
-      event: eventWithMetadata("request", {
-        headers: [
-          { name: "x-b", value: "2" },
-          { name: "authorization", value: "<redacted>" },
-          { name: "x-a", value: "1" },
-          { name: "x-b", value: "3" },
-          { name: "x-raw", value_base64: "/w==" },
-          { name: "x-empty", value: "" },
-        ],
-      }),
+      event: eventWithHeaders("request", null, [
+        { name: "x-b", value: "2" },
+        { name: "authorization", value: "<redacted>" },
+        { name: "x-a", value: "1" },
+        { name: "x-b", value: "3" },
+        { name: "x-raw", value_base64: "/w==" },
+        { name: "x-empty", value: "" },
+      ]),
     });
 
     fireEvent.click(screen.getByRole("tab", { name: "Request headers (6)" }));
@@ -156,15 +224,12 @@ describe("SessionEventInspector", () => {
   it("lists response headers the same way on a response event", () => {
     renderInspector({
       status: "ready",
-      event: eventWithMetadata("response", {
-        path: "/v1/messages?beta=true",
-        headers: [
-          { name: "set-cookie", value: "<redacted>" },
-          { name: "content-type", value: "text/event-stream" },
-          { name: "set-cookie", value: "<redacted>" },
-          { name: "x-raw", value_base64: "gA==" },
-        ],
-      }),
+      event: eventWithHeaders("response", "/v1/messages?beta=true", [
+        { name: "set-cookie", value: "<redacted>" },
+        { name: "content-type", value: "text/event-stream" },
+        { name: "set-cookie", value: "<redacted>" },
+        { name: "x-raw", value_base64: "gA==" },
+      ]),
     });
 
     expect(
@@ -187,74 +252,59 @@ describe("SessionEventInspector", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("lists the request path among the properties, not the headers", () => {
+  it("lists the request path first among the properties, not the headers", () => {
     renderInspector({
       status: "ready",
-      event: eventWithMetadata("request", { path: "/v1/responses" }),
+      event: eventWithHeaders("request", "/v1/responses", []),
     });
     expect(
       screen.queryByRole("tab", { name: /Request headers/ }),
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
-    const path = within(screen.getByRole("tabpanel")).getByText(
-      "/v1/responses",
-    );
-    expect(path.previousElementSibling?.textContent).toBe("path");
+    // The page shows the path nowhere else, so it leads.
+    expect(sections()[0]).toEqual(["HTTP", ["Path", "/v1/responses"]]);
   });
 
-  it("lists the call's purpose and the content left out among the properties", () => {
+  it("lists the call's purpose and the content left out with the call", () => {
     renderInspector({
       status: "ready",
-      event: eventWithConversation(
-        "request",
-        { entries: [] },
-        { purpose: "session_title", omitted: ["tool_content", "images"] },
-      ),
+      event: eventWith("request", {
+        purpose: "session_title",
+        omitted: ["tool_content", "images"],
+      }),
     });
     expect(screen.queryByRole("tab", { name: "Metadata" })).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
-    const panel = screen.getByRole("tabpanel");
-    expect(
-      within(panel).getByText("purpose").nextElementSibling,
-    ).toHaveTextContent("session_title");
-    expect(
-      within(panel).getByText("omitted").nextElementSibling,
-    ).toHaveTextContent("tool_content, images");
-    cleanup();
+    expect(sections()[0]).toEqual([
+      "Call",
+      [
+        "Purpose",
+        "session_title",
+        "Omitted",
+        "tool_content, images",
+        "Provider",
+        "openai",
+        "Model",
+        "gpt-5",
+        "Agent",
+        "codex 0.9.0",
+      ],
+    ]);
+    // Neither shows, nor the empty HTTP group, when the event has none.
+    expect(sections().map(([title]) => title)).not.toContain("HTTP");
+  });
 
-    // Neither shows when the event has none.
+  it("hides the headers tab when the event has no headers", () => {
     renderInspector({
       status: "ready",
-      event: eventWithMetadata("request", { omitted: [] }),
+      event: eventWithHeaders("request", "/v1/responses", []),
     });
-    fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
     expect(
-      within(screen.getByRole("tabpanel")).queryByText("purpose"),
-    ).toBeNull();
+      screen.queryByRole("tab", { name: /Request headers/ }),
+    ).not.toBeInTheDocument();
     expect(
-      within(screen.getByRole("tabpanel")).queryByText("omitted"),
-    ).toBeNull();
-  });
-  it("hides the headers tab when the event has no headers", () => {
-    for (const metadata of [
-      {},
-      { headers: [] },
-      // Superseded fields are not read.
-      { request_headers: [{ name: "a", value: "1" }] },
-      { response_headers: [{ name: "a", value: "1" }] },
-    ]) {
-      renderInspector({
-        status: "ready",
-        event: eventWithMetadata("request", metadata),
-      });
-      expect(
-        screen.queryByRole("tab", { name: /Request headers/ }),
-      ).not.toBeInTheDocument();
-      expect(
-        screen.queryByRole("tab", { name: /Response headers/ }),
-      ).not.toBeInTheDocument();
-      cleanup();
-    }
+      screen.queryByRole("tab", { name: /Response headers/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows conversation entries in order with their roles", () => {
@@ -334,7 +384,7 @@ describe("SessionEventInspector", () => {
           { role: "tool_result", text: long },
         ],
       },
-      { headers: [{ name: "x-a", value: "1" }] },
+      { http: { path: null, headers: [{ name: "x-a", value: "1" }] } },
     );
     const { rerender } = renderInspector({ status: "ready", event });
     fireEvent.click(screen.getByRole("tab", { name: "Request headers (1)" }));
@@ -376,9 +426,9 @@ describe("SessionEventInspector", () => {
         {...props}
         detail={{
           status: "ready",
-          event: eventWithMetadata("request", {
-            headers: [{ name: "x-a", value: "1" }],
-          }),
+          event: eventWithHeaders("request", null, [
+            { name: "x-a", value: "1" },
+          ]),
         }}
       />,
     );
@@ -410,9 +460,9 @@ describe("SessionEventInspector", () => {
         {...props}
         detail={{
           status: "ready",
-          event: eventWithMetadata("request", {
-            headers: [{ name: "x-a", value: "1" }],
-          }),
+          event: eventWithHeaders("request", null, [
+            { name: "x-a", value: "1" },
+          ]),
         }}
       />,
     );
@@ -445,23 +495,63 @@ describe("SessionEventInspector", () => {
   });
 });
 
-function eventWithMetadata(eventType: string, metadata: unknown) {
+function eventWith(
+  eventType: string,
+  fields: Partial<SessionEventDetail> = {},
+): SessionEventDetail {
   return {
     id: "event-1",
+    event_id: "evt-1",
     event_type: eventType,
-    llm_model: "gpt-5",
     observed_at: "2026-09-01T00:00:00Z",
-    metadata,
+    agent: { name: "codex", version: "0.9.0" },
+    device: { host_name: null, platform: null, os_version: null },
+    llm: { provider: "openai", model: "gpt-5" },
+    purpose: null,
+    declared: { subagent_id: null, parent_subagent_id: null, turn_id: null },
+    response_id: null,
+    previous_response_id: null,
+    http: { path: null, headers: [] },
+    token_usage: {
+      input_tokens: 0,
+      output_tokens: 7,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      reasoning_tokens: 2,
+      total_tokens: 9,
+    },
+    omitted: [],
     attachments: [],
+    ...fields,
   };
+}
+
+function eventWithHeaders(
+  eventType: string,
+  path: string | null,
+  headers: SessionEventHeader[],
+) {
+  return eventWith(eventType, { http: { path, headers } });
 }
 
 function eventWithConversation(
   eventType: string,
   conversation: unknown,
-  metadata: unknown = {},
+  fields: Partial<SessionEventDetail> = {},
 ) {
-  return { ...eventWithMetadata(eventType, metadata), conversation };
+  return eventWith(eventType, { ...fields, conversation });
+}
+
+/** Each properties section's title, and its labels and values in order. */
+function sections(): [string, string[]][] {
+  return Array.from(
+    screen.getByRole("tabpanel").querySelectorAll<HTMLElement>("section"),
+  ).map((section) => [
+    section.querySelector("h3")?.textContent ?? "",
+    Array.from(section.querySelectorAll("dt, dd")).map(
+      (cell) => cell.textContent ?? "",
+    ),
+  ]);
 }
 
 function renderInspector(
@@ -513,6 +603,26 @@ const labels: SessionEventInspectorLabels = {
   showMore: (count) => `Show all ${count}`,
   showLess: "Show less",
   incomplete: (completeness) => `Conversation ${completeness}`,
+  sectionCall: "Call",
+  sectionUsage: "Usage",
+  sectionIdentity: "Identifiers",
+  sectionHttp: "HTTP",
+  sectionDevice: "Device",
+  agent: "Agent",
+  provider: "Provider",
+  model: "Model",
+  purpose: "Purpose",
+  omitted: "Omitted",
+  inputTokens: "Input",
+  cacheReadTokens: "Cache read",
+  cacheWriteTokens: "Cache write",
+  outputTokens: "Output",
+  reasoningTokens: "Reasoning",
+  totalTokens: "Total",
+  path: "Path",
+  hostName: "Host",
+  platform: "Platform",
+  osVersion: "OS version",
 };
 
 /** The rows of the headers tab, name and value each. */

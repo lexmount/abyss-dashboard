@@ -13,6 +13,7 @@ import type {
   SessionStreamsResponse,
   SessionTextSearchResponse,
   SessionTurnsResponse,
+  UsageEvent,
 } from "@/api/usage";
 import { I18nProvider } from "@/contexts/i18n-context";
 import SessionDetailPage from "./detail-page";
@@ -378,26 +379,34 @@ describe("SessionDetailPage subagents", () => {
       Promise.resolve({
         id: eventPk,
         event_id: eventPk,
-        user_id: "u",
-        device_context_id: "d",
         session_pk: "s-1",
-        agent_name: "claude-code",
-        agent_version: null,
         session_id: "session-1",
-        llm_provider: "anthropic",
-        llm_model: "claude-opus-4-5",
-        event_type: "request",
-        input_tokens: 1,
-        output_tokens: 1,
-        cache_read_tokens: 0,
-        cache_write_tokens: 0,
-        reasoning_tokens: 0,
-        total_tokens: 2,
         observed_at: "2026-10-20T01:00:00Z",
-        metadata: {},
+        event_type: "request",
+        agent: { name: "claude-code", version: null },
+        device: { host_name: "local", platform: "macos", os_version: null },
+        llm: { provider: "anthropic", model: "claude-opus-4-5" },
+        purpose: null,
+        declared: {
+          subagent_id: eventPk === "r1" ? "agent-7" : null,
+          parent_subagent_id: null,
+          turn_id: "turn-1",
+        },
+        response_id: null,
+        previous_response_id: null,
+        http: { path: "/v1/messages", headers: [] },
+        token_usage: {
+          input_tokens: 1,
+          output_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          reasoning_tokens: 0,
+          total_tokens: 1,
+        },
+        omitted: [],
         attachments: [],
         location: null,
-      }),
+      } satisfies UsageEvent),
     );
   });
 
@@ -420,28 +429,29 @@ describe("SessionDetailPage subagents", () => {
     });
     await user.click(within(card).getByRole("button", { name: /Request/ }));
     await user.click(await screen.findByRole("tab", { name: "Properties" }));
-    return (await screen.findByTestId("subagent-properties")) as HTMLElement;
+    return screen.findByRole("tabpanel");
   };
 
   it("leaves the subagents a segment spawned to the timeline", async () => {
     renderPage("/sessions/s-1?segment=a");
-    const properties = await openProperties("r1");
+    await openProperties("r1");
 
-    expect(properties).toHaveTextContent("Declared ids");
-    expect(properties).not.toHaveTextContent("agent-7");
     expect(document.querySelector("[data-spawned]")).toBeNull();
   });
 
-  it("shows where a subagent was derived from, by time, and the ids it declared", async () => {
+  it("shows the event's location and the ids it declared", async () => {
     renderPage("/sessions/s-1?segment=c");
     const properties = await openProperties("r1");
 
-    expect(properties).toHaveTextContent("Derived from");
-    expect(within(properties).getByText("by time")).toBeInTheDocument();
+    // The page's own location comes after what the event recorded.
+    const location = [...properties.querySelectorAll("section")].at(-1)!;
+    expect(within(location).getByText("Location")).toBeInTheDocument();
+    expect(
+      within(location).getByRole("link", { name: "Locate event" }),
+    ).toBeInTheDocument();
     expect(within(properties).getByText("agent-7")).toBeInTheDocument();
     expect(within(properties).getByText("turn-1")).toBeInTheDocument();
-    await userEvent.click(within(properties).getByRole("button", { name: "Turn 1" }));
-    expect(screen.getByTestId("location")).toHaveTextContent("?segment=a");
+    expect(within(properties).queryByText("parent_subagent_id")).toBeNull();
   });
 });
 

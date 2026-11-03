@@ -1,5 +1,6 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  EventPropertySection,
   exchangePreviewWindow,
   landingOccurrence,
   matchesBySegment,
@@ -32,9 +33,7 @@ import {
   usageAttachmentUrl,
   type EventStreamLocation,
   type SessionHeaderResponse,
-  type SegmentExchange,
   type SessionStreamsResponse,
-  type StreamSegment,
 } from "@/api/usage";
 import { apiErrorKind } from "@/api/http";
 import { BaseLayout } from "@/components/layouts/base-layout";
@@ -246,24 +245,6 @@ export default function SessionDetailPage() {
     return (value: string) => format.format(new Date(value));
   }, [locale]);
 
-  // The exchange of the event inspected, among those of the segment shown.
-  const inspected =
-    inspectedEventId === null
-      ? undefined
-      : segmentQueries
-          .map((query) => query.data)
-          .flatMap((data) =>
-            data === undefined
-              ? []
-              : data.exchanges.map((exchange) => ({ segment: data.segment, exchange })),
-          )
-          .find(
-            ({ exchange }) =>
-              exchange.request_pk === inspectedEventId ||
-              exchange.response_pk === inspectedEventId,
-          );
-  const inspectedExchange = inspected?.exchange;
-
   // The inspector receives recorded fields; derived location is rendered by the host.
   const inspectedEvent = eventQuery.data ? { ...eventQuery.data } : null;
   if (inspectedEvent) delete inspectedEvent.location;
@@ -373,23 +354,11 @@ export default function SessionDetailPage() {
                       focusedEntry?.eventPk === inspectedEventId ? focusedEntry : null
                     }
                     properties={
-                      <>
-                        <EventLocationProperties
-                          location={eventQuery.data?.location}
-                          sessionPk={sessionPk}
-                          eventPk={inspectedEventId}
-                        />
-                        <EventSubagentProperties
-                          segment={
-                            inspected
-                              ? inspected.segment
-                              : (eventQuery.data?.location?.segment ?? null)
-                          }
-                          exchange={inspectedExchange}
-                          segments={streamsQuery.data.segments}
-                          onSelectSegment={selectSegment}
-                        />
-                      </>
+                      <EventLocationProperties
+                        location={eventQuery.data?.location}
+                        sessionPk={sessionPk}
+                        eventPk={inspectedEventId}
+                      />
                     }
                     onClose={() =>
                       updateParams({ [inspectSearchParam]: null }, { replace: true })
@@ -421,110 +390,24 @@ function EventLocationProperties({
 }) {
   const { t, formatNumber } = useI18n();
   return (
-    <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1.5 border-b p-4 text-xs">
-      <dt className="text-muted-foreground">{t("sessions.event.turn")}</dt>
-      <dd>
-        <Link
-          to={`/sessions/${encodeURIComponent(sessionPk)}?event=${encodeURIComponent(eventPk)}`}
-          className="text-ring underline-offset-4 hover:underline"
-        >
-          {location
-            ? turnName(t, formatNumber, location.turn)
-            : t("sessions.event.locate")}
-        </Link>
-      </dd>
-      {location ? (
-        <>
-          <dt className="text-muted-foreground">{t("sessions.event.segmentId")}</dt>
-          <dd className="font-mono break-all">{location.segment}</dd>
-          <dt className="text-muted-foreground">{t("sessions.event.exchangeId")}</dt>
-          <dd className="font-mono break-all">{location.exchange}</dd>
-        </>
-      ) : null}
-    </dl>
-  );
-}
-
-/**
- * Where the inspected event's segment stands among the session's subagents:
- * the turn it was spawned from and how it was attached there, and the ids
- * the event's exchange declared, under the fields' own names. Moving to a
- * segment is not opening an event.
- */
-function EventSubagentProperties({
-  segment,
-  exchange,
-  segments,
-  onSelectSegment,
-}: {
-  /** Head of the event's segment, once known. */
-  segment: string | null;
-  /** The event's exchange, once the segment's exchanges have loaded. */
-  exchange: SegmentExchange | undefined;
-  segments: readonly StreamSegment[];
-  onSelectSegment: (head: string) => void;
-}) {
-  const { t, formatNumber } = useI18n();
-  const own = segments.find((item) => item.head === segment);
-  const anchor =
-    own?.attached_to == null
-      ? undefined
-      : segments.find((item) => item.head === own.attached_to);
-  if (!anchor && !exchange) {
-    return null;
-  }
-  const turn = (item: StreamSegment) => turnName(t, formatNumber, item.turn);
-  const link = (label: React.ReactNode, head: string) => (
-    <button
-      key={head}
-      type="button"
-      className="text-ring text-left underline-offset-4 hover:underline"
-      onClick={() => onSelectSegment(head)}
-    >
-      {label}
-    </button>
-  );
-  const declared: [string, string | null | undefined][] = exchange
-    ? [
-        ["subagent_id", exchange.subagent_id],
-        ["parent_subagent_id", exchange.parent_subagent_id],
-        ["turn_id", exchange.turn_id],
-      ]
-    : [];
-  return (
-    <dl
-      data-testid="subagent-properties"
-      className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1.5 border-b p-4 text-xs"
-    >
-      {anchor ? (
-        <>
-          <dt className="text-muted-foreground">{t("sessions.event.derivedFrom")}</dt>
-          <dd className="inline-flex flex-wrap items-baseline gap-2">
-            {link(turn(anchor), anchor.head)}
-            {own?.attached_by === "time" ? (
-              <span className="border-muted-foreground/50 text-muted-foreground rounded-full border border-dashed px-1.5 text-[10px]">
-                {t("sessions.streams.byTime")}
-              </span>
-            ) : null}
-          </dd>
-        </>
-      ) : null}
-      {declared.length > 0 ? (
-        <>
-          <dt className="text-muted-foreground col-span-2 pt-1 font-medium">
-            {t("sessions.event.declared")}
-          </dt>
-          {declared.map(([field, value]) => (
-            <React.Fragment key={field}>
-              <dt className="text-muted-foreground font-mono">{field}</dt>
-              <dd className="min-w-0 font-mono break-all">
-                {value ?? <span className="text-muted-foreground font-sans">—</span>}
-              </dd>
-            </React.Fragment>
-          ))}
-        </>
-      ) : null}
-    </dl>
+    <EventPropertySection
+      title={t("sessions.event.sectionLocation")}
+      rows={[
+        {
+          label: t("sessions.event.turn"),
+          value: (
+            <Link
+              to={`/sessions/${encodeURIComponent(sessionPk)}?event=${encodeURIComponent(eventPk)}`}
+              className="text-ring underline-offset-4 hover:underline"
+            >
+              {location
+                ? turnName(t, formatNumber, location.turn)
+                : t("sessions.event.locate")}
+            </Link>
+          ),
+        },
+      ]}
+    />
   );
 }
 

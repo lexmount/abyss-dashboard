@@ -57,40 +57,54 @@ export interface EventListResponse {
 }
 
 /**
- * An event without its text, metadata, or attachments. Those hold whole
- * request bodies, often hundreds of kilobytes per event, and a list shows none
- * of them.
+ * An event without its text, attachments, or what the collector recorded about
+ * the call. Those hold whole request bodies, often hundreds of kilobytes per
+ * event, and a list shows none of them.
  */
-export type UsageEventListItem = Omit<
-  UsageEvent,
-  "conversation" | "metadata" | "attachments"
->;
-
-export interface UsageEvent {
+export interface UsageEventListItem {
   id: string;
   event_id: string;
-  user_id: string;
-  device_context_id: string;
-  host_name?: string | null;
-  platform?: string | null;
   session_pk: string;
-  agent_name: string;
-  agent_version: string | null;
   session_id: string;
-  llm_provider: string;
-  llm_model: string;
+  location?: EventStreamLocation | null;
+  observed_at: string;
   event_type: string;
+  agent: { name: string; version: string | null };
+  device: {
+    host_name: string | null;
+    platform: string | null;
+    os_version: string | null;
+  };
+  llm: { provider: string; model: string };
+  token_usage: EventTokenUsage;
+}
+
+export interface EventTokenUsage {
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
   reasoning_tokens: number;
   total_tokens: number;
-  observed_at: string;
+}
+
+/** A captured header: `value` when its bytes are UTF-8, else `value_base64`. */
+export type EventHttpHeader =
+  { name: string; value: string } | { name: string; value_base64: string };
+
+export interface UsageEvent extends UsageEventListItem {
+  purpose: string | null;
+  declared: {
+    subagent_id: string | null;
+    parent_subagent_id: string | null;
+    turn_id: string | null;
+  };
+  response_id: string | null;
+  previous_response_id: string | null;
+  http: { path: string | null; headers: EventHttpHeader[] };
+  omitted: string[];
   conversation?: unknown;
-  metadata: unknown;
   attachments: UsageEventAttachment[];
-  location?: EventStreamLocation | null;
 }
 
 export interface UsageEventAttachment {
