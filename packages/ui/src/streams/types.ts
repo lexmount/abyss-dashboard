@@ -20,14 +20,6 @@ export interface StreamSegment {
   label: EntryLabel | null;
   /** The subagent id the first exchange declared, if any. */
   subagent_id: string | null;
-  /**
-   * Head of the segment a subagent's first segment is attached to, the turn
-   * that spawned it. Attachment only places the segment for display: its
-   * `parent`, `forked_from`, and segmentation stay as they are.
-   */
-  attached_to: string | null;
-  /** By the declared turn id, or by time when no turn was declared. */
-  attached_by: "declared" | "time" | null;
   /** The turn of the segment's first exchange; segments of one turn share it. */
   turn_id: string | null;
   /** Number of that turn in the session, from one. */

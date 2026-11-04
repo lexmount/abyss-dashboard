@@ -327,8 +327,6 @@ describe("SessionDetailPage subagents", () => {
           head: "c",
           start: "2026-10-20T01:02:00Z",
           subagent_id: "agent-7",
-          attached_to: "a",
-          attached_by: "time",
         },
       ],
     } satisfies SessionStreamsResponse);
@@ -524,8 +522,6 @@ function streams(): SessionStreamsResponse {
     exchange_count: 1,
     label: null,
     subagent_id: null,
-    attached_to: null,
-    attached_by: null,
     // One turn: the branch is a side request within it.
     turn_id: "turn-1",
     turn: 1,
