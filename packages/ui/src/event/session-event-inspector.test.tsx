@@ -63,7 +63,7 @@ describe("SessionEventInspector", () => {
         "Call",
         ["Provider", "openai", "Model", "gpt-5", "Agent", "codex 0.9.0"],
       ],
-      ["Usage", ["Output", "7", "Reasoning", "2", "Total", "9"]],
+      ["Usage", ["Output", "7", "Reasoning", "2"]],
       ["Identifiers", ["event_id", "evt-1", "response_id", "resp_1"]],
       ["Device", ["Host", "workstation", "Platform", "macos"]],
     ]);
@@ -91,18 +91,7 @@ describe("SessionEventInspector", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
     expect(sections().find(([title]) => title === "Usage")).toEqual([
       "Usage",
-      [
-        "Input",
-        "10",
-        "Cache read",
-        "0",
-        "Cache write",
-        "4",
-        "Reasoning",
-        "3",
-        "Total",
-        "17",
-      ],
+      ["Input", "10", "Cache read", "0", "Cache write", "4", "Reasoning", "3"],
     ]);
   });
 
@@ -618,7 +607,6 @@ const labels: SessionEventInspectorLabels = {
   cacheWriteTokens: "Cache write",
   outputTokens: "Output",
   reasoningTokens: "Reasoning",
-  totalTokens: "Total",
   path: "Path",
   hostName: "Host",
   platform: "Platform",

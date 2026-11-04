@@ -53,7 +53,6 @@ export function eventInspectorLabels(
     cacheWriteTokens: t("sessions.event.cacheWriteTokens"),
     outputTokens: t("sessions.event.outputTokens"),
     reasoningTokens: t("sessions.event.reasoningTokens"),
-    totalTokens: t("sessions.event.totalTokens"),
     path: t("sessions.event.path"),
     hostName: t("sessions.event.hostName"),
     platform: t("sessions.event.platform"),

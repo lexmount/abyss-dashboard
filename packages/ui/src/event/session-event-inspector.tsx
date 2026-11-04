@@ -128,7 +128,6 @@ export interface SessionEventInspectorLabels {
   cacheWriteTokens: string;
   outputTokens: string;
   reasoningTokens: string;
-  totalTokens: string;
   path: string;
   hostName: string;
   platform: string;
@@ -919,18 +918,14 @@ function PropertiesPanel({
     ["output_tokens", labels.outputTokens],
     ["reasoning_tokens", labels.reasoningTokens],
   ];
-  const usage: EventPropertyRow[] = [
-    ...counters
-      .filter(([key]) => own.has(key) || event.token_usage[key] !== 0)
-      .map(([key, label]) => ({
-        label,
-        value: formatNumber(event.token_usage[key]),
-      })),
-    {
-      label: labels.totalTokens,
-      value: formatNumber(event.token_usage.total_tokens),
-    },
-  ];
+  // The counters already add up to the event's total, and output includes
+  // reasoning, so neither total is listed again.
+  const usage: EventPropertyRow[] = counters
+    .filter(([key]) => own.has(key) || event.token_usage[key] !== 0)
+    .map(([key, label]) => ({
+      label,
+      value: formatNumber(event.token_usage[key]),
+    }));
   const { agent, llm, device, declared } = event;
   return (
     <>
