@@ -157,3 +157,18 @@ html:lang(ja) {
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/* A row the view just went to glows, then fades back. */
+@theme {
+  --animate-jump-flash: jump-flash 1.6s ease-out;
+
+  @keyframes jump-flash {
+    0%,
+    35% {
+      background-color: color-mix(in oklab, var(--ring) 22%, transparent);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+}

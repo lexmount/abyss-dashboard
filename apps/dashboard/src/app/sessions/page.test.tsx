@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/contexts/i18n-context";
+import type { SessionSearchResponse } from "@/api/usage";
 import SessionsPage, { filtersFromParams, paramsFromFilters } from "./page";
 
 const { fetchUsageSummaryMock, listSessionsMock, searchSessionsMock } = vi.hoisted(
@@ -126,16 +127,53 @@ describe("SessionsPage", () => {
       "href",
       "/sessions/019fcfff-ba46-7340-bd15-600791fe583f?q=timeout",
     );
-    // A hit opens the session at its own turn.
-    const hit = screen.getByRole("link", { name: /Turn 2/ });
+    // A hit opens the session at its own event.
+    const [hit] = eventLinks();
     expect(hit).toHaveAttribute(
       "href",
-      "/sessions/019fcfff-ba46-7340-bd15-600791fe583f?turn=2&q=timeout",
+      "/sessions/019fcfff-ba46-7340-bd15-600791fe583f?event=event-1&q=timeout",
     );
     expect(screen.getByText("timeout").tagName).toBe("MARK");
+    expect(screen.getByText("1 matching event(s), 1 new")).toBeInTheDocument();
+    // A hit in what its event added has no marker.
+    expect(hit).not.toHaveTextContent("Context");
     expect(searchSessionsMock).toHaveBeenCalledWith(
       expect.objectContaining({ q: "timeout", page: 1, pageSize: 20 }),
     );
+  });
+
+  it("marks a hit that is only in the context its event carried over", async () => {
+    const response = searchResponse();
+    const [item] = response.items;
+    searchSessionsMock.mockResolvedValue({
+      ...response,
+      items: [
+        {
+          ...item,
+          match_count: 3,
+          new_match_count: 1,
+          matches: [
+            item.matches[0],
+            {
+              ...item.matches[0],
+              event_pk: "event-2",
+              event_type: "request",
+              new: false,
+            },
+          ],
+        },
+      ],
+    } satisfies SessionSearchResponse);
+    renderPage("/sessions?q=timeout");
+
+    expect(await screen.findByText("3 matching event(s), 1 new")).toBeInTheDocument();
+    const hits = eventLinks();
+    expect(hits.map((hit) => hit.getAttribute("href"))).toEqual([
+      "/sessions/019fcfff-ba46-7340-bd15-600791fe583f?event=event-1&q=timeout",
+      "/sessions/019fcfff-ba46-7340-bd15-600791fe583f?event=event-2&q=timeout",
+    ]);
+    expect(within(hits[0]).queryByText("Context")).toBeNull();
+    expect(within(hits[1]).getByText("Context")).toBeInTheDocument();
   });
 
   it("submits the search form through the existing sessions route", async () => {
@@ -211,6 +249,13 @@ describe("session search URL parameters", () => {
   });
 });
 
+/** The result links that open a session at one of its events. */
+function eventLinks() {
+  return screen
+    .getAllByRole("link")
+    .filter((link) => link.getAttribute("href")?.includes("event="));
+}
+
 function renderPage(initialEntry: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -228,7 +273,7 @@ function renderPage(initialEntry: string) {
   );
 }
 
-function searchResponse() {
+function searchResponse(): SessionSearchResponse {
   return {
     query: "timeout",
     total_sessions: 1,
@@ -239,6 +284,7 @@ function searchResponse() {
       {
         session_pk: "019fcfff-ba46-7340-bd15-600791fe583f",
         session_id: "session-provider-id",
+        title: null,
         agent_name: "codex",
         agent_version: "0.12.0",
         host_name: "alice-mbp",
@@ -248,15 +294,15 @@ function searchResponse() {
         providers: ["openai"],
         models: ["gpt-5"],
         match_count: 1,
+        new_match_count: 1,
         matches: [
           {
             event_pk: "event-1",
-            turn_pk: "turn-1",
-            turn_index: 2,
             event_type: "response",
             llm_provider: "openai",
             llm_model: "gpt-5",
             observed_at: "2026-08-05T10:05:00Z",
+            new: true,
             fragments: [
               {
                 segments: [
@@ -293,7 +339,12 @@ function listResponse() {
         turns: 3,
         events: 12,
         total_tokens: 45000,
-        title: "Draw a pelican",
+        title: {
+          event_pk: "request-1",
+          entry_index: 0,
+          text: "Draw a pelican",
+          length: "Draw a pelican".length,
+        },
         purpose: "title_generation",
       },
     ],

@@ -21,6 +21,7 @@ import { SessionPurposeBadge } from "@/components/session-purpose-badge";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 import { shortSessionId } from "@/lib/session-id";
+import { entryLabelText } from "@/lib/entry-label";
 
 interface SessionListProps {
   response: SessionListResponse | undefined;
@@ -100,6 +101,7 @@ export function SessionList({
             ) : (
               items.map((session) => {
                 const detailUrl = `/sessions/${session.session_pk}`;
+                const title = entryLabelText(session.title);
                 return (
                   <TableRow
                     key={session.session_pk}
@@ -112,14 +114,11 @@ export function SessionList({
                       </span>
                     </TableCell>
                     <TableCell className="overflow-hidden">
-                      {session.title || session.purpose ? (
+                      {title || session.purpose ? (
                         <div className="flex min-w-0 items-center gap-1.5">
-                          {session.title ? (
-                            <span
-                              className="truncate font-medium"
-                              title={session.title}
-                            >
-                              {session.title}
+                          {title ? (
+                            <span className="truncate font-medium" title={title}>
+                              {title}
                             </span>
                           ) : null}
                           <SessionPurposeBadge purpose={session.purpose} />

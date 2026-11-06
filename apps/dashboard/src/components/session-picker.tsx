@@ -5,6 +5,7 @@ import { Input, Popover, PopoverContent, PopoverTrigger } from "@lexmount.com/ab
 import {
   listSessions,
   searchSessions,
+  type EntryLabel,
   type SessionListItem,
   type SessionListQuery,
 } from "@/api/usage";
@@ -15,6 +16,7 @@ import { SessionPurposeBadge } from "@/components/session-purpose-badge";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
 import { shortSessionId } from "@/lib/session-id";
+import { entryLabelText } from "@/lib/entry-label";
 import { cn } from "@/lib/utils";
 
 const searchDebounceMs = 250;
@@ -27,8 +29,8 @@ interface SessionChoice {
   sessionId: string;
   agentName: string;
   lastActivityAt: string;
-  /** Name the Agent generated for the session, when one was captured. */
-  title?: string | null;
+  /** The first request's user label, shared by the list and search. */
+  title?: EntryLabel | null;
   purpose?: string | null;
   turns?: number;
   totalTokens?: number;
@@ -107,7 +109,7 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
         (choice) =>
           needle.length === 0 ||
           choice.sessionId.toLocaleLowerCase().includes(needle) ||
-          (choice.title?.toLocaleLowerCase().includes(needle) ?? false) ||
+          (choice.title?.text.toLocaleLowerCase().includes(needle) ?? false) ||
           agentDisplayName(choice.agentName).toLocaleLowerCase().includes(needle),
       );
     if (needle.length === 0) {
@@ -121,6 +123,7 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
         sessionId: item.session_id,
         agentName: item.agent_name,
         lastActivityAt: item.ended_at ?? item.started_at,
+        title: item.title,
       }));
     return [...listed, ...searched];
   }, [keyword, listQuery.data, searchQuery.data]);
@@ -183,12 +186,7 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
   const describe = (sessionId: string): string => {
     const choice =
       chosen.get(sessionId) ?? options.find((option) => option.sessionId === sessionId);
-    if (choice?.title) {
-      return choice.title;
-    }
-    return choice
-      ? `${agentDisplayName(choice.agentName)} · ${shortDateTimeFormat(locale).format(new Date(choice.lastActivityAt))}`
-      : shortSessionId(sessionId);
+    return entryLabelText(choice?.title) ?? shortSessionId(sessionId);
   };
   return (
     <Popover
@@ -268,7 +266,12 @@ export function SessionPicker({ value, onChange, scope }: SessionPickerProps) {
             >
               {choice.title ? (
                 <span className="flex min-w-0 items-center gap-1.5 text-sm">
-                  <span className="truncate font-medium">{choice.title}</span>
+                  <span
+                    className="truncate font-medium"
+                    title={entryLabelText(choice.title) ?? undefined}
+                  >
+                    {entryLabelText(choice.title)}
+                  </span>
                   <SessionPurposeBadge purpose={choice.purpose ?? null} />
                 </span>
               ) : null}

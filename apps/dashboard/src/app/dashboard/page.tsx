@@ -6,7 +6,6 @@ import {
   type Query,
   replaceEqualDeep,
   useIsFetching,
-  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -27,14 +26,14 @@ import {
 import { Link } from "react-router-dom";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import {
-  fetchDayTokenUsage,
+  fetchDailyTokenUsage,
   fetchRawEvents,
   fetchUsageSummary,
   type DailyTokenUsageRow,
   type SummaryRow,
   type UsageEventListItem,
-  type UsageDayWindow,
   type UsageQuery,
+  viewerTimeZone,
 } from "@/api/usage";
 import { BaseLayout } from "@/components/layouts/base-layout";
 import { Badge } from "@lexmount.com/abyss-ui";
@@ -79,6 +78,7 @@ import { SessionPicker } from "@/components/session-picker";
 import { TimeRangeField } from "@/components/time-range-field";
 import { useI18n } from "@/hooks/use-i18n";
 import { shortSessionId } from "@/lib/session-id";
+import { turnName } from "@/lib/stream-labels";
 import { cn } from "@/lib/utils";
 import {
   agentChoices,
@@ -142,8 +142,7 @@ export function UsageDashboard() {
     () => tokenChartDateWindow(tokenChartRange, now),
     [tokenChartRange, now],
   );
-  // The chart has its own days, so only the non-time filters scope it; keeping
-  // `now` out of its keys lets a refresh leave finished days alone.
+  // The chart has its own days, so only the non-time filters scope it.
   const chartScope = React.useMemo(() => nonTimeScope(filters), [filters]);
 
   // Sessions and turns are counted within each row, so the cards add rows of
@@ -156,26 +155,15 @@ export function UsageDashboard() {
     // numbers until it lands rather than blanking the cards.
     placeholderData: keepPreviousData,
   });
-  const tokenDays = useQueries({
-    queries: tokenChartWindow.dayWindows.map((dayWindow, index) => {
-      // Today is still filling, so its key leaves out the moving end and each
-      // fetch reads up to that moment; finished days never change.
-      const today = index === tokenChartWindow.dayWindows.length - 1;
-      return {
-        queryKey: [
-          tokenDayQueryRoot,
-          chartScope,
-          dayWindow.from,
-          today ? openDayEnd : dayWindow.to,
-        ],
-        queryFn: () =>
-          fetchDayTokenUsage(
-            chartScope,
-            today ? { ...dayWindow, to: new Date().toISOString() } : dayWindow,
-          ),
-        staleTime: today ? undefined : Infinity,
-      };
-    }),
+  const tokenChartQuery = useQuery({
+    // Today is still filling, so the key leaves out the moving end and each
+    // fetch reads up to that moment.
+    queryKey: [tokenChartQueryRoot, chartScope, tokenChartWindow.from, viewerTimeZone],
+    queryFn: () =>
+      fetchDailyTokenUsage(
+        { ...chartScope, from: tokenChartWindow.from, to: new Date().toISOString() },
+        viewerTimeZone,
+      ),
   });
   // Recent events page through the backend, so every matching event is
   // reachable rather than only the newest hundred.
@@ -204,40 +192,37 @@ export function UsageDashboard() {
   const totals = React.useMemo(() => summarizeRows(rows), [rows]);
   const agentCount = React.useMemo(() => countAgents(rows), [rows]);
 
-  // The chart redraws only once every day of its range has arrived, and only
-  // when the numbers changed, so a refresh or a new range does not blank it.
-  const dayRows = tokenDays.map((day) => day.data);
-  const loadedDayRows = dayRows.every((row) => row !== undefined)
-    ? (dayRows as DailyTokenUsageRow[])
-    : null;
+  // The chart redraws only once its range has arrived, and only when the
+  // numbers changed, so a refresh or a new range does not blank it.
+  const loadedDayRows = tokenChartQuery.data?.rows ?? null;
   const [chartRows, setChartRows] = React.useState<ChartRow[] | null>(null);
   if (loadedDayRows !== null) {
     const nextChartRows = replaceEqualDeep(
       chartRows,
-      chartRowsByDay(loadedDayRows, tokenChartWindow),
+      chartRowsByDay(loadedDayRows, tokenChartWindow.days),
     );
     if (nextChartRows !== chartRows) {
       setChartRows(nextChartRows);
     }
   }
-  const chartError = tokenDays.find((day) => day.isError)?.error ?? null;
+  const chartError = tokenChartQuery.error;
 
   const refreshing = useIsFetching({ predicate: isUsageQuery }) > 0;
   const usageError = summaryQuery.error ?? chartError ?? eventsQuery.error;
   const updatedAt = Math.max(
     summaryQuery.dataUpdatedAt,
     eventsQuery.dataUpdatedAt,
-    ...tokenDays.map((day) => day.dataUpdatedAt),
+    tokenChartQuery.dataUpdatedAt,
   );
 
   // Queries whose key moved with `now` start on their own; the rest (open
-  // ranges, today's chart point, filter choices) refetch here. Requests already
-  // under way are reused rather than sent twice.
+  // ranges, the chart up to now, filter choices) refetch here. Requests
+  // already under way are reused rather than sent twice.
   const [refreshRequest, setRefreshRequest] = React.useState(0);
   React.useEffect(() => {
     if (refreshRequest > 0) {
       void queryClient.invalidateQueries(
-        { predicate: isRefreshedOnRequest },
+        { predicate: isUsageQuery },
         { cancelRefetch: false },
       );
     }
@@ -297,11 +282,7 @@ export function UsageDashboard() {
             error={usageError}
             retrying={refreshing}
             onRetry={() => {
-              void queryClient.invalidateQueries({
-                predicate: (query) =>
-                  isRefreshedOnRequest(query) ||
-                  (isUsageQuery(query) && query.state.status === "error"),
-              });
+              void queryClient.invalidateQueries({ predicate: isUsageQuery });
             }}
           />
         ) : null}
@@ -367,9 +348,7 @@ function usePageVisible(): boolean {
   );
 }
 
-const tokenDayQueryRoot = "usage-token-day";
-/** Key part standing in for the end of today, which moves with every fetch. */
-const openDayEnd = "now";
+const tokenChartQueryRoot = "usage-token-days";
 const emptyChartRows: ChartRow[] = [];
 
 const usageQueryRoots = new Set([
@@ -377,19 +356,11 @@ const usageQueryRoots = new Set([
   "usage-events",
   "usage-models",
   "session-options",
-  tokenDayQueryRoot,
+  tokenChartQueryRoot,
 ]);
 
 function isUsageQuery(query: Query): boolean {
   return usageQueryRoots.has(String(query.queryKey[0]));
-}
-
-/** Everything a refresh reloads: all usage data except finished chart days. */
-function isRefreshedOnRequest(query: Query): boolean {
-  return (
-    isUsageQuery(query) &&
-    (query.queryKey[0] !== tokenDayQueryRoot || query.queryKey[3] === openDayEnd)
-  );
 }
 
 function nonTimeScope(filters: FilterDraft): Omit<UsageQuery, "from" | "to"> {
@@ -766,7 +737,6 @@ function MetricCards({
               <Badge
                 variant="outline"
                 data-live={live}
-                title={live ? t("common.liveTitle") : t("common.livePausedTitle")}
                 className={cn(!live && "text-muted-foreground")}
               >
                 <card.icon className="size-3.5" />
@@ -1041,13 +1011,11 @@ export function RawEventsTable({
           </div>
         ) : (
           <Table className="w-full min-w-[1100px] table-fixed">
-            {/* When, then the session and its turn together, then model and
-                agent; token count, event type, and device context last. */}
+            {/* Session and segment navigation sit together; the segment link
+                resolves the stable event anchor when it opens. */}
             <colgroup>
               <col className="w-[15%]" />
               <col className="w-[10%]" />
-              {/* Fits the whole turn label, up to "ターン 99999" with its
-                  arrow, even at the table's 1100px minimum width. */}
               <col className="w-[13%]" />
               <col className="w-[15%]" />
               <col className="w-[12%]" />
@@ -1059,7 +1027,7 @@ export function RawEventsTable({
               <TableRow>
                 <TableHead>{t("table.observed")}</TableHead>
                 <TableHead>{t("common.session")}</TableHead>
-                <TableHead>{t("dashboard.recent.turn")}</TableHead>
+                <TableHead>{t("sessions.event.turn")}</TableHead>
                 <TableHead>{t("common.model")}</TableHead>
                 <TableHead>{t("common.agent")}</TableHead>
                 <TableHead className="leading-tight">
@@ -1084,7 +1052,8 @@ export function RawEventsTable({
                 </TableRow>
               ) : (
                 pagination.pageRows.map((event) => {
-                  const sessionDetailUrl = `/sessions/${event.session_pk}`;
+                  const sessionDetailUrl = `/sessions/${encodeURIComponent(event.session_pk)}`;
+                  const eventDetailUrl = `${sessionDetailUrl}?event=${encodeURIComponent(event.id)}`;
 
                   return (
                     <TableRow key={event.id}>
@@ -1112,48 +1081,45 @@ export function RawEventsTable({
                           size="sm"
                           className="h-7 max-w-full px-2 text-xs"
                         >
-                          <Link
-                            to={`${sessionDetailUrl}?turn=${event.turn_index}`}
-                            title={t("dashboard.recent.openTurnTitle")}
-                          >
+                          <Link to={eventDetailUrl} title={t("sessions.event.locate")}>
                             <span className="truncate">
-                              {t("dashboard.recent.openTurn", {
-                                turn: event.turn_index,
-                              })}
+                              {event.location
+                                ? turnName(t, formatNumber, event.location.turn)
+                                : t("sessions.event.locate")}
                             </span>
                             <ArrowRight className="size-3.5 shrink-0" />
                           </Link>
                         </Button>
                       </TableCell>
                       <TableCell className="overflow-hidden">
-                        <span className="block truncate">{event.llm_model}</span>
+                        <span className="block truncate">{event.llm.model}</span>
                       </TableCell>
                       <TableCell className="overflow-hidden">
                         <div className="min-w-0">
                           <div className="truncate font-medium">
-                            {agentDisplayName(event.agent_name)}
+                            {agentDisplayName(event.agent.name)}
                           </div>
-                          {event.agent_version ? (
+                          {event.agent.version ? (
                             <div className="text-muted-foreground truncate text-xs">
-                              {event.agent_version}
+                              {event.agent.version}
                             </div>
                           ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="tabular-nums">
                         <div className="font-medium">
-                          {formatNumber(event.total_tokens)}
+                          {formatNumber(event.token_usage.total_tokens)}
                         </div>
                         {event.event_type === "request" ? (
                           <div
                             className="text-muted-foreground truncate text-xs"
                             title={t("dashboard.recent.tokenBreakdownTitle", {
-                              input: formatNumber(event.input_tokens),
-                              cached: formatNumber(event.cache_read_tokens),
+                              input: formatNumber(event.token_usage.input_tokens),
+                              cached: formatNumber(event.token_usage.cache_read_tokens),
                             })}
                           >
-                            {compactNumber.format(event.input_tokens)} /{" "}
-                            {compactNumber.format(event.cache_read_tokens)}
+                            {compactNumber.format(event.token_usage.input_tokens)} /{" "}
+                            {compactNumber.format(event.token_usage.cache_read_tokens)}
                           </div>
                         ) : null}
                       </TableCell>
@@ -1170,9 +1136,9 @@ export function RawEventsTable({
                       </TableCell>
                       <TableCell className="overflow-hidden">
                         <div className="min-w-0">
-                          <div className="truncate">{event.platform ?? "-"}</div>
+                          <div className="truncate">{event.device.platform ?? "-"}</div>
                           <div className="text-muted-foreground truncate font-mono text-xs">
-                            {event.host_name || t("common.unknown")}
+                            {event.device.host_name || t("common.unknown")}
                           </div>
                         </div>
                       </TableCell>
@@ -1384,11 +1350,10 @@ interface ChartRow {
 }
 
 interface TokenChartWindow {
+  /** Start of the window's first local day. */
   from: string;
-  to: string;
-  days: number;
-  /** Each local day in the window, oldest first; today ends now. */
-  dayWindows: UsageDayWindow[];
+  /** Each local day in the window as YYYY-MM-DD, oldest first. */
+  days: string[];
 }
 
 function summarizeRows(rows: SummaryRow[]): UsageTotals {
@@ -1418,69 +1383,39 @@ function summarizeRows(rows: SummaryRow[]): UsageTotals {
   );
 }
 
+/** The backend's day rows laid onto the window, with days without usage at zero. */
 export function chartRowsByDay(
-  rows: DailyTokenUsageRow[],
-  dateWindow: TokenChartWindow,
+  rows: readonly DailyTokenUsageRow[],
+  days: readonly string[],
 ): ChartRow[] {
-  const grouped = new Map<string, ChartRow>();
-  for (const { day } of dateWindow.dayWindows) {
-    grouped.set(day, {
+  const byDay = new Map(rows.map((row) => [row.day, row]));
+  return days.map((day) => {
+    const row = byDay.get(day);
+    return {
       day,
-      input_tokens: 0,
-      cache_read_tokens: 0,
-      cache_write_tokens: 0,
-      output_tokens: 0,
-      total_tokens: 0,
-    });
-  }
-
-  for (const row of rows) {
-    if (row.day === undefined || !grouped.has(row.day)) {
-      continue;
-    }
-    const current = grouped.get(row.day);
-    if (current === undefined) {
-      continue;
-    }
-    current.input_tokens += row.input_tokens;
-    current.cache_read_tokens += row.cache_read_tokens;
-    current.cache_write_tokens += row.cache_write_tokens;
-    current.output_tokens += row.output_tokens;
-    current.total_tokens += row.total_tokens;
-  }
-
-  return [...grouped.values()];
+      input_tokens: row?.input_tokens ?? 0,
+      cache_read_tokens: row?.cache_read_tokens ?? 0,
+      cache_write_tokens: row?.cache_write_tokens ?? 0,
+      output_tokens: row?.output_tokens ?? 0,
+      total_tokens: row?.total_tokens ?? 0,
+    };
+  });
 }
 
 export function tokenChartDateWindow(
   range: TokenChartRange,
   now: Date = new Date(),
 ): TokenChartWindow {
-  const days = tokenChartRangeDays(range);
-  const end = new Date(now);
+  const count = tokenChartRangeDays(range);
   // Days follow the viewer's time zone; constructing each midnight from its
   // calendar date keeps daylight-saving days at their real length.
-  const dayWindows = Array.from({ length: days }, (_, index) => {
-    const offset = index - days + 1;
-    const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() + offset);
-    const next = new Date(
-      end.getFullYear(),
-      end.getMonth(),
-      end.getDate() + offset + 1,
-    );
-    return {
-      day: formatLocalDay(start),
-      from: start.toISOString(),
-      to: (offset === 0 ? end : next).toISOString(),
-    };
-  });
-
-  return {
-    from: dayWindows[0].from,
-    to: end.toISOString(),
-    days,
-    dayWindows,
-  };
+  const first = new Date(now.getFullYear(), now.getMonth(), now.getDate() - count + 1);
+  const days = Array.from({ length: count }, (_, index) =>
+    formatLocalDay(
+      new Date(first.getFullYear(), first.getMonth(), first.getDate() + index),
+    ),
+  );
+  return { from: first.toISOString(), days };
 }
 
 function tokenChartRangeDays(range: TokenChartRange): number {

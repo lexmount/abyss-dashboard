@@ -11,7 +11,7 @@ The package may own:
 - reusable visual primitives;
 - reusable application shells such as the dashboard header, responsive sidebar,
   and page-title layout;
-- presentation-only domain views such as `SessionTimeline`; and
+- presentation-only domain views such as `SessionEventInspector`; and
 - accessibility and interaction behavior local to those components.
 
 It must not own API clients, authentication, routing, TanStack Query state,

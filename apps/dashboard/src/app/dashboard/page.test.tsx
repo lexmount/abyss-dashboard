@@ -6,7 +6,11 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/contexts/i18n-context";
 import { agentChoices, modelChoices, rowsOfAgents } from "@/lib/usage-choices";
-import { type DailyTokenUsageRow, type UsageEvent, type SummaryRow } from "@/api/usage";
+import {
+  type DailyTokenUsageRow,
+  type UsageEventListItem,
+  type SummaryRow,
+} from "@/api/usage";
 import {
   chartRowsByDay,
   RawEventsTable,
@@ -14,9 +18,9 @@ import {
   UsageDashboard,
 } from "./page";
 
-const { fetchDayTokenUsageMock, fetchRawEventsMock, fetchUsageSummaryMock } =
+const { fetchDailyTokenUsageMock, fetchRawEventsMock, fetchUsageSummaryMock } =
   vi.hoisted(() => ({
-    fetchDayTokenUsageMock: vi.fn(),
+    fetchDailyTokenUsageMock: vi.fn(),
     fetchRawEventsMock: vi.fn(),
     fetchUsageSummaryMock: vi.fn(),
   }));
@@ -25,7 +29,7 @@ vi.mock("@/api/usage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/usage")>();
   return {
     ...actual,
-    fetchDayTokenUsage: fetchDayTokenUsageMock,
+    fetchDailyTokenUsage: fetchDailyTokenUsageMock,
     fetchRawEvents: fetchRawEventsMock,
     fetchUsageSummary: fetchUsageSummaryMock,
   };
@@ -45,30 +49,44 @@ describe("RawEventsTable", () => {
     vi.restoreAllMocks();
   });
 
-  it("links each event to its turn in the session's merged view", () => {
+  it("links each event to its session and shows the turn column", () => {
     renderRawEventsTable([
       {
         ...baseUsageEvent,
         session_pk: "session-response-pk",
-        turn_index: 7,
       },
     ]);
 
     expect(screen.getByRole("columnheader", { name: "Turn" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Turn 7/ })).toHaveAttribute(
-      "href",
-      "/sessions/session-response-pk?turn=7",
-    );
+    expect(screen.queryByText(/Turn 7/)).toBeNull();
+    expect(
+      screen
+        .getAllByRole("link")
+        .some(
+          (link) =>
+            link.getAttribute("href") ===
+            "/sessions/session-response-pk?event=event-request",
+        ),
+    ).toBe(true);
+  });
+
+  it("names each located event's turn by its number, or as in no turn", () => {
+    const location = { segment: "a", segment_kind: "root", exchange: "a" } as const;
+    renderRawEventsTable([
+      { ...baseUsageEvent, location: { ...location, turn: 7 } },
+      { ...baseUsageEvent, id: "event-other", location: { ...location, turn: null } },
+    ]);
+
+    expect(screen.getByRole("link", { name: /Turn 7/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /No turn/ })).toBeInTheDocument();
   });
 
   it("renders agent and device context columns without crowding the session cell", () => {
     renderRawEventsTable([
       {
         ...baseUsageEvent,
-        agent_name: "codex",
-        agent_version: "0.8.1",
-        host_name: "alice-mbp",
-        platform: "macos",
+        agent: { name: "codex", version: "0.8.1" },
+        device: { host_name: "alice-mbp", platform: "macos", os_version: null },
       },
     ]);
 
@@ -86,8 +104,7 @@ describe("RawEventsTable", () => {
     renderRawEventsTable([
       {
         ...baseUsageEvent,
-        agent_name: "claude-desktop",
-        agent_version: "Desktop/0.14.7",
+        agent: { name: "claude-desktop", version: "Desktop/0.14.7" },
       },
     ]);
 
@@ -100,7 +117,7 @@ describe("RawEventsTable", () => {
     renderRawEventsTable([
       {
         ...baseUsageEvent,
-        host_name: null,
+        device: { ...baseUsageEvent.device, host_name: null },
       },
     ]);
 
@@ -123,7 +140,7 @@ describe("token chart rows", () => {
           total_tokens: 192_857,
         },
       ],
-      dateWindow,
+      dateWindow.days,
     );
 
     expect(rows).toHaveLength(7);
@@ -147,11 +164,11 @@ describe("token chart rows", () => {
 });
 
 describe("tokenChartDateWindow", () => {
-  it("splits the range into local days, ending today at now", () => {
+  it("lists the range's local days, starting at the first day's midnight", () => {
     const now = new Date(2026, 6, 1, 9, 18);
-    const { dayWindows, from, to } = tokenChartDateWindow("7d", now);
+    const { days, from } = tokenChartDateWindow("7d", now);
 
-    expect(dayWindows.map((window) => window.day)).toEqual([
+    expect(days).toEqual([
       "2026-06-25",
       "2026-06-26",
       "2026-06-27",
@@ -160,14 +177,7 @@ describe("tokenChartDateWindow", () => {
       "2026-06-30",
       "2026-07-01",
     ]);
-    expect(dayWindows[0]).toEqual({
-      day: "2026-06-25",
-      from: new Date(2026, 5, 25).toISOString(),
-      to: new Date(2026, 5, 26).toISOString(),
-    });
-    expect(dayWindows[6].to).toBe(now.toISOString());
     expect(from).toBe(new Date(2026, 5, 25).toISOString());
-    expect(to).toBe(now.toISOString());
   });
 });
 
@@ -181,17 +191,20 @@ describe("UsageDashboard", () => {
       rows: [],
       next_page_token: null,
     });
-    fetchDayTokenUsageMock.mockImplementation(
-      (_query: unknown, { day }: { day: string }) =>
-        Promise.resolve({ ...baseDailyTokenUsageRow, day }),
-    );
+    fetchDailyTokenUsageMock.mockResolvedValue({
+      from: null,
+      to: null,
+      group_by: ["day"],
+      rows: [baseDailyTokenUsageRow],
+      next_page_token: null,
+    });
     fetchRawEventsMock.mockResolvedValue({ events: [], next_page_token: null });
   });
 
   afterEach(() => {
     cleanup();
     fetchUsageSummaryMock.mockReset();
-    fetchDayTokenUsageMock.mockReset();
+    fetchDailyTokenUsageMock.mockReset();
     fetchRawEventsMock.mockReset();
   });
 
@@ -242,7 +255,7 @@ describe("UsageDashboard", () => {
     });
   });
 
-  it("refreshes only today's chart point and keeps the chart in place", async () => {
+  it("asks for the chart's days at once and keeps the chart in place on refresh", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -256,8 +269,13 @@ describe("UsageDashboard", () => {
       </QueryClientProvider>,
     );
 
-    // Seven days, one request each.
-    await waitFor(() => expect(fetchDayTokenUsageMock).toHaveBeenCalledTimes(7));
+    // The week's days arrive in one request, bucketed in the viewer's zone.
+    await waitFor(() => expect(fetchDailyTokenUsageMock).toHaveBeenCalledTimes(1));
+    const { from } = tokenChartDateWindow("7d");
+    expect(fetchDailyTokenUsageMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ from }),
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
     await waitFor(() =>
       expect(screen.queryByText("Loading usage chart...")).toBeNull(),
     );
@@ -266,13 +284,8 @@ describe("UsageDashboard", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Refresh" }));
 
     await waitFor(() => expect(cardSummaryCalls()).toBe(summaryCalls + 1));
-    await waitFor(() => expect(fetchDayTokenUsageMock).toHaveBeenCalledTimes(8));
+    await waitFor(() => expect(fetchDailyTokenUsageMock).toHaveBeenCalledTimes(2));
     expect(screen.queryByText("Loading usage chart...")).toBeNull();
-    const today = tokenChartDateWindow("7d").dayWindows.at(-1)?.day;
-    expect(fetchDayTokenUsageMock).toHaveBeenLastCalledWith(
-      expect.any(Object),
-      expect.objectContaining({ day: today }),
-    );
   });
 
   it("updates on its own every 30 seconds while in view, keeping the events page", async () => {
@@ -305,7 +318,7 @@ describe("UsageDashboard", () => {
         </QueryClientProvider>,
       );
       await screen.findByText("Page 1 of 3");
-      await waitFor(() => expect(fetchDayTokenUsageMock).toHaveBeenCalledTimes(7));
+      await waitFor(() => expect(fetchDailyTokenUsageMock).toHaveBeenCalledTimes(1));
       expect(screen.getAllByText("Live")).toHaveLength(4);
       await userEvent
         .setup({ advanceTimers: vi.advanceTimersByTime })
@@ -316,8 +329,8 @@ describe("UsageDashboard", () => {
       await vi.advanceTimersByTimeAsync(30_000);
 
       await waitFor(() => expect(cardSummaryCalls()).toBe(summaryCalls + 1));
-      // Only today's chart point reloads, and the reader stays on page 2.
-      await waitFor(() => expect(fetchDayTokenUsageMock).toHaveBeenCalledTimes(8));
+      // The chart reloads up to now, and the reader stays on page 2.
+      await waitFor(() => expect(fetchDailyTokenUsageMock).toHaveBeenCalledTimes(2));
       expect(screen.getByText("Page 2 of 3")).toBeInTheDocument();
       expect(fetchRawEventsMock).toHaveBeenLastCalledWith(expect.any(Object), {
         limit: 10,
@@ -538,7 +551,7 @@ describe("UsageDashboard", () => {
   });
 });
 
-function renderRawEventsTable(events: UsageEvent[]) {
+function renderRawEventsTable(events: UsageEventListItem[]) {
   render(
     <MemoryRouter>
       <I18nProvider>
@@ -548,33 +561,24 @@ function renderRawEventsTable(events: UsageEvent[]) {
   );
 }
 
-const baseUsageEvent: UsageEvent = {
+const baseUsageEvent: UsageEventListItem = {
   id: "event-request",
   event_id: "event-request",
-  user_id: "user-1",
-  device_context_id: "device-1",
-  host_name: "alice-mbp",
-  platform: "macos",
   session_pk: "session-pk",
-  turn_pk: "turn-pk",
-  agent_name: "codex",
-  agent_version: null,
   session_id: "session-id",
-  turn_index: 1,
-  llm_provider: "openai",
-  llm_model: "gpt-5",
-  event_type: "request",
-  text: "hello",
-  text_sha256: null,
-  input_tokens: 1,
-  output_tokens: 2,
-  cache_read_tokens: 0,
-  cache_write_tokens: 0,
-  reasoning_tokens: 0,
-  total_tokens: 3,
   observed_at: "2026-07-01T00:00:00.000Z",
-  metadata: null,
-  attachments: [],
+  event_type: "request",
+  agent: { name: "codex", version: null },
+  device: { host_name: "alice-mbp", platform: "macos", os_version: null },
+  llm: { provider: "openai", model: "gpt-5" },
+  token_usage: {
+    input_tokens: 1,
+    output_tokens: 2,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    reasoning_tokens: 0,
+    total_tokens: 3,
+  },
 };
 
 const baseDailyTokenUsageRow: DailyTokenUsageRow = {

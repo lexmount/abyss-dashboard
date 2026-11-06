@@ -1,100 +1,270 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  EventPropertySection,
+  exchangePreviewWindow,
+  landingOccurrence,
+  matchesBySegment,
   SessionEventInspector,
-  SessionTrajectory,
+  sessionMatches,
+  SessionStreamsView,
+  shownSegments,
+  StreamSearchBox,
+  streamOccurrences,
+  turnHead,
+  turnSegmentOrder,
+  type SessionTurn,
+  type ShownSegment,
   type SessionEventDetailState,
-  type SessionEventInspectorLabels,
-  type SessionTrajectoryLabels,
+  type SessionSearchView,
+  type StreamOccurrence,
 } from "@lexmount.com/abyss-ui";
-import { ArrowLeft, Bot, Check, Copy, Info } from "lucide-react";
+import { ArrowLeft, Bot, Check, Copy } from "lucide-react";
 import * as React from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
-  fetchSessionTrajectory,
+  fetchEventConversation,
+  fetchEventLocation,
+  fetchSessionHeader,
+  fetchSessionSegment,
+  fetchSessionStreams,
+  fetchSessionTurns,
   fetchUsageEvent,
+  searchWithinSession,
   usageAttachmentUrl,
-  type SessionInfo,
+  type EventStreamLocation,
+  type SessionHeaderResponse,
+  type SessionStreamsResponse,
 } from "@/api/usage";
 import { apiErrorKind } from "@/api/http";
 import { BaseLayout } from "@/components/layouts/base-layout";
 import { QueryErrorCard } from "@/components/query-error";
-import { SessionPurposeBadge } from "@/components/session-purpose-badge";
-import { Badge, Button } from "@lexmount.com/abyss-ui";
-import { Popover, PopoverContent, PopoverTrigger } from "@lexmount.com/abyss-ui";
-import { Card, CardContent } from "@lexmount.com/abyss-ui";
+import {
+  Card,
+  CardContent,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@lexmount.com/abyss-ui";
 import { useI18n } from "@/hooks/use-i18n";
 import { agentDisplayName } from "@/lib/agents";
+import { eventInspectorLabels } from "@/lib/inspector-labels";
+import { entryLabelText } from "@/lib/entry-label";
+import {
+  sessionStreamsLabels,
+  streamSearchBoxLabels,
+  turnName,
+} from "@/lib/stream-labels";
 import { cn } from "@/lib/utils";
 
+/** Stable anchor, resolved to its current segment when the page opens. */
 const eventSearchParam = "event";
-const turnSearchParam = "turn";
+const inspectSearchParam = "inspect";
+/** Head of the open segment. */
+const segmentSearchParam = "segment";
 /** Search text, carried over from a session search and kept as it changes. */
 const querySearchParam = "q";
+const searchDebounceMs = 150;
+/**
+ * How long a conversation a card loaded in full stays cached. Request bodies
+ * run to hundreds of kilobytes, so a session read end to end must not keep
+ * all of them in memory.
+ */
+const conversationCacheMs = 60_000;
 
 export default function SessionDetailPage() {
   const { t, locale, formatDateTime, formatNumber } = useI18n();
-  const { sessionPk } = useParams<{ sessionPk: string }>();
+  const { sessionPk = "" } = useParams<{ sessionPk: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const selectedEventId = searchParams.get(eventSearchParam);
-  const turnParam = Number.parseInt(searchParams.get(turnSearchParam) ?? "", 10);
-  const focusedTurn = Number.isNaN(turnParam) ? null : turnParam;
-  const initialQuery = searchParams.get(querySearchParam) ?? undefined;
+  const anchoredEventId = searchParams.get(eventSearchParam);
+  const inspectedEventId = searchParams.get(inspectSearchParam);
+  const segment = searchParams.get(segmentSearchParam);
+  // The entry the reader chose last, which the inspector opens at.
+  const [focusedEntry, setFocusedEntry] = React.useState<{
+    eventPk: string;
+    index: number;
+    request: number;
+  } | null>(null);
 
-  const trajectoryQuery = useQuery({
-    queryKey: ["session-trajectory", sessionPk],
-    queryFn: () => fetchSessionTrajectory(sessionPk ?? ""),
-    enabled: Boolean(sessionPk),
+  const headerQuery = useQuery({
+    queryKey: ["session-header", sessionPk],
+    queryFn: () => fetchSessionHeader(sessionPk),
+    enabled: sessionPk !== "",
   });
-  const trajectory = trajectoryQuery.data;
-  const session = trajectory?.session;
+  const streamsQuery = useQuery({
+    queryKey: ["session-streams", sessionPk],
+    queryFn: () => fetchSessionStreams(sessionPk),
+    enabled: sessionPk !== "",
+  });
+  const turnsQuery = useQuery({
+    // The turns are cut from the same structure as the streams.
+    queryKey: ["session-turns", sessionPk, streamsQuery.dataUpdatedAt],
+    queryFn: () => fetchSessionTurns(sessionPk),
+    enabled: streamsQuery.data !== undefined,
+  });
+  const turns = turnsQuery.data?.turns;
+  const locationQuery = useQuery({
+    // A refreshed stream structure can move an event into a new segment.
+    queryKey: [
+      "event-location",
+      sessionPk,
+      anchoredEventId,
+      streamsQuery.dataUpdatedAt,
+    ],
+    queryFn: () => fetchEventLocation(anchoredEventId ?? ""),
+    enabled: anchoredEventId !== null && streamsQuery.data !== undefined,
+  });
+  const eventLocation =
+    locationQuery.data?.session_pk === sessionPk ? locationQuery.data : undefined;
+  const locatingEvent =
+    anchoredEventId !== null &&
+    streamsQuery.data !== undefined &&
+    locationQuery.isPending;
+  const header = headerQuery.data;
   const eventQuery = useQuery({
-    queryKey: ["usage-event", selectedEventId],
-    queryFn: () => fetchUsageEvent(selectedEventId ?? ""),
-    enabled: selectedEventId !== null,
+    queryKey: ["usage-event", inspectedEventId],
+    queryFn: () => fetchUsageEvent(inspectedEventId ?? ""),
+    enabled: inspectedEventId !== null,
     // Persisted events never change, so a loaded event stays valid.
     staleTime: Infinity,
   });
 
-  const updateParam = React.useCallback(
-    (name: string, value: string | null) => {
+  // Navigations land in a later render, so a change made before the last one
+  // has landed builds on that one rather than on the shown URL: the search's
+  // text and the segment of the hit it shows can be written one right after
+  // the other.
+  const pendingParams = React.useRef<URLSearchParams | null>(null);
+  React.useEffect(() => {
+    pendingParams.current = null;
+  }, [searchParams]);
+  const updateParams = React.useCallback(
+    (values: Record<string, string | null>, { replace = false } = {}) => {
       setSearchParams(
         (current) => {
-          const next = new URLSearchParams(current);
-          if (value === null) {
-            next.delete(name);
-          } else {
-            next.set(name, value);
+          const next = new URLSearchParams(pendingParams.current ?? current);
+          for (const [name, value] of Object.entries(values)) {
+            if (value === null) {
+              next.delete(name);
+            } else {
+              next.set(name, value);
+            }
           }
+          pendingParams.current = next;
           return next;
         },
-        { replace: name === eventSearchParam || name === querySearchParam },
+        { replace },
       );
     },
     [setSearchParams],
   );
+  const shownSegment =
+    eventLocation?.segment ??
+    segment ??
+    (turns?.[0] === undefined ? undefined : turnHead(turns[0])) ??
+    streamsQuery.data?.segments[0]?.head ??
+    null;
+  // An executor's whole main line, or the one side request chosen.
+  const shownHeads = React.useMemo(
+    () =>
+      shownSegment === null
+        ? []
+        : turns === undefined
+          ? [shownSegment]
+          : shownSegments(turns, shownSegment),
+    [turns, shownSegment],
+  );
+  const segmentQueries = useQueries({
+    queries: shownHeads.map((head) => ({
+      queryKey: ["session-segment", sessionPk, head],
+      queryFn: () => fetchSessionSegment(sessionPk, head, exchangePreviewWindow),
+      enabled: streamsQuery.data !== undefined && !locatingEvent,
+    })),
+  });
+  const shownExchanges: ShownSegment[] = shownHeads.map((head, index) => {
+    const query = segmentQueries[index];
+    return {
+      head,
+      state: query?.isError
+        ? { status: "error", message: query.error.message }
+        : query?.data
+          ? {
+              status: "ready",
+              segment: query.data.segment,
+              exchanges: query.data.exchanges,
+            }
+          : { status: "loading" },
+    };
+  });
+  const queryClient = useQueryClient();
+  const loadConversation = React.useCallback(
+    (eventPk: string) =>
+      queryClient.fetchQuery({
+        queryKey: ["event-conversation", eventPk],
+        queryFn: () => fetchEventConversation(eventPk),
+        // Persisted events never change.
+        staleTime: Infinity,
+        gcTime: conversationCacheMs,
+      }),
+    [queryClient],
+  );
+  const streamsLabels = React.useMemo(() => sessionStreamsLabels(t), [t]);
+  const selectSegment = (head: string) =>
+    updateParams({
+      [segmentSearchParam]: head,
+      [eventSearchParam]: null,
+      [inspectSearchParam]: null,
+    });
+  const searchLabels = React.useMemo(() => streamSearchBoxLabels(t), [t]);
+  const search = useStreamSearch({
+    sessionPk,
+    streams: streamsQuery.data,
+    turns,
+    initialQuery: searchParams.get(querySearchParam) ?? "",
+    landingEventPk: anchoredEventId,
+    onQueryChange: (query) =>
+      updateParams({ [querySearchParam]: query || null }, { replace: true }),
+    // Stepping or starting a new search is an explicit navigation.
+    onReveal: (occurrence) => {
+      updateParams(
+        {
+          [segmentSearchParam]: occurrence.segment,
+          [eventSearchParam]: null,
+          [inspectSearchParam]: null,
+        },
+        { replace: true },
+      );
+    },
+  });
 
+  // Below the summary the reader is in the exchanges, which get the room: the
+  // sidebar folds to its icon rail, so the navigation stays at hand.
   const summaryRef = React.useRef<HTMLDivElement>(null);
-  useFoldSidebarOnScroll(summaryRef);
 
-  // Every trajectory row and turn shows a time, so the formatter is built once.
+  // Every segment and card shows a time, so the formatter is built once.
   const formatTime = React.useMemo(() => {
     const format = new Intl.DateTimeFormat(locale, { timeStyle: "medium" });
     return (value: string) => format.format(new Date(value));
   }, [locale]);
 
+  // The inspector receives recorded fields; derived location is rendered by the host.
+  const inspectedEvent = eventQuery.data ? { ...eventQuery.data } : null;
+  if (inspectedEvent) delete inspectedEvent.location;
   const detail: SessionEventDetailState = eventQuery.isError
     ? { status: "error", message: t(`error.${apiErrorKind(eventQuery.error)}.title`) }
-    : eventQuery.data
-      ? { status: "ready", event: eventQuery.data }
+    : inspectedEvent
+      ? { status: "ready", event: inspectedEvent }
       : { status: "loading" };
-
-  const turnCount = trajectory
-    ? new Set(trajectory.events.map((event) => event.turn_index)).size
-    : null;
-  const models = trajectory?.events.map((event) => event.llm_model) ?? [];
+  const failed = headerQuery.isError
+    ? headerQuery
+    : streamsQuery.isError
+      ? streamsQuery
+      : turnsQuery.isError
+        ? turnsQuery
+        : locationQuery.isError
+          ? locationQuery
+          : null;
 
   return (
-    <BaseLayout>
+    <BaseLayout sidebar={{ collapsible: "icon" }} foldSidebarWhileAway={summaryRef}>
       <div className="space-y-5 px-4 lg:px-6">
         <div ref={summaryRef} className="grid gap-4">
           <Link
@@ -104,31 +274,26 @@ export default function SessionDetailPage() {
             <ArrowLeft className="size-3.5" />
             {t("sessions.back")}
           </Link>
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <SessionIdentity session={session} />
-            {session ? (
-              <SessionDetails session={session} formatDateTime={formatDateTime} />
-            ) : null}
-          </div>
-          {session ? (
-            <SessionStats session={session} turnCount={turnCount} models={models} />
+          <SessionIdentity header={header} />
+          {header ? (
+            <SessionStats header={header} formatDateTime={formatDateTime} />
           ) : null}
         </div>
 
-        {trajectoryQuery.isError ? (
+        {failed ? (
           <QueryErrorCard
-            error={trajectoryQuery.error}
+            error={failed.error}
             title={
-              apiErrorKind(trajectoryQuery.error) === "notFound"
+              failed !== locationQuery && apiErrorKind(failed.error) === "notFound"
                 ? t("sessions.detail.notFound")
                 : undefined
             }
-            retrying={trajectoryQuery.isFetching}
-            onRetry={() => void trajectoryQuery.refetch()}
+            retrying={failed.isFetching}
+            onRetry={() => void failed.refetch()}
           />
         ) : null}
 
-        {trajectoryQuery.isLoading ? (
+        {streamsQuery.isLoading || turnsQuery.isLoading || locatingEvent ? (
           <Card>
             <CardContent className="text-muted-foreground py-10 text-center text-sm">
               {t("sessions.detail.loading")}
@@ -136,205 +301,290 @@ export default function SessionDetailPage() {
           </Card>
         ) : null}
 
-        {trajectory ? (
-          <SessionTrajectory
-            className="h-[calc(100svh-5.75rem)] min-h-[28rem]"
-            items={trajectory.items}
-            events={trajectory.events}
-            selectedEventId={selectedEventId}
-            onSelectEvent={(eventPk) => updateParam(eventSearchParam, eventPk)}
-            focusedTurn={focusedTurn}
-            onFocusTurn={(turnIndex) =>
-              updateParam(turnSearchParam, turnIndex?.toString() ?? null)
-            }
-            formatTime={formatTime}
-            formatNumber={formatNumber}
-            labels={trajectoryLabels(t)}
-            initialQuery={initialQuery}
-            onQueryChange={(query) => updateParam(querySearchParam, query || null)}
-            inspector={
-              selectedEventId === null ? null : (
-                <SessionEventInspector
-                  key={selectedEventId}
-                  detail={detail}
-                  onClose={() => updateParam(eventSearchParam, null)}
-                  attachmentUrl={usageAttachmentUrl}
-                  formatDateTime={formatDateTime}
-                  formatNumber={formatNumber}
-                  labels={inspectorLabels(t)}
-                />
-              )
-            }
-          />
+        {streamsQuery.data && turns && !locatingEvent ? (
+          <div>
+            {/* The search spans the whole session, so it sits above the
+                timeline and the cards, and stays in view as the page scrolls. */}
+            <div className="bg-background sticky top-0 z-20 pb-3">
+              <StreamSearchBox
+                query={search.query}
+                onQueryChange={search.setQuery}
+                status={search.status}
+                position={search.position}
+                total={search.total}
+                truncated={search.truncated}
+                onStep={search.step}
+                formatNumber={formatNumber}
+                labels={searchLabels}
+              />
+            </div>
+            <SessionStreamsView
+              segments={streamsQuery.data.segments}
+              turns={turns}
+              segment={shownSegment}
+              exchanges={shownExchanges}
+              anchoredEventId={eventLocation?.event_pk ?? null}
+              anchoredExchangeId={eventLocation?.exchange ?? null}
+              selectedEventId={inspectedEventId}
+              onSelectSegment={selectSegment}
+              onOpenEvent={(eventPk, entryIndex) => {
+                setFocusedEntry((last) =>
+                  entryIndex === undefined
+                    ? null
+                    : {
+                        eventPk,
+                        index: entryIndex,
+                        request: (last?.request ?? 0) + 1,
+                      },
+                );
+                updateParams({ [inspectSearchParam]: eventPk }, { replace: true });
+              }}
+              loadConversation={loadConversation}
+              formatTime={formatTime}
+              formatDateTime={formatDateTime}
+              formatNumber={formatNumber}
+              labels={streamsLabels}
+              search={search.view}
+              inspector={
+                inspectedEventId === null ? null : (
+                  <SessionEventInspector
+                    key={inspectedEventId}
+                    detail={detail}
+                    focusEntry={
+                      focusedEntry?.eventPk === inspectedEventId ? focusedEntry : null
+                    }
+                    properties={
+                      <EventLocationProperties
+                        location={eventQuery.data?.location}
+                        sessionPk={sessionPk}
+                        eventPk={inspectedEventId}
+                      />
+                    }
+                    onClose={() =>
+                      updateParams({ [inspectSearchParam]: null }, { replace: true })
+                    }
+                    attachmentUrl={usageAttachmentUrl}
+                    formatDateTime={formatDateTime}
+                    formatNumber={formatNumber}
+                    labels={eventInspectorLabels(t)}
+                  />
+                )
+              }
+            />
+          </div>
         ) : null}
       </div>
     </BaseLayout>
   );
 }
 
+/** Derived location is supplied by the event response, without another lookup. */
+function EventLocationProperties({
+  location,
+  sessionPk,
+  eventPk,
+}: {
+  location: EventStreamLocation | null | undefined;
+  sessionPk: string;
+  eventPk: string;
+}) {
+  const { t, formatNumber } = useI18n();
+  return (
+    <EventPropertySection
+      title={t("sessions.event.sectionLocation")}
+      rows={[
+        {
+          label: t("sessions.event.turn"),
+          value: (
+            <Link
+              to={`/sessions/${encodeURIComponent(sessionPk)}?event=${encodeURIComponent(eventPk)}`}
+              className="text-ring underline-offset-4 hover:underline"
+            >
+              {location
+                ? turnName(t, formatNumber, location.turn)
+                : t("sessions.event.locate")}
+            </Link>
+          ),
+        },
+      ]}
+    />
+  );
+}
+
 /**
- * Folds the sidebar away as the session summary scrolls out of view: the
- * sidebar slides out and the content widens with it, in step with the
- * scroll. A sidebar left half folded when scrolling stops eases to its nearer
- * end. The sidebar's own open state is untouched.
+ * The search within a session: the text typed, where the backend finds it
+ * once it has settled, and the occurrence being viewed. Stepping reveals an
+ * occurrence; a new search starts at its first one, and the search the page
+ * opened with on an event starts in that event, when it has a hit: at its
+ * first hit in what the event added, or else its first in the context.
  */
-function useFoldSidebarOnScroll(summaryRef: React.RefObject<HTMLElement | null>) {
-  React.useEffect(() => {
-    const summary = summaryRef.current;
-    const wrapper = summary?.closest<HTMLElement>('[data-slot="sidebar-wrapper"]');
-    if (!summary || !wrapper) return;
-    // Queried each time: the desktop sidebar remounts across the mobile
-    // breakpoint.
-    const parts = () =>
-      wrapper.querySelectorAll<HTMLElement>(
-        ':scope > [data-slot="sidebar"] > [data-slot="sidebar-gap"], :scope > [data-slot="sidebar"] > [data-slot="sidebar-container"], :scope > [data-slot="sidebar-inset"]',
-      );
-
-    // Fully folded once the summary is gone, or at the end of the page if
-    // that comes first. Measured only when sizes change, so reading it while
-    // scrolling never forces a layout.
-    let distance = 0;
-    const measure = () => {
-      distance = Math.min(
-        summary.getBoundingClientRect().bottom + window.scrollY,
-        document.documentElement.scrollHeight - window.innerHeight,
-      );
-    };
-    const progress = () =>
-      distance > 0 ? Math.min(Math.max(window.scrollY / distance, 0), 1) : 0;
-
-    let frame = 0;
-    let idle = 0;
-    const render = (fold: number, mode: "tracking" | "settling") => {
-      for (const part of parts()) {
-        part.setAttribute("data-sidebar-fold", mode);
-        part.style.setProperty("--sidebar-fold", fold.toFixed(3));
-      }
-    };
-    const clear = () => {
-      for (const part of parts()) {
-        part.removeAttribute("data-sidebar-fold");
-        part.style.removeProperty("--sidebar-fold");
-      }
-    };
-    const update = () => {
-      frame = 0;
-      const p = progress();
-      // Responds at once, then eases into the fully folded end.
-      render(1 - (1 - p) * (1 - p), "tracking");
-    };
-    const settle = () => {
-      const p = progress();
-      // Back at the top, hand the sidebar back to its own toggle animation.
-      if (p === 0) clear();
-      else if (p < 1) render(p < 0.5 ? 0 : 1, "settling");
-    };
-    const onScroll = () => {
-      if (!frame) frame = window.requestAnimationFrame(update);
-      window.clearTimeout(idle);
-      idle = window.setTimeout(settle, 160);
-    };
-
-    // Only remeasure: folding itself resizes the summary, and reacting to
-    // that would undo a settle.
-    const resize = new ResizeObserver(measure);
-    resize.observe(summary);
-    resize.observe(document.documentElement);
-    measure();
-    if (window.scrollY > 0) update();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      resize.disconnect();
-      window.removeEventListener("scroll", onScroll);
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(idle);
-      clear();
-    };
-  }, [summaryRef]);
-}
-
-function trajectoryLabels(t: ReturnType<typeof useI18n>["t"]): SessionTrajectoryLabels {
-  return {
-    text: t("sessions.trajectory.text"),
-    system: t("sessions.trajectory.system"),
-    developer: t("sessions.trajectory.developer"),
-    user: t("sessions.trajectory.user"),
-    assistant: t("sessions.trajectory.assistant"),
-    reasoning: t("sessions.trajectory.reasoning"),
-    toolCall: t("sessions.detail.toolCall"),
-    toolResult: t("sessions.detail.toolResult"),
-    compaction: t("sessions.trajectory.compaction"),
-    compactionPrompt: t("sessions.trajectory.compactionPrompt"),
-    compactionSummary: t("sessions.trajectory.compactionSummary"),
-    input: t("sessions.trajectory.input"),
-    output: t("sessions.trajectory.output"),
-    noOutput: t("sessions.trajectory.noOutput"),
-    showMore: t("sessions.trajectory.showMore"),
-    showLess: t("sessions.trajectory.showLess"),
-    openEvent: t("sessions.trajectory.openEvent"),
-    turn: (index) => t("sessions.detail.turn", { index }),
-    characters: (count) => t("sessions.event.characters", { count }),
-    summary: (items, toolCalls) =>
-      t("sessions.trajectory.summary", { items, toolCalls }),
-    empty: t("sessions.trajectory.empty"),
-    allTurns: t("sessions.trajectory.allTurns"),
-    turnList: t("sessions.trajectory.turnList"),
-    toolCount: (count) => t("sessions.trajectory.toolCount", { count }),
-    toolsOnly: (names) => t("sessions.trajectory.toolsOnly", { names }),
-    search: t("sessions.trajectory.search"),
-    searchPosition: (current, total) =>
-      t("sessions.trajectory.searchPosition", { current, total }),
-    searchNoMatches: t("sessions.trajectory.searchNoMatches"),
-    searchPrevious: t("sessions.trajectory.searchPrevious"),
-    searchNext: t("sessions.trajectory.searchNext"),
-    searchClear: t("sessions.trajectory.searchClear"),
-    searchTurnMatches: (count) => t("sessions.trajectory.searchTurnMatches", { count }),
-    eventRequest: t("common.request"),
-    eventResponse: t("common.response"),
-    tokens: t("common.tokens"),
-    inputTokens: t("sessions.trajectory.inputTokens"),
-    outputTokens: t("sessions.trajectory.outputTokens"),
-    cacheReadTokens: t("sessions.trajectory.cacheReadTokens"),
-    cacheWriteTokens: t("sessions.trajectory.cacheWriteTokens"),
-    reasoningTokens: t("sessions.trajectory.reasoningTokens"),
-    tokensUnavailable: t("sessions.trajectory.tokensUnavailable"),
-    unknownModel: t("sessions.trajectory.unknownModel"),
-    noNewContent: t("sessions.trajectory.noNewContent"),
-  };
-}
-
-function inspectorLabels(
-  t: ReturnType<typeof useI18n>["t"],
-): SessionEventInspectorLabels {
-  return {
-    title: t("sessions.event.title"),
-    request: t("common.request"),
-    response: t("common.response"),
-    turn: (index) => t("sessions.detail.turn", { index }),
-    close: t("sessions.event.close"),
-    resize: t("sessions.event.resize"),
-    loading: t("sessions.event.loading"),
-    error: (message) => t("sessions.event.error", { message }),
-    copy: t("sessions.event.copy"),
-    noText: t("sessions.event.noText"),
-    tabContent: t("sessions.event.tabContent"),
-    tabTools: t("sessions.event.tabTools"),
-    tabAttachments: t("sessions.event.tabAttachments"),
-    tabMetadata: t("sessions.event.tabMetadata"),
-    tabProperties: t("sessions.event.tabProperties"),
-    noTools: t("sessions.event.noTools"),
-    toolCall: t("sessions.detail.toolCall"),
-    toolResult: t("sessions.detail.toolResult"),
-    callId: t("sessions.detail.callId"),
-    toolContentHidden: t("sessions.detail.toolContentHidden"),
-    imageContentHidden: t("sessions.detail.imageContentHidden"),
-    imageLabel: (index) => t("sessions.detail.imageLabel", { index }),
-    openImage: (label) => t("sessions.detail.openImage", { label }),
-  };
-}
-
-function SessionIdentity({ session }: { session: SessionInfo | undefined }) {
+function useStreamSearch({
+  sessionPk,
+  streams,
+  turns,
+  initialQuery,
+  landingEventPk,
+  onQueryChange,
+  onReveal,
+}: {
+  sessionPk: string;
+  streams: SessionStreamsResponse | undefined;
+  /** The session's turns, which order the segments. */
+  turns: readonly SessionTurn[] | undefined;
+  initialQuery: string;
+  /** The event the page opened on with its search, or null. */
+  landingEventPk: string | null;
+  /** Reports the settled search text, so the page can keep it in its URL. */
+  onQueryChange: (query: string) => void;
+  /** Shows the segment an occurrence is in. */
+  onReveal: (occurrence: StreamOccurrence) => void;
+}) {
   const { t } = useI18n();
+  const [query, setQuery] = React.useState(initialQuery);
+  const searchQuery = useDebounced(query.trim(), searchDebounceMs);
+  const searching = searchQuery.length > 0;
+
+  // The settled text is reported only when it changes, not for the text the
+  // page opened with.
+  const callbacks = React.useRef({ onQueryChange, onReveal });
+  React.useEffect(() => {
+    callbacks.current = { onQueryChange, onReveal };
+  });
+  const reportedQuery = React.useRef(searchQuery);
+  React.useEffect(() => {
+    if (reportedQuery.current !== searchQuery) {
+      reportedQuery.current = searchQuery;
+      callbacks.current.onQueryChange(searchQuery);
+    }
+  }, [searchQuery]);
+
+  // New exchanges search again.
+  const exchangeCount = streams?.segments.reduce(
+    (sum, segment) => sum + segment.exchange_count,
+    0,
+  );
+  const resultQuery = useQuery({
+    queryKey: ["session-search", sessionPk, searchQuery, exchangeCount],
+    queryFn: ({ signal }) => searchWithinSession(sessionPk, searchQuery, { signal }),
+    enabled: searching && streams !== undefined,
+    staleTime: Infinity,
+  });
+  const result = searching ? resultQuery.data : undefined;
+  const matches = React.useMemo(
+    () => (result ? sessionMatches(result) : null),
+    [result],
+  );
+  // Occurrences step through the segments as the timeline lists them.
+  const segments = React.useMemo(
+    () => turnSegmentOrder(turns ?? [], streams?.segments ?? []),
+    [turns, streams],
+  );
+  const occurrences = React.useMemo(
+    () => (result ? streamOccurrences(segments, result) : []),
+    [result, segments],
+  );
+  const segmentMatches = React.useMemo(
+    () => (result ? matchesBySegment(occurrences) : null),
+    [result, occurrences],
+  );
+
+  const [activeIndex, setActiveIndex] = React.useState(-1);
+  const [revealRequest, setRevealRequest] = React.useState(0);
+  const show = React.useCallback((occurrence: StreamOccurrence) => {
+    callbacks.current.onReveal(occurrence);
+    setRevealRequest((current) => current + 1);
+  }, []);
+
+  // Where a search starts, once its occurrences are known.
+  const opening = React.useRef({ query: initialQuery.trim(), eventPk: landingEventPk });
+  const started = React.useRef<string | null>(null);
+  const ready = result !== undefined;
+  React.useEffect(() => {
+    if (!searching) {
+      started.current = null;
+      setActiveIndex(-1);
+      return;
+    }
+    if (!ready || started.current === searchQuery) {
+      return;
+    }
+    started.current = searchQuery;
+    const { query: openedWith, eventPk } = opening.current;
+    opening.current = { query: "", eventPk: null };
+    if (openedWith === searchQuery && eventPk !== null) {
+      // Without a match in the event, the view stays until the reader steps.
+      const first = landingOccurrence(occurrences, eventPk);
+      setActiveIndex(first);
+      if (first !== -1) {
+        setRevealRequest((current) => current + 1);
+      }
+      return;
+    }
+    setActiveIndex(occurrences.length > 0 ? 0 : -1);
+    if (occurrences.length > 0) {
+      show(occurrences[0]);
+    }
+  }, [searching, ready, searchQuery, occurrences, show]);
+
+  const total = occurrences.length;
+  const active = occurrences[activeIndex] ?? null;
+  const step = (delta: number) => {
+    if (total === 0) {
+      return;
+    }
+    const next =
+      active === null
+        ? delta > 0
+          ? 0
+          : total - 1
+        : (activeIndex + delta + total) % total;
+    setActiveIndex(next);
+    show(occurrences[next]);
+  };
+
+  const status = !searching
+    ? null
+    : resultQuery.isError
+      ? t(`error.${apiErrorKind(resultQuery.error)}.title`)
+      : !ready
+        ? t("sessions.streams.searchLoading")
+        : null;
+  const view = React.useMemo(
+    (): SessionSearchView => ({
+      query: result ? searchQuery : "",
+      matches,
+      segmentMatches,
+      active,
+      revealRequest,
+    }),
+    [result, searchQuery, matches, segmentMatches, active, revealRequest],
+  );
+  return {
+    query,
+    setQuery,
+    status,
+    position: active === null ? 0 : activeIndex + 1,
+    total,
+    truncated: result?.truncated ?? false,
+    step,
+    view,
+  };
+}
+
+/** The value once it has stopped changing for `delayMs`. */
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = React.useState(value);
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+function SessionIdentity({ header }: { header: SessionHeaderResponse | undefined }) {
+  const { t } = useI18n();
+  const agent = header?.agents[0];
+  const title = entryLabelText(header?.title) ?? header?.session_id;
   return (
     <div className="flex min-w-0 items-center gap-3.5">
       <div className="bg-ring/10 text-ring ring-ring/20 flex size-11 shrink-0 items-center justify-center rounded-xl ring-1">
@@ -342,42 +592,20 @@ function SessionIdentity({ session }: { session: SessionInfo | undefined }) {
       </div>
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <h1
-            className="truncate text-xl font-semibold tracking-tight"
-            title={session?.title ?? undefined}
-          >
-            {session
-              ? (session.title ?? agentDisplayName(session.agent_name))
-              : t("sessions.detail.title")}
+          <h1 className="truncate text-xl font-semibold tracking-tight" title={title}>
+            {title ?? t("sessions.detail.title")}
           </h1>
-          {session?.agent_version && !session.title ? (
-            <Badge variant="outline" className="font-mono text-[11px]">
-              v{session.agent_version}
-            </Badge>
-          ) : null}
-          <SessionPurposeBadge purpose={session?.purpose ?? null} />
         </div>
-        {session ? (
+        {header ? (
           <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1 font-mono text-xs">
-            {session.title ? (
+            {agent ? (
               <span className="shrink-0 font-sans">
-                {agentDisplayName(session.agent_name)}
-                {session.agent_version ? ` v${session.agent_version}` : ""} ·
+                {agentDisplayName(agent.name)}
+                {agent.version ? ` v${agent.version}` : ""} ·
               </span>
             ) : null}
-            <span className="truncate">{session.session_id}</span>
-            <CopyButton
-              value={session.session_id}
-              label={t("sessions.detail.copyId")}
-            />
-            {session.parent_session_pk ? (
-              <Link
-                to={`/sessions/${session.parent_session_pk}`}
-                className="text-foreground hover:text-ring shrink-0 font-sans underline-offset-4 hover:underline"
-              >
-                {t("sessions.detail.parentSession")}
-              </Link>
-            ) : null}
+            <span className="truncate">{header.session_id}</span>
+            <CopyButton value={header.session_id} label={t("sessions.detail.copyId")} />
           </div>
         ) : null}
       </div>
@@ -416,85 +644,92 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 
 /** Headline facts about the session in one strip. */
 function SessionStats({
-  session,
-  turnCount,
-  models,
+  header,
+  formatDateTime,
 }: {
-  session: SessionInfo;
-  turnCount: number | null;
-  models: string[];
+  header: SessionHeaderResponse;
+  formatDateTime: (value: string) => string;
 }) {
-  const { t, formatDateTime, formatNumber } = useI18n();
-  const modelSummary = React.useMemo(() => primaryModel(models), [models]);
+  const { t, formatNumber } = useI18n();
   const stats = [
-    {
-      label: t("sessions.detail.startedAt"),
-      value: formatDateTime(session.started_at),
-    },
+    { label: t("sessions.detail.startedAt"), value: formatDateTime(header.start) },
     {
       label: t("sessions.detail.duration"),
-      value: session.ended_at
-        ? formatDuration(session.started_at, session.ended_at, t)
-        : t("sessions.detail.ongoing"),
+      value: formatDuration(header.start, header.end, t),
     },
     {
       label: t("sessions.detail.turnCount"),
-      value: turnCount === null ? "—" : formatNumber(turnCount),
+      // The session's turns, as the session list counts them.
+      value: formatNumber(header.turn_count),
     },
     {
+      label: t("sessions.detail.exchangeCount"),
+      value: formatNumber(header.exchange_count),
+    },
+    { label: t("common.tokens"), value: formatNumber(header.tokens.total) },
+    {
       label: t("sessions.detail.model"),
-      value: modelSummary
-        ? modelSummary.others > 0
-          ? `${modelSummary.name} +${modelSummary.others}`
-          : modelSummary.name
-        : "—",
-      title: [...new Set(models)].join("\n"),
+      value: header.models.join(", ") || "—",
+      full: header.models.join("\n"),
       mono: true,
     },
   ];
   return (
-    <dl className="bg-card grid grid-cols-2 overflow-hidden rounded-xl border shadow-xs md:grid-cols-4">
+    <dl className="bg-card grid grid-cols-2 overflow-hidden rounded-xl border shadow-xs md:grid-cols-6">
       {stats.map((stat, index) => (
         <div
           key={stat.label}
-          className={cn(
-            "min-w-0 px-4 py-3",
-            index % 2 === 1 && "border-l",
-            index >= 2 && "max-md:border-t",
-            index === 2 && "md:border-l",
-          )}
+          className={cn("min-w-0 px-4 py-3", index > 0 && "md:border-l")}
         >
           <dt className="text-muted-foreground text-xs">{stat.label}</dt>
-          <dd
+          <TruncatedValue
+            value={stat.value}
+            full={stat.full}
             className={cn(
-              "mt-1 truncate text-sm font-medium tabular-nums",
+              "mt-1 text-sm font-medium tabular-nums",
               stat.mono && "font-mono text-[13px]",
             )}
-            title={stat.title}
-          >
-            {stat.value}
-          </dd>
+          />
         </div>
       ))}
     </dl>
   );
 }
 
-/** The most frequent model, plus how many other models the session used. */
-function primaryModel(models: string[]): { name: string; others: number } | null {
-  const counts = new Map<string, number>();
-  for (const model of models) {
-    if (model) {
-      counts.set(model, (counts.get(model) ?? 0) + 1);
-    }
-  }
-  let best: string | null = null;
-  for (const [model, count] of counts) {
-    if (best === null || count > (counts.get(best) ?? 0)) {
-      best = model;
-    }
-  }
-  return best === null ? null : { name: best, others: counts.size - 1 };
+/**
+ * A value cut to one line, shown whole on hover while it does not fit, so
+ * nothing it holds is lost to the cut.
+ */
+function TruncatedValue({
+  value,
+  full = value,
+  className,
+}: {
+  value: string;
+  /** The whole value for the hover, when it reads better than `value`. */
+  full?: string;
+  className: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLElement>(null);
+  return (
+    <Tooltip
+      open={open}
+      onOpenChange={(next) => {
+        const element = ref.current;
+        setOpen(next && element !== null && element.scrollWidth > element.clientWidth);
+      }}
+    >
+      <TooltipTrigger asChild>
+        <dd ref={ref} className={cn("truncate", className)}>
+          {value}
+        </dd>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-sm whitespace-pre-line break-all">
+        {full}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function formatDuration(
@@ -512,55 +747,4 @@ function formatDuration(
   return hours > 0
     ? t("sessions.detail.durationHours", { hours, minutes: minutes % 60 })
     : t("sessions.detail.durationMinutes", { minutes });
-}
-
-/** Every session field, verbatim, including collector-provided metadata. */
-function SessionDetails({
-  session,
-  formatDateTime,
-}: {
-  session: SessionInfo;
-  formatDateTime: (value: string) => string;
-}) {
-  const { t } = useI18n();
-  const { metadata, ...fields } = session;
-  const entries: [string, string][] = Object.entries(fields).map(([key, value]) => [
-    key,
-    value === null
-      ? "—"
-      : key === "started_at" || key === "ended_at"
-        ? formatDateTime(String(value))
-        : String(value),
-  ]);
-  if (metadata !== null && typeof metadata === "object") {
-    for (const [key, value] of Object.entries(metadata)) {
-      entries.push([
-        `metadata.${key}`,
-        typeof value === "string" ? value : JSON.stringify(value),
-      ]);
-    }
-  }
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Info className="size-4" />
-          {t("sessions.detail.details")}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[28rem] max-w-[calc(100vw-2rem)] p-0">
-        <div className="border-b px-4 py-2.5 text-sm font-medium">
-          {t("sessions.detail.details")}
-        </div>
-        <dl className="grid max-h-80 grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 overflow-auto p-4 text-xs">
-          {entries.map(([key, value]) => (
-            <React.Fragment key={key}>
-              <dt className="text-muted-foreground font-mono">{key}</dt>
-              <dd className="font-mono break-all">{value}</dd>
-            </React.Fragment>
-          ))}
-        </dl>
-      </PopoverContent>
-    </Popover>
-  );
 }

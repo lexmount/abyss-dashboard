@@ -13,7 +13,6 @@ export * from "./components/language-menu";
 export * from "./components/loading-spinner";
 export * from "./components/mode-toggle-button";
 export * from "./components/popover";
-export * from "./components/scroll-area";
 export * from "./components/select";
 export * from "./components/separator";
 export * from "./components/sheet";
@@ -24,9 +23,20 @@ export * from "./components/toggle";
 export * from "./components/toggle-group";
 export * from "./components/tooltip";
 export * from "./event/session-event-inspector";
-export * from "./event/session-timeline";
-export * from "./event/session-trajectory";
+export {
+  conversationOf,
+  type Conversation,
+  type ConversationEntry,
+} from "./event/event-content";
 export * from "./layout/dashboard-shell";
+export * from "./streams/exchange-card";
+export type * from "./streams/labels";
+export * from "./streams/search";
+export * from "./streams/session-streams-view";
+export * from "./streams/stream-search-box";
+export * from "./streams/turn-timeline";
+export * from "./streams/turns";
+export type * from "./streams/types";
 export * from "./layout/sidebar-config";
 
 export * from "./usage/comparison-model";

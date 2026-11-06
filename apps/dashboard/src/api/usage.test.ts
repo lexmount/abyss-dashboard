@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  fetchDayTokenUsage,
+  fetchDailyTokenUsage,
   fetchRawEvents,
-  fetchSessionTimeline,
-  fetchSessionTrajectory,
+  fetchEventLocation,
   fetchUsageEvent,
   fetchUsageSummary,
   searchSessions,
+  searchWithinSession,
 } from "@/api/usage";
 
 describe("usage API", () => {
@@ -50,41 +50,27 @@ describe("usage API", () => {
     expect(url.searchParams.get("limit")).toBe("500");
   });
 
-  it("sums one local day's usage from its own bounded summary", async () => {
+  it("asks for token usage by day in the given time zone", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       void input;
-      const row = {
-        input_tokens: 1,
-        output_tokens: 2,
-        cache_read_tokens: 3,
-        cache_write_tokens: 4,
-        total_tokens: 10,
-      };
-      return Promise.resolve(jsonResponse({ rows: [row, row], next_page_token: null }));
+      return Promise.resolve(jsonResponse({ rows: [], next_page_token: null }));
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const row = await fetchDayTokenUsage(
-      { agentName: "codex" },
-      { day: "2026-07-02", from: "2026-07-02T07:00:00Z", to: "2026-07-02T16:00:00Z" },
+    await fetchDailyTokenUsage(
+      { agentName: "codex", from: "2026-06-26T16:00:00Z", to: "2026-07-02T08:00:00Z" },
+      "Asia/Shanghai",
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const url = requestUrl(fetchMock.mock.calls[0]?.[0]);
     expect(url.pathname).toBe("/api/v1/agent-usage/summary");
-    expect(url.searchParams.get("group_by")).toBe("event_type");
+    expect(url.searchParams.get("group_by")).toBe("day");
+    expect(url.searchParams.get("tz")).toBe("Asia/Shanghai");
     expect(url.searchParams.get("fields")).toBe("token_usage");
     expect(url.searchParams.get("agent_name")).toBe("codex");
-    expect(url.searchParams.get("from")).toBe("2026-07-02T07:00:00Z");
-    expect(url.searchParams.get("to")).toBe("2026-07-02T16:00:00Z");
-    expect(row).toEqual({
-      day: "2026-07-02",
-      input_tokens: 2,
-      output_tokens: 4,
-      cache_read_tokens: 6,
-      cache_write_tokens: 8,
-      total_tokens: 20,
-    });
+    expect(url.searchParams.get("from")).toBe("2026-06-26T16:00:00Z");
+    expect(url.searchParams.get("to")).toBe("2026-07-02T08:00:00Z");
   });
 
   it("requests raw events without product scope parameters", async () => {
@@ -126,49 +112,21 @@ describe("usage API", () => {
     expect(url.searchParams.getAll("llm_model")).toEqual(["gpt-5", "claude-opus"]);
   });
 
-  it("requests a session timeline by session primary key", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      void input;
-      return Promise.resolve(
-        jsonResponse({
-          session: {
-            session_pk: "session pk",
-            user_id: "user-1",
-            device_context_id: "device-1",
-            agent_name: "codex",
-            agent_version: null,
-            session_id: "session-1",
-            started_at: "2026-06-25T00:00:00Z",
-            ended_at: null,
-            metadata: {},
-          },
-          turns: [],
-        }),
-      );
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    await fetchSessionTimeline("session pk");
-
-    const url = requestUrl(fetchMock.mock.calls[0]?.[0]);
-    expect(url.pathname).toBe("/api/v1/agent-usage/sessions/session%20pk");
-  });
-
-  it("requests a session trajectory and one event by primary key", async () => {
+  it("resolves a stable event link and requests its raw event by primary key", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       void input;
       return Promise.resolve(jsonResponse({}));
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await fetchSessionTrajectory("session pk");
-    await fetchUsageEvent("event pk");
+    await fetchEventLocation("event/1");
+    await fetchUsageEvent("event/1");
 
     expect(requestUrl(fetchMock.mock.calls[0]?.[0]).pathname).toBe(
-      "/api/v1/agent-usage/sessions/session%20pk/trajectory",
+      "/api/v1/agent-usage/events/event%2F1/location",
     );
     expect(requestUrl(fetchMock.mock.calls[1]?.[0]).pathname).toBe(
-      "/api/v1/agent-usage/events/event%20pk",
+      "/api/v1/agent-usage/events/event%2F1",
     );
   });
 
@@ -209,6 +167,22 @@ describe("usage API", () => {
     expect(url.searchParams.get("event_type")).toBe("response");
     expect(url.searchParams.get("page")).toBe("2");
     expect(url.searchParams.get("page_size")).toBe("20");
+  });
+
+  it("searches within one session by its primary key with the query alone", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      void input;
+      return Promise.resolve(
+        jsonResponse({ query: "a b", texts: [], hits: [], truncated: false }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await searchWithinSession("session/1", "a b&c");
+
+    const url = requestUrl(fetchMock.mock.calls[0]?.[0]);
+    expect(url.pathname).toBe("/api/v1/agent-usage/sessions/session%2F1/search");
+    expect([...url.searchParams]).toEqual([["q", "a b&c"]]);
   });
 });
 

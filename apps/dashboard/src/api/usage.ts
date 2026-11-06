@@ -1,7 +1,4 @@
-import type {
-  SessionTrajectoryEvent,
-  SessionTrajectoryItem,
-} from "@lexmount.com/abyss-ui";
+import type { SessionTurnsResponse } from "@lexmount.com/abyss-ui";
 import { fetchJson } from "@/api/http";
 
 export interface SummaryResponse {
@@ -60,41 +57,53 @@ export interface EventListResponse {
 }
 
 /**
- * An event without its text, metadata, or attachments. Those hold whole
- * request bodies, often hundreds of kilobytes per event, and a list shows none
- * of them.
+ * An event without its text, attachments, or what the collector recorded about
+ * the call. Those hold whole request bodies, often hundreds of kilobytes per
+ * event, and a list shows none of them.
  */
-export type UsageEventListItem = Omit<
-  UsageEvent,
-  "text" | "text_sha256" | "metadata" | "attachments"
->;
-
-export interface UsageEvent {
+export interface UsageEventListItem {
   id: string;
   event_id: string;
-  user_id: string;
-  device_context_id: string;
-  host_name?: string | null;
-  platform?: string | null;
   session_pk: string;
-  turn_pk: string;
-  agent_name: string;
-  agent_version: string | null;
   session_id: string;
-  turn_index: number;
-  llm_provider: string;
-  llm_model: string;
+  location?: EventStreamLocation | null;
+  observed_at: string;
   event_type: string;
-  text: string | null;
-  text_sha256: string | null;
+  agent: { name: string; version: string | null };
+  device: {
+    host_name: string | null;
+    platform: string | null;
+    os_version: string | null;
+  };
+  llm: { provider: string; model: string };
+  token_usage: EventTokenUsage;
+}
+
+export interface EventTokenUsage {
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
   reasoning_tokens: number;
   total_tokens: number;
-  observed_at: string;
-  metadata: unknown;
+}
+
+/** A captured header: `value` when its bytes are UTF-8, else `value_base64`. */
+export type EventHttpHeader =
+  { name: string; value: string } | { name: string; value_base64: string };
+
+export interface UsageEvent extends UsageEventListItem {
+  purpose: string | null;
+  declared: {
+    subagent_id: string | null;
+    parent_subagent_id: string | null;
+    turn_id: string | null;
+  };
+  response_id: string | null;
+  previous_response_id: string | null;
+  http: { path: string | null; headers: EventHttpHeader[] };
+  omitted: string[];
+  conversation?: unknown;
   attachments: UsageEventAttachment[];
 }
 
@@ -105,37 +114,6 @@ export interface UsageEventAttachment {
   byte_size: number;
   sha256: string;
   content_available: boolean;
-}
-
-export interface SessionTimelineResponse {
-  session: SessionInfo;
-  turns: TurnTimeline[];
-}
-
-export interface SessionInfo {
-  session_pk: string;
-  user_id: string;
-  device_context_id: string;
-  agent_name: string;
-  agent_version: string | null;
-  session_id: string;
-  started_at: string;
-  ended_at: string | null;
-  metadata: unknown;
-  /** Name the Agent generated for the session, when one was captured. */
-  title: string | null;
-  /** Why the session exists when it is not ordinary work, e.g. "title_generation". */
-  purpose: string | null;
-  /** For a naming session, the task session its title was matched to. */
-  parent_session_pk: string | null;
-}
-
-export interface TurnTimeline {
-  turn_pk: string;
-  turn_index: number;
-  started_at: string;
-  ended_at: string | null;
-  events: UsageEvent[];
 }
 
 /** One filter value, or several where any of them matches. */
@@ -165,6 +143,8 @@ export interface SessionSearchResponse {
 export interface SessionSearchResult {
   session_pk: string;
   session_id: string;
+  /** The same request label shown by the session list and header. */
+  title: EntryLabel | null;
   agent_name: string;
   agent_version: string | null;
   host_name: string;
@@ -173,18 +153,26 @@ export interface SessionSearchResult {
   ended_at: string | null;
   providers: string[];
   models: string[];
+  /** Matching events in the session, of which `matches` shows some. */
   match_count: number;
+  /** Matching events with at least one hit in what they added. */
+  new_match_count: number;
   matches: SessionSearchMatch[];
 }
 
 export interface SessionSearchMatch {
   event_pk: string;
-  turn_pk: string;
-  turn_index: number;
+  location?: EventStreamLocation | null;
   event_type: string;
   llm_provider: string;
   llm_model: string;
   observed_at: string;
+  /**
+   * The event has a hit in what it added: anywhere in a response, or from a
+   * request's `new_from` on. Otherwise its hits are all in the context it
+   * carried over.
+   */
+  new: boolean;
   fragments: SearchFragment[];
 }
 
@@ -226,46 +214,19 @@ export function fetchUsageSummary(
   return fetchJson<SummaryResponse>(`/api/v1/agent-usage/summary?${params}`);
 }
 
-/** One day of the chart, bounded in the viewer's own time zone. */
-export interface UsageDayWindow {
-  /** Local calendar day, YYYY-MM-DD. */
-  day: string;
-  from: string;
-  to: string;
-}
+/** The viewer's IANA time zone, whose calendar days usage charts follow. */
+export const viewerTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-/**
- * Token usage of one local day. The backend buckets days in UTC, so each local
- * day is asked for on its own and its rows (one per event type) are summed.
- */
-export async function fetchDayTokenUsage(
+/** Token usage of each calendar day in `timeZone` that has events. */
+export function fetchDailyTokenUsage(
   query: UsageQuery,
-  { day, from, to }: UsageDayWindow,
-): Promise<DailyTokenUsageRow> {
-  const params = usageParams({ ...query, from, to });
-  params.set("group_by", "event_type");
+  timeZone: string,
+): Promise<DailyTokenUsageResponse> {
+  const params = usageParams(query);
+  params.set("group_by", "day");
+  params.set("tz", timeZone);
   params.set("fields", "token_usage");
-  const response = await fetchJson<DailyTokenUsageResponse>(
-    `/api/v1/agent-usage/summary?${params}`,
-  );
-  return response.rows.reduce<DailyTokenUsageRow>(
-    (total, row) => ({
-      day,
-      input_tokens: total.input_tokens + row.input_tokens,
-      output_tokens: total.output_tokens + row.output_tokens,
-      cache_read_tokens: total.cache_read_tokens + row.cache_read_tokens,
-      cache_write_tokens: total.cache_write_tokens + row.cache_write_tokens,
-      total_tokens: total.total_tokens + row.total_tokens,
-    }),
-    {
-      day,
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_read_tokens: 0,
-      cache_write_tokens: 0,
-      total_tokens: 0,
-    },
-  );
+  return fetchJson<DailyTokenUsageResponse>(`/api/v1/agent-usage/summary?${params}`);
 }
 
 /**
@@ -279,6 +240,7 @@ export function fetchRawEvents(
 ): Promise<EventListResponse> {
   const params = usageParams(query);
   params.set("fields", "list");
+  params.set("locate", "true");
   params.set("limit", page.limit.toString());
   if (page.offset > 0) {
     params.set("offset", page.offset.toString());
@@ -286,25 +248,199 @@ export function fetchRawEvents(
   return fetchJson<EventListResponse>(`/api/v1/agent-usage/events?${params}`);
 }
 
-export function fetchSessionTimeline(
-  sessionPk: string,
-): Promise<SessionTimelineResponse> {
-  return fetchJson<SessionTimelineResponse>(
-    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}`,
+/** An event's current place in the derived session structure. */
+export interface EventStreamLocation {
+  segment: string;
+  /** Number of the event's turn in the session, from one, or null for none. */
+  turn: number | null;
+  segment_kind: "root" | "turn" | "branch";
+  exchange: string;
+}
+
+export interface EventLocationResponse extends EventStreamLocation {
+  session_pk: string;
+  event_pk: string;
+}
+
+export function fetchEventLocation(eventPk: string): Promise<EventLocationResponse> {
+  return fetchJson<EventLocationResponse>(
+    `/api/v1/agent-usage/events/${encodeURIComponent(eventPk)}/location`,
   );
 }
 
-export interface SessionTrajectoryResponse {
-  session: SessionInfo;
-  items: SessionTrajectoryItem[];
-  events: SessionTrajectoryEvent[];
+/** Segments of one session, without their exchanges or any content. */
+export interface SessionStreamsResponse {
+  session_pk: string;
+  segments: StreamSegment[];
 }
 
-export function fetchSessionTrajectory(
+export interface StreamSegment {
+  /** Id of the segment's first exchange, which identifies the segment. */
+  head: string;
+  kind: "root" | "turn" | "branch";
+  /** Head of the segment holding the first exchange's base. */
+  parent: string | null;
+  /** Id of the first exchange's base. */
+  forked_from: string | null;
+  start: string;
+  end: string;
+  exchange_count: number;
+  /** The new user words of the segment's first request. */
+  label: EntryLabel | null;
+  /** The subagent id the first exchange declared, if any. */
+  subagent_id: string | null;
+  /** The turn of the segment's first exchange; segments of one turn share it. */
+  turn_id: string | null;
+  /** Number of that turn in the session, from one. */
+  turn: number | null;
+}
+
+/** Where a request's new user words are, and how they begin. */
+export interface EntryLabel {
+  event_pk: string;
+  entry_index: number;
+  /** At most the first 50 UTF-16 code units of the entry's text. */
+  text: string;
+  /** Length of the entry's whole text in UTF-16 code units. */
+  length: number;
+}
+
+export function fetchSessionStreams(
   sessionPk: string,
-): Promise<SessionTrajectoryResponse> {
-  return fetchJson<SessionTrajectoryResponse>(
-    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/trajectory`,
+): Promise<SessionStreamsResponse> {
+  return fetchJson<SessionStreamsResponse>(
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/streams`,
+  );
+}
+
+/** The session's turns, the timeline's rows; the types live with the view. */
+export type { SessionTurnsResponse } from "@lexmount.com/abyss-ui";
+
+export function fetchSessionTurns(sessionPk: string): Promise<SessionTurnsResponse> {
+  return fetchJson<SessionTurnsResponse>(
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/turns`,
+  );
+}
+
+/** Agents, time span, counts, and token totals of one session. */
+export interface SessionHeaderResponse {
+  session_pk: string;
+  session_id: string;
+  /** Label from the first request's last nonempty user entry in its new part. */
+  title: EntryLabel | null;
+  agents: { name: string; version: string | null }[];
+  start: string;
+  end: string;
+  event_count: number;
+  exchange_count: number;
+  turn_count: number;
+  segment_count: number;
+  tokens: TokenCounts;
+  providers: string[];
+  models: string[];
+}
+
+export interface TokenCounts {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  reasoning: number;
+  total: number;
+}
+
+export function fetchSessionHeader(sessionPk: string): Promise<SessionHeaderResponse> {
+  return fetchJson<SessionHeaderResponse>(
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/header`,
+  );
+}
+
+/** Which entries of a conversation to give, and how much of each text. */
+export interface PreviewWindow {
+  /** Runs such as `0-2,-5`; all entries without it. */
+  entries?: string;
+  /** Most UTF-16 code units of each text; whole texts without it. */
+  textPreview?: number;
+}
+
+/** The chosen part of one event's conversation. */
+export interface ConversationPreview {
+  event_pk: string;
+  completeness: string | null;
+  entries_total: number;
+  chunks: { from: number; entries: ConversationEntry[] }[];
+  omitted_entries: number;
+  omitted_bytes: number;
+  attachments: UsageEventAttachment[];
+}
+
+/** One entry as the collector reported it. */
+export interface ConversationEntry {
+  role: string;
+  text?: string;
+  call_id?: string;
+  name?: string;
+  item_id?: string;
+  /** Full length in UTF-16 code units of a text cut to the preview. */
+  text_length?: number;
+}
+
+/** One segment's exchanges from the asked one to its end, all at once. */
+export interface SegmentResponse {
+  session_pk: string;
+  segment: string;
+  exchanges: SegmentExchange[];
+}
+
+export interface SegmentExchange {
+  id: string;
+  request_pk: string | null;
+  response_pk: string | null;
+  base: string | null;
+  base_segment: string | null;
+  rule: "pointer" | "last_output" | "results_only" | null;
+  no_base_reason: string | null;
+  new_from: number | null;
+  starts_turn: boolean;
+  requested_at: string | null;
+  responded_at: string | null;
+  model: string | null;
+  request_tokens: TokenCounts | null;
+  response_tokens: TokenCounts | null;
+  request: ConversationPreview | null;
+  response: ConversationPreview | null;
+  /** Ids the client declared in its request headers, as sent. */
+  subagent_id: string | null;
+  parent_subagent_id: string | null;
+  /** The turn the exchange belongs to, or null for none. */
+  turn_id: string | null;
+  /** Number of that turn in the session, from one. */
+  turn: number | null;
+}
+
+function windowParams(window: PreviewWindow, params = new URLSearchParams()) {
+  if (window.entries !== undefined) params.set("entries", window.entries);
+  if (window.textPreview !== undefined)
+    params.set("text_preview", window.textPreview.toString());
+  return params;
+}
+
+export function fetchSessionSegment(
+  sessionPk: string,
+  head: string,
+  window: PreviewWindow,
+): Promise<SegmentResponse> {
+  return fetchJson<SegmentResponse>(
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/segments/${encodeURIComponent(head)}?${windowParams(window)}`,
+  );
+}
+
+export function fetchEventConversation(
+  eventPk: string,
+  window: PreviewWindow = {},
+): Promise<ConversationPreview> {
+  return fetchJson<ConversationPreview>(
+    `/api/v1/agent-usage/events/${encodeURIComponent(eventPk)}/conversation?${windowParams(window)}`,
   );
 }
 
@@ -345,8 +481,8 @@ export interface SessionListItem {
   turns: number;
   events: number;
   total_tokens: number;
-  /** Name the Agent generated for the session, when one was captured. */
-  title: string | null;
+  /** Label from the first request's last nonempty user entry in its new part. */
+  title: EntryLabel | null;
   /** Why the session exists when it is not ordinary work, e.g. "title_generation". */
   purpose: string | null;
 }
@@ -386,6 +522,49 @@ export function searchSessions(
     params.set("page_size", query.pageSize.toString());
   }
   return fetchJson<SessionSearchResponse>(`/api/v1/agent-usage/search?${params}`);
+}
+
+/** A span of a text, start inclusive and end exclusive, in UTF-16 code units. */
+export type TextRange = [start: number, end: number];
+
+/** Where a search within one session found its text. */
+export interface SessionTextSearchResponse {
+  query: string;
+  /** Each distinct text with the query in it, and where in it. */
+  texts: { id: number; ranges: TextRange[] }[];
+  /**
+   * Each entry field holding one of those texts, by `observed_at`, then
+   * event, entry, and the name before the text.
+   */
+  hits: SessionTextSearchHit[];
+  /** The search found more hits than it gives. */
+  truncated: boolean;
+}
+
+export interface SessionTextSearchHit {
+  event_pk: string;
+  /** Position of the entry in its event's conversation. */
+  entry_index: number;
+  /** The entry's tool name or its text. */
+  field: "name" | "text";
+  /** The hit is in what its event added rather than the context it carried. */
+  new: boolean;
+  text_id: number;
+  /** Head of the segment the event's exchange is in, or null for none. */
+  segment: string | null;
+}
+
+/** Searches the text of one session's entries. */
+export function searchWithinSession(
+  sessionPk: string,
+  query: string,
+  { signal }: { signal?: AbortSignal } = {},
+): Promise<SessionTextSearchResponse> {
+  const params = new URLSearchParams({ q: query });
+  return fetchJson<SessionTextSearchResponse>(
+    `/api/v1/agent-usage/sessions/${encodeURIComponent(sessionPk)}/search?${params}`,
+    { signal },
+  );
 }
 
 export function usageAttachmentUrl(attachmentId: string): string {
