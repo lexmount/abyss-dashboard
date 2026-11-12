@@ -314,6 +314,7 @@ export default function SessionDetailPage() {
                 total={search.total}
                 truncated={search.truncated}
                 onStep={search.step}
+                onJump={search.jump}
                 formatNumber={formatNumber}
                 labels={searchLabels}
               />
@@ -541,6 +542,14 @@ function useStreamSearch({
     setActiveIndex(next);
     show(occurrences[next]);
   };
+  const jump = (position: number) => {
+    const next = position - 1;
+    if (next < 0 || next >= total) {
+      return;
+    }
+    setActiveIndex(next);
+    show(occurrences[next]);
+  };
 
   const status = !searching
     ? null
@@ -567,6 +576,7 @@ function useStreamSearch({
     total,
     truncated: result?.truncated ?? false,
     step,
+    jump,
     view,
   };
 }
