@@ -45,6 +45,7 @@ export const messages = {
     "common.session": "会话",
     "common.to": "结束时间",
     "common.tokens": "Token",
+    "common.tokensPerSecond": "tok/s",
     "common.unknown": "未知",
     "dashboard.description": "查看固定数据所有者的使用量和会话。",
     "dashboard.filters.description":
@@ -300,6 +301,7 @@ export const messages = {
     "common.session": "Session",
     "common.to": "To",
     "common.tokens": "tokens",
+    "common.tokensPerSecond": "tok/s",
     "common.unknown": "unknown",
     "dashboard.description": "Usage and sessions for the configured data owner.",
     "dashboard.filters.description":
@@ -562,6 +564,7 @@ export const messages = {
     "common.session": "セッション",
     "common.to": "終了",
     "common.tokens": "Token",
+    "common.tokensPerSecond": "tok/s",
     "common.unknown": "不明",
     "dashboard.description": "設定されたデータ所有者の使用量とセッション。",
     "dashboard.filters.description":

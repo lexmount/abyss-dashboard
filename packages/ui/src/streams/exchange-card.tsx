@@ -324,6 +324,11 @@ function CardHeader({
             : labels.tokensUnavailable}
         </span>
       ) : null}
+      {present && !request && exchange.response_tps != null ? (
+        <span className="text-muted-foreground shrink-0 tabular-nums">
+          {`≈${formatNumber(Math.round(exchange.response_tps))} ${labels.tokensPerSecond}`}
+        </span>
+      ) : null}
       <span
         className="text-muted-foreground ml-auto shrink-0 tabular-nums"
         title={at ? formatDateTime(at) : undefined}
