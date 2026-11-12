@@ -18,7 +18,7 @@ import {
   type SessionSearchView,
   type StreamOccurrence,
 } from "@lexmount.com/abyss-ui";
-import { ArrowLeft, Bot, Check, Copy } from "lucide-react";
+import { ArrowLeft, Check, Copy } from "lucide-react";
 import * as React from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -593,37 +593,40 @@ function useDebounced<T>(value: T, delayMs: number): T {
 
 function SessionIdentity({ header }: { header: SessionHeaderResponse | undefined }) {
   const { t } = useI18n();
-  const agent = header?.agents[0];
-  const title = entryLabelText(header?.title) ?? header?.session_id;
+  const named = entryLabelText(header?.title);
+  // The title and the session's ID on one line; without a title the session
+  // goes by its ID, which is then not repeated.
+  const title = named ?? header?.session_id;
   return (
-    <div className="flex min-w-0 items-center gap-3.5">
-      <div className="bg-ring/10 text-ring ring-ring/20 flex size-11 shrink-0 items-center justify-center rounded-xl ring-1">
-        <Bot className="size-5" />
-      </div>
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2">
-          <h1 className="truncate text-xl font-semibold tracking-tight" title={title}>
-            {title ?? t("sessions.detail.title")}
-          </h1>
+    <div className="flex min-w-0 items-center gap-3">
+      <h1 className="truncate text-xl font-semibold tracking-tight" title={title}>
+        {title ?? t("sessions.detail.title")}
+      </h1>
+      {header ? (
+        <div className="text-muted-foreground flex min-w-0 items-center gap-3 text-xs">
+          {named !== null ? (
+            <span className="truncate font-mono">{header.session_id}</span>
+          ) : null}
+          <CopyButton
+            value={header.session_id}
+            label={t("sessions.detail.copyId")}
+            className="-ml-2"
+          />
         </div>
-        {header ? (
-          <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1 font-mono text-xs">
-            {agent ? (
-              <span className="shrink-0 font-sans">
-                {agentDisplayName(agent.name)}
-                {agent.version ? ` v${agent.version}` : ""} ·
-              </span>
-            ) : null}
-            <span className="truncate">{header.session_id}</span>
-            <CopyButton value={header.session_id} label={t("sessions.detail.copyId")} />
-          </div>
-        ) : null}
-      </div>
+      ) : null}
     </div>
   );
 }
 
-function CopyButton({ value, label }: { value: string; label: string }) {
+function CopyButton({
+  value,
+  label,
+  className,
+}: {
+  value: string;
+  label: string;
+  className?: string;
+}) {
   const { t } = useI18n();
   const [copied, setCopied] = React.useState(false);
   React.useEffect(() => {
@@ -638,7 +641,10 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       type="button"
       aria-label={copied ? t("sessions.detail.copied") : label}
       title={copied ? t("sessions.detail.copied") : label}
-      className="hover:text-foreground hover:bg-accent shrink-0 rounded p-1 transition-colors"
+      className={cn(
+        "hover:text-foreground hover:bg-accent shrink-0 rounded p-1 transition-colors",
+        className,
+      )}
       onClick={() => {
         void navigator.clipboard?.writeText(value).then(() => setCopied(true));
       }}
@@ -661,6 +667,10 @@ function SessionStats({
   formatDateTime: (value: string) => string;
 }) {
   const { t, formatNumber } = useI18n();
+  const agents = header.agents.map(
+    (agent) =>
+      `${agentDisplayName(agent.name)}${agent.version ? ` v${agent.version}` : ""}`,
+  );
   const stats = [
     { label: t("sessions.detail.startedAt"), value: formatDateTime(header.start) },
     {
@@ -678,6 +688,11 @@ function SessionStats({
     },
     { label: t("common.tokens"), value: formatNumber(header.tokens.total) },
     {
+      label: t("common.agent"),
+      value: agents.join(", ") || "—",
+      full: agents.join("\n"),
+    },
+    {
       label: t("sessions.detail.model"),
       value: header.models.join(", ") || "—",
       full: header.models.join("\n"),
@@ -685,7 +700,7 @@ function SessionStats({
     },
   ];
   return (
-    <dl className="bg-card grid grid-cols-2 overflow-hidden rounded-xl border shadow-xs md:grid-cols-6">
+    <dl className="bg-card grid grid-cols-2 overflow-hidden rounded-xl border shadow-xs md:grid-cols-7">
       {stats.map((stat, index) => (
         <div
           key={stat.label}
