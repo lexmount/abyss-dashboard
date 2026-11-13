@@ -176,7 +176,7 @@ describe("SessionsPage", () => {
     expect(within(hits[1]).getByText("Context")).toBeInTheDocument();
   });
 
-  it("preserves server session start order across pages, including resumed sessions", async () => {
+  it("preserves server recency order across pages, including resumed sessions", async () => {
     const fixture = searchResponse();
     const result = (id: string, startedAt: string) => ({
       ...fixture.items[0],
@@ -190,8 +190,8 @@ describe("SessionsPage", () => {
       total_sessions: 3,
       has_more: true,
       items: [
+        result("resumed-session", "2026-01-01T00:00:00Z"),
         result("recent-session", "2026-08-05T00:00:00Z"),
-        result("middle-session", "2026-07-01T00:00:00Z"),
       ],
     };
     searchSessionsMock.mockImplementation(({ page }: { page: number }) =>
@@ -202,7 +202,7 @@ describe("SessionsPage", () => {
               ...fixture,
               total_sessions: 3,
               page: 2,
-              items: [result("resumed-session", "2025-01-01T00:00:00Z")],
+              items: [result("older-session", "2026-07-01T00:00:00Z")],
             },
       ),
     );
@@ -214,20 +214,20 @@ describe("SessionsPage", () => {
         .map((link) => link.getAttribute("href"));
 
     renderPage("/sessions?q=timeout");
-    await screen.findByText("recent-session");
+    await screen.findByText("resumed-session");
     expect(orderedLinks()).toEqual([
+      "/sessions/resumed-session?q=timeout",
       "/sessions/recent-session?q=timeout",
-      "/sessions/middle-session?q=timeout",
     ]);
     await user.click(screen.getByRole("button", { name: "Go to next page" }));
-    await screen.findByText("resumed-session");
-    expect(orderedLinks()).toEqual(["/sessions/resumed-session?q=timeout"]);
+    await screen.findByText("older-session");
+    expect(orderedLinks()).toEqual(["/sessions/older-session?q=timeout"]);
     expect(searchSessionsMock).toHaveBeenCalledWith(
       expect.objectContaining({ q: "timeout", page: 2, pageSize: 20 }),
     );
     await user.click(screen.getByRole("button", { name: "Go to previous page" }));
-    await screen.findByText("recent-session");
-    expect(orderedLinks()[0]).toBe("/sessions/recent-session?q=timeout");
+    await screen.findByText("resumed-session");
+    expect(orderedLinks()[0]).toBe("/sessions/resumed-session?q=timeout");
     vi.mocked(window.scrollTo).mockRestore();
   });
 
