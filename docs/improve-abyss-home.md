@@ -23,3 +23,9 @@ services. Source identities, commands, outcomes, screenshots, and both review UR
 are recorded in the coordinator's persistent
 `artifacts/improve-abyss-home/test-report.html` report. The companion frontend
 commits its own `docs/improve-abyss-home.md` design and route regression coverage.
+
+## Coordinated review
+
+- [Dashboard PR #18](https://github.com/lexmount/abyss-dashboard/pull/18)
+- [Frontend PR #82](https://github.com/lexmount/abyss-frontend/pull/82) and its
+  [walkthrough design](https://github.com/lexmount/abyss-frontend/blob/task/improve-abyss-home/docs/improve-abyss-home.md)
