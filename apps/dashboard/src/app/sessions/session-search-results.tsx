@@ -75,6 +75,7 @@ export function SessionSearchResults({
         </div>
       </div>
 
+      {/* The API sorts by latest matching event before pagination; preserve its page order. */}
       {response.items.map((result) => (
         <SessionResultCard
           key={result.session_pk}
