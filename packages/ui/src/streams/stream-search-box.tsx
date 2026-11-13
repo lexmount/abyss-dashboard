@@ -16,6 +16,8 @@ export interface StreamSearchBoxProps {
   /** The search found more than it returned, so `total` is a lower bound. */
   truncated: boolean;
   onStep: (delta: number) => void;
+  /** Goes to the match at a 1-based position the reader typed. */
+  onJump: (position: number) => void;
   formatNumber: (value: number) => string;
   labels: StreamSearchBoxLabels;
 }
@@ -23,7 +25,8 @@ export interface StreamSearchBoxProps {
 /**
  * The session's search field, with the position of the match being viewed
  * and previous / next controls. Enter steps forward, Shift + Enter back, and
- * Escape clears the field.
+ * Escape clears the field. The position can be typed over to go to a match
+ * by its number.
  */
 export function StreamSearchBox({
   query,
@@ -33,6 +36,7 @@ export function StreamSearchBox({
   total,
   truncated,
   onStep,
+  onJump,
   formatNumber,
   labels,
 }: StreamSearchBoxProps) {
@@ -64,12 +68,18 @@ export function StreamSearchBox({
             aria-live="polite"
           >
             {status ??
-              (total > 0
-                ? labels.position(
-                    formatNumber(position),
-                    `${formatNumber(total)}${truncated ? "+" : ""}`,
-                  )
-                : labels.noMatches)}
+              (total > 0 ? (
+                <Position
+                  position={position}
+                  total={total}
+                  truncated={truncated}
+                  onJump={onJump}
+                  formatNumber={formatNumber}
+                  labels={labels}
+                />
+              ) : (
+                labels.noMatches
+              ))}
           </span>
           <SearchIconButton
             label={labels.previous}
@@ -94,6 +104,68 @@ export function StreamSearchBox({
         </>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * "3 / 17", whose number is a field: typing a number and pressing Enter goes
+ * to that match; Escape or leaving the field puts the position back.
+ */
+function Position({
+  position,
+  total,
+  truncated,
+  onJump,
+  formatNumber,
+  labels,
+}: {
+  position: number;
+  total: number;
+  truncated: boolean;
+  onJump: (position: number) => void;
+  formatNumber: (value: number) => string;
+  labels: StreamSearchBoxLabels;
+}) {
+  const [draft, setDraft] = React.useState<string | null>(null);
+  const totalText = `${formatNumber(total)}${truncated ? "+" : ""}`;
+  // The label places the number; the field goes where it would be.
+  const slot = "\u0000";
+  const [before, after] = labels.position(slot, totalText).split(slot);
+  const value = draft ?? (position > 0 ? formatNumber(position) : "");
+  return (
+    <>
+      {before}
+      <input
+        value={value}
+        inputMode="numeric"
+        aria-label={labels.jump}
+        // As wide as the number in it, so the field is the number.
+        style={{ width: `${Math.max(value.length, 1)}ch` }}
+        className="hover:bg-muted focus:bg-muted focus:text-foreground -mx-0.5 box-content rounded bg-transparent px-0.5 text-right tabular-nums outline-none"
+        onFocus={(event) => {
+          setDraft(position > 0 ? String(position) : "");
+          event.currentTarget.select();
+        }}
+        onBlur={() => setDraft(null)}
+        onChange={(event) => setDraft(event.target.value.replace(/\D/g, ""))}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            const typed = Number(draft);
+            if (typed >= 1) {
+              const target = Math.min(typed, total);
+              onJump(target);
+              setDraft(String(target));
+              event.currentTarget.select();
+            }
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+        }}
+      />
+      {after}
+    </>
   );
 }
 

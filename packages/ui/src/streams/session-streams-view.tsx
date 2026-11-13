@@ -269,9 +269,9 @@ function useHeldHeight(
 
 /**
  * Scrolls to the occurrence being viewed each time it is asked to: to its
- * card until the card shows the match, then the match to the middle of the
- * viewport. Checking each frame lets the segment and the card load, and the
- * event be read in full, before the match is there.
+ * card until the card shows the match, then, once, the match to the middle
+ * of the viewport. Checking each frame lets the segment and the card load,
+ * and the event be read in full, before the match is there.
  */
 function useRevealMatch(
   containerRef: React.RefObject<HTMLElement | null>,
@@ -286,24 +286,23 @@ function useRevealMatch(
     revealed.current = revealRequest;
     let frame = 0;
     let frames = 0;
-    let centered = 0;
     let scrolledToCard = false;
     const look = () => {
       const container = containerRef.current;
       const mark = container?.querySelector<HTMLElement>("[data-active-match]");
       if (mark) {
         const rect = mark.getBoundingClientRect();
-        const offset = rect.top + rect.height / 2 - window.innerHeight / 2;
-        if (Math.abs(offset) > 1) {
-          centered = 0;
-          window.scrollTo({
-            top: window.scrollY + offset,
-            behavior: "instant",
-          });
-        } else if (++centered >= 2) {
-          return;
-        }
-      } else if (!scrolledToCard) {
+        window.scrollTo({
+          top:
+            window.scrollY +
+            rect.top +
+            rect.height / 2 -
+            window.innerHeight / 2,
+          behavior: "instant",
+        });
+        return;
+      }
+      if (!scrolledToCard) {
         const card = container?.querySelector<HTMLElement>(
           `article[data-event-id="${CSS.escape(active.eventPk)}"]`,
         );
@@ -349,8 +348,11 @@ function SegmentCards({
   const loaded = ready?.exchanges ?? null;
   const exchanges = loaded ?? noExchanges;
   const contentRef = React.useRef<HTMLDivElement>(null);
+  // An anchored event the search is viewing an occurrence in is left to the
+  // search, which brings the occurrence itself into sight.
+  const searched = search.active?.eventPk === anchoredEventId;
   React.useEffect(() => {
-    if (anchoredEventId === null || loaded === null) return;
+    if (anchoredEventId === null || loaded === null || searched) return;
     const container = contentRef.current;
     const card =
       container?.querySelector<HTMLElement>(
@@ -369,7 +371,7 @@ function SegmentCards({
       });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [anchoredEventId, anchoredExchangeId, loaded]);
+  }, [anchoredEventId, anchoredExchangeId, loaded, searched]);
   const hasAnchoredCard = exchanges.some(
     (exchange) =>
       exchange.request_pk === anchoredEventId ||
@@ -398,10 +400,6 @@ function SegmentCards({
           </CardContent>
         </Card>
       ) : null}
-      {/* Exchanges off screen skip layout and paint, so a change in the column's
-          width (the sidebar opening or collapsing) relays out only the ones in
-          view. Until first shown an exchange counts as 450px tall, about the
-          average; then it keeps its real height. */}
       {exchanges.map((exchange) => (
         <section
           key={exchange.id}
@@ -410,7 +408,7 @@ function SegmentCards({
             (!hasAnchoredCard && exchange.id === anchoredExchangeId) ||
             undefined
           }
-          className="data-[anchored]:ring-ring/60 space-y-2 [contain-intrinsic-size:auto_450px] [content-visibility:auto] data-[anchored]:rounded-xl data-[anchored]:ring-2"
+          className="space-y-2 data-[anchored]:**:data-card-header:bg-ring/10"
         >
           {(["request", "response"] as const).map((side) => {
             const eventPk =

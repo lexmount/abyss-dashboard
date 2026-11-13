@@ -145,7 +145,11 @@ describe("SessionDetailPage search", () => {
     );
 
     // The first hit, in the context the request carried, is in the preview.
-    expect(await screen.findByText("1 / 3")).toBeInTheDocument();
+    const matchNumber = await screen.findByRole("textbox", {
+      name: "Go to match number",
+    });
+    expect(matchNumber).toHaveValue("1");
+    expect(matchNumber.parentElement).toHaveTextContent("/ 3");
     expect(mocks.searchWithinSession).toHaveBeenCalledWith("s-1", "timeout", {
       signal: expect.any(AbortSignal),
     });
@@ -169,7 +173,7 @@ describe("SessionDetailPage search", () => {
 
     // The next one is in an entry the preview leaves out.
     await user.click(screen.getByRole("button", { name: "Next match (Enter)" }));
-    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    expect(matchNumber).toHaveValue("2");
     await waitFor(() =>
       expect(active()?.closest("[data-entry-index]")).toHaveAttribute(
         "data-entry-index",
@@ -180,7 +184,7 @@ describe("SessionDetailPage search", () => {
 
     // The last one is in the other segment, past the start its text is cut to.
     await user.click(screen.getByRole("button", { name: "Next match (Enter)" }));
-    expect(screen.getByText("3 / 3")).toBeInTheDocument();
+    expect(matchNumber).toHaveValue("3");
     await waitFor(() =>
       expect(mocks.fetchEventConversation).toHaveBeenCalledWith("r2"),
     );
@@ -192,13 +196,23 @@ describe("SessionDetailPage search", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "First user request" }),
     ).toBeInTheDocument();
+
+    // A match's number typed over the position goes to it.
+    await user.click(matchNumber);
+    await user.keyboard("1{Enter}");
+    await waitFor(() =>
+      expect(active()?.closest("article")).toHaveAttribute("data-event-id", "r1"),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("segment=a");
   });
 
   it("opens a search carried over on its event's segment, without inspecting it", async () => {
     mocks.fetchSessionHeader.mockResolvedValue({ ...header(), title: null });
     renderPage("/sessions/s-1?event=r2&q=timeout");
 
-    expect(await screen.findByText("3 / 3")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("textbox", { name: "Go to match number" }),
+    ).toHaveValue("3");
     expect(
       screen.getByRole("heading", { level: 1, name: "session-1" }),
     ).toBeInTheDocument();

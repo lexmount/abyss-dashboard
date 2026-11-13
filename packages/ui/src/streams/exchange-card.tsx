@@ -142,10 +142,7 @@ export const ExchangeCard = React.memo(function ExchangeCard({
       data-event-id={eventPk ?? undefined}
       data-side={side}
       data-selected={selected || undefined}
-      className={cn(
-        "bg-card overflow-clip rounded-xl border shadow-xs",
-        selected && "ring-ring/60 ring-2",
-      )}
+      className="bg-card overflow-clip rounded-xl border shadow-xs"
     >
       <CardHeader
         side={side}
@@ -337,7 +334,10 @@ function CardHeader({
       {readOnly ? (
         <div
           data-card-header=""
-          className="bg-muted/40 flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left text-xs"
+          className={cn(
+            "flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left text-xs",
+            selected ? "bg-ring/10" : "bg-muted/40",
+          )}
         >
           {content}
         </div>
@@ -348,7 +348,12 @@ function CardHeader({
           aria-pressed={selected}
           disabled={onOpen === null}
           onClick={onOpen ?? undefined}
-          className="bg-muted/40 hover:bg-muted/70 focus-visible:ring-ring disabled:hover:bg-muted/40 flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset"
+          className={cn(
+            "focus-visible:ring-ring flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset",
+            selected
+              ? "bg-ring/10"
+              : "bg-muted/40 hover:bg-muted/70 disabled:hover:bg-muted/40",
+          )}
         >
           {content}
         </button>
@@ -705,8 +710,8 @@ const EntryBlock = React.memo(function EntryBlock({
       {...selectable}
       className={cn(
         "data-[flash]:animate-jump-flash flex min-w-0 items-center gap-2 px-3 py-1.5 text-xs transition-colors outline-none",
-        clickable && "hover:bg-muted/40 cursor-pointer",
-        active && "ring-ring ring-2 ring-inset",
+        active ? "bg-ring/10" : clickable && "hover:bg-muted/40",
+        clickable && "cursor-pointer",
       )}
     >
       <RoleTag role={entry.role} label={entryLabel(entry.role, labels)} />

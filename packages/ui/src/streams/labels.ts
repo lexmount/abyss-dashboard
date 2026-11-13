@@ -85,6 +85,8 @@ export interface StreamSearchBoxLabels {
   search: string;
   /** Position of the match being viewed, such as "3 / 17". */
   position: (current: string, total: string) => string;
+  /** Accessible name of the position, where a match's number can be typed. */
+  jump: string;
   noMatches: string;
   previous: string;
   next: string;

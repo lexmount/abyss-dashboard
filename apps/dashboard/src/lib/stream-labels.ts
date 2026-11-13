@@ -74,6 +74,7 @@ export function streamSearchBoxLabels(t: Translate): StreamSearchBoxLabels {
     search: t("sessions.streams.search"),
     position: (current, total) =>
       t("sessions.streams.searchPosition", { current, total }),
+    jump: t("sessions.streams.searchJump"),
     noMatches: t("sessions.streams.searchNoMatches"),
     previous: t("sessions.streams.searchPrevious"),
     next: t("sessions.streams.searchNext"),
