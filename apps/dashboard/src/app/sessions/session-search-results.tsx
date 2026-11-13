@@ -75,7 +75,7 @@ export function SessionSearchResults({
         </div>
       </div>
 
-      {/* The API sorts before pagination; previews and start times cannot re-rank it. */}
+      {/* The API orders by session start before pagination; preserve its page order. */}
       {response.items.map((result) => (
         <SessionResultCard
           key={result.session_pk}
