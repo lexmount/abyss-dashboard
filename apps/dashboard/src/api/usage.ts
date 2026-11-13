@@ -408,6 +408,8 @@ export interface SegmentExchange {
   model: string | null;
   request_tokens: TokenCounts | null;
   response_tokens: TokenCounts | null;
+  /** Response output tokens per second from request to response. */
+  response_tps?: number | null;
   request: ConversationPreview | null;
   response: ConversationPreview | null;
   /** Ids the client declared in its request headers, as sent. */

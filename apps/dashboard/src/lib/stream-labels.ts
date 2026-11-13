@@ -30,6 +30,7 @@ export function sessionStreamsLabels(t: Translate): SessionStreamsLabels {
     noEntries: t("sessions.streams.noEntries"),
     unknownModel: t("sessions.streams.unknownModel"),
     tokens: t("common.tokens"),
+    tokensPerSecond: t("common.tokensPerSecond"),
     tokensUnavailable: t("sessions.streams.tokensUnavailable"),
     incomplete: (completeness) => t("sessions.event.incomplete", { completeness }),
     newPart: t("sessions.streams.newPart"),

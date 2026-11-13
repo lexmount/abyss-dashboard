@@ -42,6 +42,8 @@ export interface SessionStreamsLabels {
   unknownModel: string;
   /** Unit after a card's token total. */
   tokens: string;
+  /** Unit after a response card's tokens per second. */
+  tokensPerSecond: string;
   tokensUnavailable: string;
   /** Notes a conversation the collector could not decode completely. */
   incomplete: (completeness: string) => string;
