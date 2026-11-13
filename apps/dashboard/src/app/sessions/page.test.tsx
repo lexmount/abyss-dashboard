@@ -219,13 +219,13 @@ describe("SessionsPage", () => {
       "/sessions/resumed-session?q=timeout",
       "/sessions/recent-session?q=timeout",
     ]);
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Go to next page" }));
     await screen.findByText("older-session");
     expect(orderedLinks()).toEqual(["/sessions/older-session?q=timeout"]);
     expect(searchSessionsMock).toHaveBeenCalledWith(
       expect.objectContaining({ q: "timeout", page: 2, pageSize: 20 }),
     );
-    await user.click(screen.getByRole("button", { name: "Previous" }));
+    await user.click(screen.getByRole("button", { name: "Go to previous page" }));
     await screen.findByText("resumed-session");
     expect(orderedLinks()[0]).toBe("/sessions/resumed-session?q=timeout");
     vi.mocked(window.scrollTo).mockRestore();
