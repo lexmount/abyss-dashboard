@@ -16,3 +16,6 @@ or package release change and no required merge order with the frontend fix.
 Validation: dashboard unit and package black-box suites, formatting, lint, types,
 build and container checks; seeded standalone backend and product gateway checks.
 Evidence is preserved in `artifacts/fix-docs/test-report.html` in the coordinator.
+
+Companion: [PR #83](https://github.com/lexmount/abyss-frontend/pull/83) and
+[technical design](https://github.com/lexmount/abyss-frontend/blob/task/fix-docs/docs/fix-docs.md).
