@@ -137,7 +137,7 @@ export interface SessionSearchResponse {
   page: number;
   page_size: number;
   has_more: boolean;
-  /** Server order: latest matching event first, with stable session ties. */
+  /** Server order: session start time descending, with stable session ties. */
   items: SessionSearchResult[];
 }
 
