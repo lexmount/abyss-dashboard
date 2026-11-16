@@ -21,3 +21,8 @@ stack serves the refreshed screenshots. The persistent task report at
 commands, results, and review URLs. This documentation-only companion can merge
 independently; the product screenshots should follow availability of the native
 logo-control change.
+
+## Coordinated review
+
+- Native control and capture utility: [PR](https://github.com/lexmount/AbyssApp/pull/88) and [design](https://github.com/lexmount/AbyssApp/blob/task/app-connect/docs/app-connect.md).
+- Website screenshots: [PR](https://github.com/lexmount/abyss-frontend/pull/85) and [design](https://github.com/lexmount/abyss-frontend/blob/task/app-connect/docs/app-connect.md).
