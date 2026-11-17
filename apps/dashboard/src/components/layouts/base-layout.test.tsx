@@ -58,6 +58,22 @@ describe("BaseLayout", () => {
     expect(sidebar).toHaveAttribute("data-state", "expanded");
   });
 
+  it("uses the Japanese product name for the console and browser tab", () => {
+    window.localStorage.setItem("abyss-ui-language", "ja");
+    render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <I18nProvider>
+          <SidebarConfigProvider>
+            <BaseLayout>Content</BaseLayout>
+          </SidebarConfigProvider>
+        </I18nProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("link", { name: "アビス コンソール" })).toBeVisible();
+    expect(document.title).toBe("アビス");
+  });
+
   it("opens the workspace navigation as a drawer on mobile", () => {
     Object.defineProperty(window, "innerWidth", {
       configurable: true,

@@ -34,6 +34,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     document.documentElement.lang = locale;
+    document.title = messages[language]["brand.name"];
     try {
       window.localStorage.setItem(storageKey, language);
     } catch {

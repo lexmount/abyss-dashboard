@@ -10,6 +10,7 @@ export const defaultLanguage: Language = "zh";
 
 export const messages = {
   zh: {
+    "brand.name": "Abyss",
     "comparison.tab": "分析",
     "comparison.tokens": "Token 总量对比",
     "comparison.activity": "活动热力图",
@@ -265,6 +266,7 @@ export const messages = {
     "timeRange.last7Days": "最近 7 天",
   },
   en: {
+    "brand.name": "Abyss",
     "comparison.tab": "Analytics",
     "comparison.tokens": "Token comparison",
     "comparison.activity": "Activity",
@@ -527,6 +529,7 @@ export const messages = {
     "timeRange.last7Days": "Last 7 days",
   },
   ja: {
+    "brand.name": "アビス",
     "comparison.tab": "分析",
     "comparison.tokens": "Token 使用量の比較",
     "comparison.activity": "アクティビティ",
@@ -608,10 +611,10 @@ export const messages = {
     "dateTime.previousMonth": "前月",
     "dateTime.time": "時刻",
     "language.select": "言語を選択",
-    "nav.consoleTitle": "Abyss コンソール",
+    "nav.consoleTitle": "アビス コンソール",
     "nav.sessions": "セッション",
     "nav.workspace": "ワークスペース",
-    "notFound.description": "要求されたページは Abyss コンソールに存在しません。",
+    "notFound.description": "要求されたページは アビス コンソールに存在しません。",
     "notFound.title": "ページが見つかりません",
     "pagination.first": "最初のページへ",
     "pagination.last": "最後のページへ",
@@ -647,7 +650,7 @@ export const messages = {
       "バックエンドがアクセスを拒否しました。ダッシュボードのアクセストークンを確認してください。",
     "error.unauthorized.title": "アクセス権がありません",
     "error.unreachable.description":
-      "Abyss バックエンドが応答していません。起動していることを確認してから再試行してください。",
+      "アビス バックエンドが応答していません。起動していることを確認してから再試行してください。",
     "error.unreachable.title": "バックエンドに接続できません",
     "sessions.back": "概要",
     "sessions.description":
