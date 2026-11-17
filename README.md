@@ -146,3 +146,25 @@ Before creating a dashboard release, run:
 npm run check:dashboard-release -- dashboard-v0.4.0
 npm pack --dry-run -w @lexmount.com/abyss-dashboard
 ```
+
+## CLI upgrade troubleshooting
+
+After upgrading a CLI installed in `~/.local/bin`, refresh the **current terminal**
+before starting the proxy or local dashboard:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+hash -r
+abyss version
+```
+
+An installer running through `curl ... | sh` cannot clear the parent shell's
+command cache. If `abyss` rejects a built-in Harness such as `deepseek-harness`
+as a custom Harness requiring a matcher, compare `abyss version` with
+`"$HOME/.local/bin/abyss" version` and inspect `type -a abyss`. Different versions
+mean the shell is selecting an older executable. Select the installed CLI or
+start a fresh terminal; keep the runtime policy and recorded data intact.
+
+This failure occurs during CLI configuration loading, before authentication or
+event ingestion. See the [CLI upgrade design](docs/fix-saas-cli.md) for the
+coordinated installer and documentation repair.
