@@ -32,3 +32,9 @@ the final revisions and review evidence.
 The companion product PRs can merge independently of this documentation. No
 API change, migration, shared package version bump, or release ordering is
 required. Reverting this assessment does not affect runtime artifacts.
+
+## Coordinated PR set
+
+- [abyss-services #33](https://github.com/lexmount/abyss-services/pull/33) and [design](https://github.com/lexmount/abyss-services/blob/task/optimize-services-deploy/docs/optimize-services-deploy.md).
+- [abyss-backend #23](https://github.com/lexmount/abyss-backend/pull/23) and [design](https://github.com/lexmount/abyss-backend/blob/task/optimize-services-deploy/docs/optimize-services-deploy.md).
+- [abyss-frontend #88](https://github.com/lexmount/abyss-frontend/pull/88) and [design](https://github.com/lexmount/abyss-frontend/blob/task/optimize-services-deploy/docs/optimize-services-deploy.md).
