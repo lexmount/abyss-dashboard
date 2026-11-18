@@ -8,6 +8,9 @@ search, and complete session timelines. It intentionally does not implement
 product SSO, organization administration, SaaS sharing, release management, or
 Agent handoff features.
 
+To search your Abyss SaaS session history from an MCP client, follow the
+[MCP setup guide](https://abyss.lexmount.com/docs/product/saas-service/mcp).
+
 ## Repository layout
 
 ```text
