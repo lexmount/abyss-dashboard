@@ -9,3 +9,5 @@ its existing navigation and API contracts.
 The [frontend design](https://github.com/lexmount/abyss-frontend/blob/task/fix-official/docs/fix-official.md)
 covers domain selection, terminology and validation. The documentation link
 uses an existing public route and can ship independently of the frontend change.
+
+See [companion PR #91](https://github.com/lexmount/abyss-frontend/pull/91) and the [validation checks](https://github.com/lexmount/abyss-dashboard/pull/27/checks).
