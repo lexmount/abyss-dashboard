@@ -8,6 +8,8 @@ search, and complete session timelines. It intentionally does not implement
 product SSO, organization administration, SaaS sharing, release management, or
 Agent handoff features.
 
+The [open-source and SaaS overview](https://abyss.lexmount.com/docs/product/overview/open-source-and-saas) describes the MIT-licensed endpoint and CLI used with this dashboard.
+
 ## Repository layout
 
 ```text
